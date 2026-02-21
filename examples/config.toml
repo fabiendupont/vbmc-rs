@@ -1,0 +1,22 @@
+[server]
+bind_address = "127.0.0.1"
+port = 8000
+
+[auth]
+enabled = false
+
+[defaults]
+firmware_path = "/usr/share/OVMF/OVMF_CODE.fd"
+boot_source = "Hdd"
+
+[metrics]
+enabled = true
+port = 9090
+
+[systems.vm1]
+name = "Test VM 1"
+socket_path = "/tmp/cloud-hypervisor-vm1.sock"
+
+[systems.vm2]
+name = "Test VM 2"
+socket_path = "/tmp/cloud-hypervisor-vm2.sock"

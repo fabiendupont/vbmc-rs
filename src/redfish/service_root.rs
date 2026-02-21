@@ -1,0 +1,67 @@
+use axum::Json;
+use serde::Serialize;
+
+use super::types::ODataId;
+
+#[derive(Debug, Serialize)]
+pub struct ServiceRoot {
+    #[serde(rename = "@odata.id")]
+    pub odata_id: &'static str,
+    #[serde(rename = "@odata.type")]
+    pub odata_type: &'static str,
+    #[serde(rename = "Id")]
+    pub id: &'static str,
+    #[serde(rename = "Name")]
+    pub name: &'static str,
+    #[serde(rename = "RedfishVersion")]
+    pub redfish_version: &'static str,
+    #[serde(rename = "UUID")]
+    pub uuid: String,
+    #[serde(rename = "Systems")]
+    pub systems: ODataId,
+    #[serde(rename = "Managers")]
+    pub managers: ODataId,
+    #[serde(rename = "SessionService", skip_serializing_if = "Option::is_none")]
+    pub session_service: Option<ODataId>,
+    #[serde(rename = "AccountService", skip_serializing_if = "Option::is_none")]
+    pub account_service: Option<ODataId>,
+    #[serde(rename = "EventService", skip_serializing_if = "Option::is_none")]
+    pub event_service: Option<ODataId>,
+    #[serde(rename = "TaskService", skip_serializing_if = "Option::is_none")]
+    pub task_service: Option<ODataId>,
+    #[serde(rename = "TelemetryService", skip_serializing_if = "Option::is_none")]
+    pub telemetry_service: Option<ODataId>,
+    #[serde(rename = "CertificateService", skip_serializing_if = "Option::is_none")]
+    pub certificate_service: Option<ODataId>,
+    #[serde(rename = "Chassis", skip_serializing_if = "Option::is_none")]
+    pub chassis: Option<ODataId>,
+    #[serde(rename = "ComponentIntegrity", skip_serializing_if = "Option::is_none")]
+    pub component_integrity: Option<ODataId>,
+}
+
+pub async fn get_service_root() -> Json<ServiceRoot> {
+    Json(ServiceRoot {
+        odata_id: "/redfish/v1",
+        odata_type: "#ServiceRoot.v1_16_0.ServiceRoot",
+        id: "RootService",
+        name: "vbmc-rs Redfish Service",
+        redfish_version: "1.21.0",
+        uuid: uuid::Uuid::new_v4().to_string(),
+        systems: ODataId::new("/redfish/v1/Systems"),
+        managers: ODataId::new("/redfish/v1/Managers"),
+        session_service: Some(ODataId::new("/redfish/v1/SessionService")),
+        account_service: Some(ODataId::new("/redfish/v1/AccountService")),
+        event_service: Some(ODataId::new("/redfish/v1/EventService")),
+        task_service: Some(ODataId::new("/redfish/v1/TaskService")),
+        telemetry_service: Some(ODataId::new("/redfish/v1/TelemetryService")),
+        certificate_service: Some(ODataId::new("/redfish/v1/CertificateService")),
+        chassis: Some(ODataId::new("/redfish/v1/Chassis")),
+        component_integrity: Some(ODataId::new("/redfish/v1/ComponentIntegrity")),
+    })
+}
+
+pub async fn get_redfish_root() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "v1": "/redfish/v1/"
+    }))
+}
