@@ -4,6 +4,8 @@ mod auth;
 mod backend;
 mod config;
 mod events;
+#[cfg(test)]
+mod integration_tests;
 mod media;
 mod prometheus;
 mod redfish;

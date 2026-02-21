@@ -127,6 +127,106 @@ pub enum Backend {
     Qemu(qemu::QemuBackend),
     #[cfg(feature = "libvirt")]
     Libvirt(libvirt::LibvirtBackend),
+    #[cfg(test)]
+    Mock(mock::MockBackend),
+}
+
+#[cfg(test)]
+pub mod mock {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    use super::types as bt;
+    use super::{BackendError, VmmBackend};
+
+    pub struct MockBackend {
+        vms: Mutex<HashMap<String, bt::VmInfo>>,
+    }
+
+    impl MockBackend {
+        pub fn new() -> Self {
+            Self {
+                vms: Mutex::new(HashMap::new()),
+            }
+        }
+
+        pub fn with_vm(self, system_id: &str, info: bt::VmInfo) -> Self {
+            self.vms.lock().unwrap().insert(system_id.to_string(), info);
+            self
+        }
+    }
+
+    impl VmmBackend for MockBackend {
+        async fn vm_info(&self, system_id: &str) -> Result<bt::VmInfo, BackendError> {
+            self.vms
+                .lock()
+                .unwrap()
+                .get(system_id)
+                .cloned()
+                .ok_or(BackendError::VmmNotRunning)
+        }
+
+        async fn vm_create(
+            &self,
+            _system_id: &str,
+            _config: bt::VmCreateConfig,
+        ) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        async fn vm_boot(&self, _system_id: &str) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        async fn vm_shutdown(&self, _system_id: &str) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        async fn vm_delete(&self, _system_id: &str) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        async fn vm_power_button(&self, _system_id: &str) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        async fn vm_reboot(&self, _system_id: &str) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        async fn vm_add_disk(
+            &self,
+            _system_id: &str,
+            _disk: bt::DiskCreateConfig,
+        ) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        async fn vm_remove_device(
+            &self,
+            _system_id: &str,
+            _device_id: &str,
+        ) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        async fn vmm_ping(
+            &self,
+            _system_id: &str,
+        ) -> Result<bt::VmmPingResponse, BackendError> {
+            Ok(bt::VmmPingResponse {
+                version: Some("mock-1.0".to_string()),
+                pid: Some(12345),
+            })
+        }
+
+        async fn vm_counters(
+            &self,
+            _system_id: &str,
+        ) -> Result<serde_json::Value, BackendError> {
+            Ok(serde_json::json!({}))
+        }
+    }
 }
 
 impl VmmBackend for Backend {
@@ -137,6 +237,8 @@ impl VmmBackend for Backend {
             Self::Qemu(b) => b.vm_info(system_id).await,
             #[cfg(feature = "libvirt")]
             Self::Libvirt(b) => b.vm_info(system_id).await,
+            #[cfg(test)]
+            Self::Mock(b) => b.vm_info(system_id).await,
         }
     }
 
@@ -151,6 +253,8 @@ impl VmmBackend for Backend {
             Self::Qemu(b) => b.vm_create(system_id, config).await,
             #[cfg(feature = "libvirt")]
             Self::Libvirt(b) => b.vm_create(system_id, config).await,
+            #[cfg(test)]
+            Self::Mock(b) => b.vm_create(system_id, config).await,
         }
     }
 
@@ -161,6 +265,8 @@ impl VmmBackend for Backend {
             Self::Qemu(b) => b.vm_boot(system_id).await,
             #[cfg(feature = "libvirt")]
             Self::Libvirt(b) => b.vm_boot(system_id).await,
+            #[cfg(test)]
+            Self::Mock(b) => b.vm_boot(system_id).await,
         }
     }
 
@@ -171,6 +277,8 @@ impl VmmBackend for Backend {
             Self::Qemu(b) => b.vm_shutdown(system_id).await,
             #[cfg(feature = "libvirt")]
             Self::Libvirt(b) => b.vm_shutdown(system_id).await,
+            #[cfg(test)]
+            Self::Mock(b) => b.vm_shutdown(system_id).await,
         }
     }
 
@@ -181,6 +289,8 @@ impl VmmBackend for Backend {
             Self::Qemu(b) => b.vm_delete(system_id).await,
             #[cfg(feature = "libvirt")]
             Self::Libvirt(b) => b.vm_delete(system_id).await,
+            #[cfg(test)]
+            Self::Mock(b) => b.vm_delete(system_id).await,
         }
     }
 
@@ -191,6 +301,8 @@ impl VmmBackend for Backend {
             Self::Qemu(b) => b.vm_power_button(system_id).await,
             #[cfg(feature = "libvirt")]
             Self::Libvirt(b) => b.vm_power_button(system_id).await,
+            #[cfg(test)]
+            Self::Mock(b) => b.vm_power_button(system_id).await,
         }
     }
 
@@ -201,6 +313,8 @@ impl VmmBackend for Backend {
             Self::Qemu(b) => b.vm_reboot(system_id).await,
             #[cfg(feature = "libvirt")]
             Self::Libvirt(b) => b.vm_reboot(system_id).await,
+            #[cfg(test)]
+            Self::Mock(b) => b.vm_reboot(system_id).await,
         }
     }
 
@@ -215,6 +329,8 @@ impl VmmBackend for Backend {
             Self::Qemu(b) => b.vm_add_disk(system_id, disk).await,
             #[cfg(feature = "libvirt")]
             Self::Libvirt(b) => b.vm_add_disk(system_id, disk).await,
+            #[cfg(test)]
+            Self::Mock(b) => b.vm_add_disk(system_id, disk).await,
         }
     }
 
@@ -229,6 +345,8 @@ impl VmmBackend for Backend {
             Self::Qemu(b) => b.vm_remove_device(system_id, device_id).await,
             #[cfg(feature = "libvirt")]
             Self::Libvirt(b) => b.vm_remove_device(system_id, device_id).await,
+            #[cfg(test)]
+            Self::Mock(b) => b.vm_remove_device(system_id, device_id).await,
         }
     }
 
@@ -239,6 +357,8 @@ impl VmmBackend for Backend {
             Self::Qemu(b) => b.vmm_ping(system_id).await,
             #[cfg(feature = "libvirt")]
             Self::Libvirt(b) => b.vmm_ping(system_id).await,
+            #[cfg(test)]
+            Self::Mock(b) => b.vmm_ping(system_id).await,
         }
     }
 
@@ -249,6 +369,8 @@ impl VmmBackend for Backend {
             Self::Qemu(b) => b.vm_counters(system_id).await,
             #[cfg(feature = "libvirt")]
             Self::Libvirt(b) => b.vm_counters(system_id).await,
+            #[cfg(test)]
+            Self::Mock(b) => b.vm_counters(system_id).await,
         }
     }
 }
