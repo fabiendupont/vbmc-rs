@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
-use crate::backend::cloud_hypervisor::types::DiskConfig;
+use crate::backend::types::{DiskCreateConfig, VmPowerState};
 use crate::backend::VmmBackend;
 use crate::events::registry::*;
 use crate::events::RedfishEvent;
@@ -169,8 +169,8 @@ pub async fn insert_media(
 
     // Try hot-plug if VM is running
     let hot_plugged = match state.backend.vm_info(&system_id).await {
-        Ok(info) if info.state == "Running" => {
-            let disk = DiskConfig {
+        Ok(info) if info.power_state == VmPowerState::On => {
+            let disk = DiskCreateConfig {
                 path: Some(image_path.to_string_lossy().to_string()),
                 id: Some("_vbmc_cdrom".to_string()),
                 readonly: true,
@@ -229,7 +229,7 @@ pub async fn eject_media(
 
     // Try hot-unplug if VM is running
     if let Ok(info) = state.backend.vm_info(&system_id).await {
-        if info.state == "Running" {
+        if info.power_state == VmPowerState::On {
             let _ = state
                 .backend
                 .vm_remove_device(&system_id, "_vbmc_cdrom")

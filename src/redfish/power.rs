@@ -7,9 +7,7 @@ use serde::Deserialize;
 
 use super::error::RedfishApiError;
 use crate::app_state::AppState;
-use crate::backend::cloud_hypervisor::types::{
-    CpusConfig, DiskConfig, MemoryConfig, PayloadConfig, VmConfig,
-};
+use crate::backend::types::{DiskCreateConfig, VmCreateConfig};
 use crate::backend::VmmBackend;
 use crate::events::registry::*;
 use crate::events::RedfishEvent;
@@ -20,7 +18,7 @@ pub struct ResetRequest {
     pub reset_type: String,
 }
 
-fn build_vm_config(state: &AppState, system_id: &str) -> VmConfig {
+fn build_vm_config(state: &AppState, system_id: &str) -> VmCreateConfig {
     let sys_config = &state.config.systems[system_id];
     let vm_state = state.get_vm_state(system_id);
 
@@ -29,7 +27,7 @@ fn build_vm_config(state: &AppState, system_id: &str) -> VmConfig {
         .clone()
         .unwrap_or_else(|| state.config.defaults.firmware_path.clone());
 
-    let mut disks: Vec<DiskConfig> = Vec::new();
+    let mut disks: Vec<DiskCreateConfig> = Vec::new();
 
     // If boot target is Cd and virtual media is inserted, put CD first
     let boot_from_cd = vm_state
@@ -41,7 +39,7 @@ fn build_vm_config(state: &AppState, system_id: &str) -> VmConfig {
 
     if boot_from_cd {
         if let Some(ref path) = vm_state.virtual_media.image_path {
-            disks.push(DiskConfig {
+            disks.push(DiskCreateConfig {
                 path: Some(path.to_string_lossy().to_string()),
                 id: Some("_vbmc_cdrom".to_string()),
                 readonly: true,
@@ -51,35 +49,31 @@ fn build_vm_config(state: &AppState, system_id: &str) -> VmConfig {
         }
     }
 
-    // Default disk placeholder — the real disk paths would come from config
-    // For now we leave disks as-is (CD only or empty)
+    // Add disks from hardware config
+    for disk in &sys_config.hardware.disks {
+        disks.push(DiskCreateConfig {
+            path: Some(disk.path.clone()),
+            id: disk.id.clone(),
+            readonly: disk.readonly,
+            vhost_user: None,
+            vhost_socket: None,
+        });
+    }
 
-    VmConfig {
-        payload: Some(PayloadConfig {
-            firmware: Some(firmware),
-            kernel: None,
-            cmdline: None,
-            initramfs: None,
-        }),
-        cpus: Some(CpusConfig {
-            boot_vcpus: 2,
-            max_vcpus: 2,
-            topology: None,
-        }),
-        memory: Some(MemoryConfig {
-            size: 1024 * 1024 * 1024, // 1 GiB default
-            hotplug_size: None,
-            shared: false,
-            hugepages: false,
-        }),
-        disks: if disks.is_empty() {
-            None
-        } else {
-            Some(disks)
-        },
-        net: None,
-        serial: None,
-        console: None,
+    let cpu_count = sys_config.hardware.cpu_count;
+    let max_cpu_count = sys_config.hardware.max_cpu_count.unwrap_or(cpu_count);
+    let memory_bytes = sys_config.hardware.memory_mib * 1024 * 1024;
+
+    VmCreateConfig {
+        firmware_path: Some(firmware),
+        kernel_path: None,
+        cmdline: None,
+        initramfs: None,
+        cpu_count,
+        max_cpu_count,
+        memory_bytes,
+        disks,
+        nics: Vec::new(),
         platform: None,
     }
 }

@@ -71,12 +71,7 @@ pub async fn get_processor(
     }
 
     let (cores, threads) = match state.backend.vm_info(&system_id).await {
-        Ok(info) => {
-            let cpus = info.config.cpus.as_ref();
-            let boot = cpus.map(|c| c.boot_vcpus as u32).unwrap_or(1);
-            let max = cpus.map(|c| c.max_vcpus as u32).unwrap_or(boot);
-            (boot, max)
-        }
+        Ok(info) => (info.cpu_count, info.max_cpu_count),
         Err(_) => (0, 0),
     };
 

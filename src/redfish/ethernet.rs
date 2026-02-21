@@ -39,12 +39,10 @@ pub async fn get_ethernet_interfaces(
 
     let mut members = Vec::new();
     if let Ok(info) = state.backend.vm_info(&system_id).await {
-        if let Some(nets) = &info.config.net {
-            for (i, _net) in nets.iter().enumerate() {
-                members.push(ODataId::new(format!(
-                    "/redfish/v1/Systems/{system_id}/EthernetInterfaces/NIC{i}"
-                )));
-            }
+        for (i, _nic) in info.nics.iter().enumerate() {
+            members.push(ODataId::new(format!(
+                "/redfish/v1/Systems/{system_id}/EthernetInterfaces/NIC{i}"
+            )));
         }
     }
 
@@ -77,11 +75,9 @@ pub async fn get_ethernet_interface(
         .await
         .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
 
-    let net = info
-        .config
-        .net
-        .as_ref()
-        .and_then(|nets| nets.get(idx))
+    let nic = info
+        .nics
+        .get(idx)
         .ok_or_else(|| RedfishApiError::NotFound(format!("NIC '{nic_id}' not found")))?;
 
     Ok(Json(EthernetInterface {
@@ -90,12 +86,9 @@ pub async fn get_ethernet_interface(
         ),
         odata_type: "#EthernetInterface.v1_12_0.EthernetInterface",
         id: nic_id,
-        name: net
-            .id
-            .clone()
-            .unwrap_or_else(|| format!("NIC{idx}")),
-        mac_address: net.mac.clone(),
-        speed_mbps: 25000,
+        name: nic.id.clone(),
+        mac_address: nic.mac_address.clone(),
+        speed_mbps: nic.speed_mbps,
         status: Status::enabled_ok(),
     }))
 }

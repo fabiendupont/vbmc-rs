@@ -13,6 +13,18 @@ pub struct VmState {
     pub secure_boot_enabled: bool,
     #[serde(default)]
     pub attestation: AttestationState,
+    #[serde(default)]
+    pub bios_settings: Option<crate::redfish::bios::BiosAttributes>,
+    #[serde(default)]
+    pub licenses: Vec<LicenseInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LicenseInfo {
+    pub id: String,
+    pub name: String,
+    pub license_type: String,
+    pub license_string: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -52,6 +64,8 @@ impl VmState {
             virtual_media: VirtualMediaState::default(),
             secure_boot_enabled: false,
             attestation: AttestationState::default(),
+            bios_settings: None,
+            licenses: Vec::new(),
         }
     }
 

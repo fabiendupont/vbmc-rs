@@ -24,6 +24,12 @@ pub struct ChassisResource {
     pub status: Status,
     #[serde(rename = "TrustedComponents")]
     pub trusted_components: ODataId,
+    #[serde(rename = "Power")]
+    pub power: ODataId,
+    #[serde(rename = "Thermal")]
+    pub thermal: ODataId,
+    #[serde(rename = "NetworkAdapters")]
+    pub network_adapters: ODataId,
 }
 
 pub async fn get_chassis_collection() -> Json<Collection<ODataId>> {
@@ -45,6 +51,9 @@ pub async fn get_chassis() -> Json<ChassisResource> {
         chassis_type: "RackMount",
         status: Status::enabled_ok(),
         trusted_components: ODataId::new("/redfish/v1/Chassis/1/TrustedComponents"),
+        power: ODataId::new("/redfish/v1/Chassis/1/Power"),
+        thermal: ODataId::new("/redfish/v1/Chassis/1/Thermal"),
+        network_adapters: ODataId::new("/redfish/v1/Chassis/1/NetworkAdapters"),
     })
 }
 

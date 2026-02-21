@@ -75,23 +75,12 @@ pub async fn get_simple_storage(
     let mut devices = Vec::new();
 
     if let Ok(info) = state.backend.vm_info(&system_id).await {
-        if let Some(disks) = &info.config.disks {
-            for disk in disks {
-                let name = disk
-                    .id
-                    .clone()
-                    .unwrap_or_else(|| "disk".to_string());
-
-                let capacity = disk.path.as_ref().and_then(|p| {
-                    std::fs::metadata(p).ok().map(|m| m.len())
-                });
-
-                devices.push(StorageDevice {
-                    name,
-                    capacity_bytes: capacity,
-                    status: Status::enabled_ok(),
-                });
-            }
+        for disk in &info.disks {
+            devices.push(StorageDevice {
+                name: disk.id.clone(),
+                capacity_bytes: disk.capacity_bytes,
+                status: Status::enabled_ok(),
+            });
         }
     }
 

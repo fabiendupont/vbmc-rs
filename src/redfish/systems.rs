@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::backend::types::VmPowerState;
 use crate::backend::VmmBackend;
 
 #[derive(Debug, Serialize)]
@@ -43,6 +44,16 @@ pub struct ComputerSystem {
     pub virtual_media: ODataId,
     #[serde(rename = "SecureBoot")]
     pub secure_boot: ODataId,
+    #[serde(rename = "Memory")]
+    pub memory: ODataId,
+    #[serde(rename = "Storage")]
+    pub storage: ODataId,
+    #[serde(rename = "PCIeDevices")]
+    pub pcie_devices: ODataId,
+    #[serde(rename = "Bios")]
+    pub bios: ODataId,
+    #[serde(rename = "LogServices")]
+    pub log_services: ODataId,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -86,29 +97,29 @@ pub struct ResetAction {
     pub allowable_values: Vec<String>,
 }
 
-fn ch_state_to_power_state(state: &str) -> String {
-    match state {
-        "Running" => "On".to_string(),
-        "Shutdown" | "Created" => "Off".to_string(),
-        "Paused" => "Paused".to_string(),
-        _ => "Off".to_string(),
+fn power_state_to_redfish(ps: VmPowerState) -> String {
+    match ps {
+        VmPowerState::On => "On".to_string(),
+        VmPowerState::Off => "Off".to_string(),
+        VmPowerState::Paused => "Paused".to_string(),
+        VmPowerState::Unknown => "Off".to_string(),
     }
 }
 
-fn ch_state_to_status(state: &str) -> Status {
-    match state {
-        "Running" => Status::enabled_ok(),
-        "Shutdown" | "Created" => Status {
+fn power_state_to_status(ps: VmPowerState) -> Status {
+    match ps {
+        VmPowerState::On => Status::enabled_ok(),
+        VmPowerState::Off => Status {
             state: Some("Disabled".to_string()),
             health: Some("OK".to_string()),
             health_rollup: Some("OK".to_string()),
         },
-        "Paused" => Status {
+        VmPowerState::Paused => Status {
             state: Some("Quiesced".to_string()),
             health: Some("OK".to_string()),
             health_rollup: Some("OK".to_string()),
         },
-        _ => Status::unavailable_critical(),
+        VmPowerState::Unknown => Status::unavailable_critical(),
     }
 }
 
@@ -150,21 +161,11 @@ pub async fn get_system(
     let (power_state, status, cpu_count, memory_gib) =
         match state.backend.vm_info(&system_id).await {
             Ok(info) => {
-                let ps = ch_state_to_power_state(&info.state);
-                let st = ch_state_to_status(&info.state);
-                let cpus = info
-                    .config
-                    .cpus
-                    .as_ref()
-                    .map(|c| c.boot_vcpus as u32)
-                    .unwrap_or(0);
-                let mem = info
-                    .config
-                    .memory
-                    .as_ref()
-                    .map(|m| m.size as f64 / (1024.0 * 1024.0 * 1024.0))
-                    .unwrap_or(0.0);
-                (ps, st, cpus, mem)
+                let ps = info.power_state;
+                let st = power_state_to_status(ps);
+                let cpus = info.cpu_count;
+                let mem = info.memory_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                (power_state_to_redfish(ps), st, cpus, mem)
             }
             Err(_) => (
                 "Off".to_string(),
@@ -231,6 +232,21 @@ pub async fn get_system(
         )),
         secure_boot: ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/SecureBoot"
+        )),
+        memory: ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/Memory"
+        )),
+        storage: ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/Storage"
+        )),
+        pcie_devices: ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/PCIeDevices"
+        )),
+        bios: ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/Bios"
+        )),
+        log_services: ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/LogServices"
         )),
     }))
 }

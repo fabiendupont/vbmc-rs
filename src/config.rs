@@ -2,9 +2,27 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackendType {
+    CloudHypervisor,
+    #[cfg(feature = "qemu")]
+    Qemu,
+    #[cfg(feature = "libvirt")]
+    Libvirt,
+}
+
+impl Default for BackendType {
+    fn default() -> Self {
+        Self::CloudHypervisor
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
     pub server: ServerConfig,
+    #[serde(default)]
+    pub backend: BackendType,
     #[serde(default)]
     pub auth: AuthConfig,
     #[serde(default)]
@@ -80,6 +98,27 @@ impl Default for MetricsConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct HardwareConfig {
+    #[serde(default = "default_cpu_count")]
+    pub cpu_count: u8,
+    #[serde(default)]
+    pub max_cpu_count: Option<u8>,
+    #[serde(default = "default_memory_mib")]
+    pub memory_mib: u64,
+    #[serde(default)]
+    pub disks: Vec<DiskHardwareConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DiskHardwareConfig {
+    pub path: String,
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub readonly: bool,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct SystemConfig {
     pub name: Option<String>,
@@ -89,6 +128,12 @@ pub struct SystemConfig {
     pub boot_source: Option<String>,
     #[serde(default)]
     pub virtual_media_directory: Option<PathBuf>,
+    #[serde(default)]
+    pub hardware: HardwareConfig,
+    #[serde(default)]
+    pub connection_uri: Option<String>,
+    #[serde(default)]
+    pub domain_name: Option<String>,
 }
 
 fn default_bind_address() -> String {
@@ -129,6 +174,14 @@ fn default_metrics_enabled() -> bool {
 
 fn default_metrics_port() -> u16 {
     9090
+}
+
+fn default_cpu_count() -> u8 {
+    2
+}
+
+fn default_memory_mib() -> u64 {
+    1024
 }
 
 impl AppConfig {

@@ -20,6 +20,8 @@ pub struct Collection<T: Serialize> {
     pub odata_id: String,
     #[serde(rename = "@odata.type")]
     pub odata_type: String,
+    #[serde(rename = "@odata.context", skip_serializing_if = "Option::is_none")]
+    pub odata_context: Option<String>,
     #[serde(rename = "Name")]
     pub name: String,
     #[serde(rename = "Members")]
@@ -34,6 +36,7 @@ impl<T: Serialize> Collection<T> {
         Self {
             odata_id: odata_id.into(),
             odata_type: odata_type.into(),
+            odata_context: Some("/redfish/v1/$metadata".to_string()),
             name: name.into(),
             members,
             members_count: count,

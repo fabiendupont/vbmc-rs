@@ -23,6 +23,8 @@ pub struct Manager {
     pub firmware_version: &'static str,
     #[serde(rename = "Status")]
     pub status: Status,
+    #[serde(rename = "LogServices", skip_serializing_if = "Option::is_none")]
+    pub log_services: Option<ODataId>,
 }
 
 pub async fn get_managers() -> Json<Collection<ODataId>> {
@@ -52,5 +54,6 @@ pub async fn get_manager(
         manager_type: "BMC",
         firmware_version: env!("CARGO_PKG_VERSION"),
         status: Status::enabled_ok(),
+        log_services: Some(ODataId::new("/redfish/v1/Managers/vbmc/LogServices")),
     }))
 }

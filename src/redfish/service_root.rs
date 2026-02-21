@@ -37,6 +37,10 @@ pub struct ServiceRoot {
     pub chassis: Option<ODataId>,
     #[serde(rename = "ComponentIntegrity", skip_serializing_if = "Option::is_none")]
     pub component_integrity: Option<ODataId>,
+    #[serde(rename = "UpdateService", skip_serializing_if = "Option::is_none")]
+    pub update_service: Option<ODataId>,
+    #[serde(rename = "LicenseService", skip_serializing_if = "Option::is_none")]
+    pub license_service: Option<ODataId>,
 }
 
 pub async fn get_service_root() -> Json<ServiceRoot> {
@@ -57,6 +61,8 @@ pub async fn get_service_root() -> Json<ServiceRoot> {
         certificate_service: Some(ODataId::new("/redfish/v1/CertificateService")),
         chassis: Some(ODataId::new("/redfish/v1/Chassis")),
         component_integrity: Some(ODataId::new("/redfish/v1/ComponentIntegrity")),
+        update_service: Some(ODataId::new("/redfish/v1/UpdateService")),
+        license_service: Some(ODataId::new("/redfish/v1/LicenseService")),
     })
 }
 

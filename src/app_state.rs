@@ -5,7 +5,7 @@ use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::auth::accounts::AccountStore;
 use crate::auth::sessions::SessionStore;
-use crate::backend::cloud_hypervisor::CloudHypervisorBackend;
+use crate::backend::Backend;
 use crate::config::AppConfig;
 use crate::events::subscriptions::SubscriptionStore;
 use crate::events::EventBus;
@@ -14,7 +14,7 @@ use crate::tasks::TaskManager;
 
 pub struct AppState {
     pub config: AppConfig,
-    pub backend: CloudHypervisorBackend,
+    pub backend: Backend,
     pub vm_states: DashMap<String, VmState>,
     pub event_bus: EventBus,
     pub task_manager: TaskManager,
@@ -27,7 +27,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(
         config: AppConfig,
-        backend: CloudHypervisorBackend,
+        backend: Backend,
         account_store: AccountStore,
     ) -> Self {
         let vm_states: DashMap<String, VmState> = DashMap::new();
