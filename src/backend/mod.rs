@@ -34,6 +34,33 @@ impl fmt::Display for BackendError {
 
 impl std::error::Error for BackendError {}
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backend_error_display() {
+        assert_eq!(BackendError::VmmNotRunning.to_string(), "VMM process is not running");
+        assert_eq!(BackendError::VmNotFound.to_string(), "VM not found");
+        assert_eq!(
+            BackendError::InvalidState("bad".into()).to_string(),
+            "Invalid VM state: bad"
+        );
+        assert_eq!(
+            BackendError::ConnectionFailed("refused".into()).to_string(),
+            "Connection failed: refused"
+        );
+        assert_eq!(
+            BackendError::ApiError("500".into()).to_string(),
+            "API error: 500"
+        );
+        assert_eq!(
+            BackendError::NotSupported("vm_create".into()).to_string(),
+            "Operation not supported: vm_create"
+        );
+    }
+}
+
 pub trait VmmBackend: Send + Sync {
     fn vm_info(
         &self,

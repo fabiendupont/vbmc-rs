@@ -249,3 +249,40 @@ pub fn build_backend(config: &AppConfig) -> super::Backend {
         .collect();
     super::Backend::Qemu(QemuBackend::new(sockets))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_qemu_status_to_power_state() {
+        assert_eq!(qemu_status_to_power_state("running"), bt::VmPowerState::On);
+        assert_eq!(qemu_status_to_power_state("paused"), bt::VmPowerState::Paused);
+        assert_eq!(qemu_status_to_power_state("suspended"), bt::VmPowerState::Paused);
+        assert_eq!(qemu_status_to_power_state("shutdown"), bt::VmPowerState::Off);
+        assert_eq!(qemu_status_to_power_state("inmigrate"), bt::VmPowerState::Off);
+        assert_eq!(qemu_status_to_power_state("prelaunch"), bt::VmPowerState::Off);
+        assert_eq!(qemu_status_to_power_state(""), bt::VmPowerState::Off);
+    }
+
+    #[test]
+    fn test_client_for_missing_system() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        match backend.client_for("nonexistent") {
+            Err(BackendError::VmNotFound) => {}
+            Err(other) => panic!("expected VmNotFound, got: {other}"),
+            Ok(_) => panic!("expected error, got Ok"),
+        }
+    }
+
+    #[test]
+    fn test_client_for_existing_system() {
+        let mut sockets = std::collections::HashMap::new();
+        sockets.insert("vm1".to_string(), std::path::PathBuf::from("/tmp/qmp.sock"));
+        let backend = QemuBackend::new(sockets);
+        // client_for returns a QmpClient which doesn't impl Debug,
+        // so just check it doesn't error
+        let result = backend.client_for("vm1");
+        assert!(result.is_ok());
+    }
+}

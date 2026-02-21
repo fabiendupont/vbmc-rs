@@ -293,3 +293,75 @@ pub async fn get_volume(
         status: Status::enabled_ok(),
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_protocol_to_string() {
+        assert_eq!(protocol_to_string(DiskProtocol::Virtio), "Virtio");
+        assert_eq!(protocol_to_string(DiskProtocol::NVMe), "NVMe");
+        assert_eq!(protocol_to_string(DiskProtocol::SATA), "SATA");
+        assert_eq!(protocol_to_string(DiskProtocol::VhostUser), "VhostUser");
+        assert_eq!(protocol_to_string(DiskProtocol::Unknown), "Unknown");
+    }
+
+    #[test]
+    fn test_media_type_to_string() {
+        assert_eq!(media_type_to_string(DiskMediaType::SSD), "SSD");
+        assert_eq!(media_type_to_string(DiskMediaType::HDD), "HDD");
+        assert_eq!(media_type_to_string(DiskMediaType::Virtual), "Virtual");
+        assert_eq!(media_type_to_string(DiskMediaType::Unknown), "Unknown");
+    }
+
+    #[test]
+    fn test_controller_id_for_protocol() {
+        assert_eq!(controller_id_for_protocol(DiskProtocol::Virtio), "Virtio");
+        assert_eq!(controller_id_for_protocol(DiskProtocol::NVMe), "NVMe");
+    }
+
+    fn make_disk(id: &str, protocol: DiskProtocol) -> DiskInfo {
+        DiskInfo {
+            id: id.to_string(),
+            path: None,
+            capacity_bytes: None,
+            readonly: false,
+            protocol,
+            media_type: DiskMediaType::Virtual,
+        }
+    }
+
+    #[test]
+    fn test_group_disks_by_protocol_single() {
+        let disks = vec![
+            make_disk("vda", DiskProtocol::Virtio),
+            make_disk("vdb", DiskProtocol::Virtio),
+        ];
+        let grouped = group_disks_by_protocol(&disks);
+        assert_eq!(grouped.len(), 1);
+        assert_eq!(grouped["Virtio"].len(), 2);
+    }
+
+    #[test]
+    fn test_group_disks_by_protocol_multiple() {
+        let disks = vec![
+            make_disk("vda", DiskProtocol::Virtio),
+            make_disk("nvme0", DiskProtocol::NVMe),
+            make_disk("vdb", DiskProtocol::Virtio),
+            make_disk("sda", DiskProtocol::SATA),
+        ];
+        let grouped = group_disks_by_protocol(&disks);
+        assert_eq!(grouped.len(), 3);
+        assert_eq!(grouped["Virtio"].len(), 2);
+        assert_eq!(grouped["NVMe"].len(), 1);
+        assert_eq!(grouped["SATA"].len(), 1);
+    }
+
+    #[test]
+    fn test_group_disks_by_protocol_empty() {
+        let disks: Vec<DiskInfo> = vec![];
+        let grouped = group_disks_by_protocol(&disks);
+        assert!(grouped.is_empty());
+    }
+}

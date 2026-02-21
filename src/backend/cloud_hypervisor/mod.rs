@@ -341,3 +341,205 @@ impl VmmBackend for CloudHypervisorBackend {
         Self::parse_response(status, &body)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ch_state_to_power_state() {
+        assert_eq!(ch_state_to_power_state("Running"), bt::VmPowerState::On);
+        assert_eq!(ch_state_to_power_state("Shutdown"), bt::VmPowerState::Off);
+        assert_eq!(ch_state_to_power_state("Created"), bt::VmPowerState::Off);
+        assert_eq!(ch_state_to_power_state("Paused"), bt::VmPowerState::Paused);
+        assert_eq!(ch_state_to_power_state("SomethingElse"), bt::VmPowerState::Unknown);
+        assert_eq!(ch_state_to_power_state(""), bt::VmPowerState::Unknown);
+    }
+
+    #[test]
+    fn test_ch_vm_info_to_vm_info_running_with_full_config() {
+        let ch_info = types::VmInfo {
+            config: types::VmConfig {
+                cpus: Some(types::CpusConfig {
+                    boot_vcpus: 4,
+                    max_vcpus: 8,
+                    topology: Some(types::CpuTopology {
+                        threads_per_core: Some(2),
+                        cores_per_die: Some(2),
+                        dies_per_package: Some(1),
+                        packages: Some(1),
+                    }),
+                }),
+                memory: Some(types::MemoryConfig {
+                    size: 2 * 1024 * 1024 * 1024,
+                    hotplug_size: None,
+                    shared: false,
+                    hugepages: false,
+                }),
+                disks: Some(vec![
+                    types::DiskConfig {
+                        path: Some("/nonexistent/disk.raw".to_string()),
+                        id: Some("rootdisk".to_string()),
+                        readonly: false,
+                        vhost_user: None,
+                        vhost_socket: None,
+                    },
+                    types::DiskConfig {
+                        path: None,
+                        id: None,
+                        readonly: true,
+                        vhost_user: Some(true),
+                        vhost_socket: Some("/tmp/vhost.sock".to_string()),
+                    },
+                ]),
+                net: Some(vec![types::NetConfig {
+                    id: Some("eth0".to_string()),
+                    tap: Some("tap0".to_string()),
+                    mac: Some("52:54:00:ab:cd:ef".to_string()),
+                    ip: None,
+                    mask: None,
+                    num_queues: None,
+                    queue_size: None,
+                }]),
+                ..Default::default()
+            },
+            state: "Running".to_string(),
+            memory_actual_size: Some(2 * 1024 * 1024 * 1024),
+            device_tree: None,
+        };
+
+        let info = ch_vm_info_to_vm_info(ch_info);
+
+        assert_eq!(info.power_state, bt::VmPowerState::On);
+        assert_eq!(info.cpu_count, 4);
+        assert_eq!(info.max_cpu_count, 8);
+        assert_eq!(info.memory_bytes, 2 * 1024 * 1024 * 1024);
+        assert_eq!(info.memory_actual_bytes, Some(2 * 1024 * 1024 * 1024));
+
+        // CPU topology
+        let topo = info.cpu_topology.unwrap();
+        assert_eq!(topo.threads_per_core, Some(2));
+        assert_eq!(topo.cores_per_die, Some(2));
+
+        // Disks
+        assert_eq!(info.disks.len(), 2);
+        assert_eq!(info.disks[0].id, "rootdisk");
+        assert_eq!(info.disks[0].protocol, bt::DiskProtocol::Virtio);
+        assert!(!info.disks[0].readonly);
+        assert_eq!(info.disks[1].id, "disk1"); // auto-generated
+        assert_eq!(info.disks[1].protocol, bt::DiskProtocol::VhostUser);
+        assert!(info.disks[1].readonly);
+
+        // NICs
+        assert_eq!(info.nics.len(), 1);
+        assert_eq!(info.nics[0].id, "eth0");
+        assert_eq!(info.nics[0].mac_address.as_deref(), Some("52:54:00:ab:cd:ef"));
+        assert_eq!(info.nics[0].tap.as_deref(), Some("tap0"));
+        assert_eq!(info.nics[0].speed_mbps, 25000);
+
+        // Raw should be present
+        assert!(info.raw.is_some());
+    }
+
+    #[test]
+    fn test_ch_vm_info_to_vm_info_empty_config() {
+        let ch_info = types::VmInfo {
+            config: types::VmConfig::default(),
+            state: "Shutdown".to_string(),
+            memory_actual_size: None,
+            device_tree: None,
+        };
+
+        let info = ch_vm_info_to_vm_info(ch_info);
+
+        assert_eq!(info.power_state, bt::VmPowerState::Off);
+        assert_eq!(info.cpu_count, 0);
+        assert_eq!(info.max_cpu_count, 0);
+        assert_eq!(info.memory_bytes, 0);
+        assert!(info.cpu_topology.is_none());
+        assert!(info.disks.is_empty());
+        assert!(info.nics.is_empty());
+        assert!(info.pci_devices.is_empty());
+    }
+
+    #[test]
+    fn test_vm_create_config_to_ch() {
+        let config = bt::VmCreateConfig {
+            firmware_path: Some("/usr/share/OVMF/OVMF_CODE.fd".to_string()),
+            kernel_path: Some("/boot/vmlinuz".to_string()),
+            cmdline: Some("console=ttyS0".to_string()),
+            initramfs: None,
+            cpu_count: 2,
+            max_cpu_count: 4,
+            memory_bytes: 1024 * 1024 * 1024,
+            disks: vec![bt::DiskCreateConfig {
+                path: Some("/tmp/disk.raw".to_string()),
+                id: Some("root".to_string()),
+                readonly: false,
+                vhost_user: None,
+                vhost_socket: None,
+            }],
+            nics: vec![bt::NicCreateConfig {
+                id: Some("net0".to_string()),
+                tap: Some("tap0".to_string()),
+                mac: Some("52:54:00:00:00:01".to_string()),
+                ip: None,
+                mask: None,
+                num_queues: None,
+                queue_size: None,
+            }],
+            platform: None,
+        };
+
+        let ch = vm_create_config_to_ch(config);
+
+        let payload = ch.payload.unwrap();
+        assert_eq!(payload.firmware.as_deref(), Some("/usr/share/OVMF/OVMF_CODE.fd"));
+        assert_eq!(payload.kernel.as_deref(), Some("/boot/vmlinuz"));
+        assert_eq!(payload.cmdline.as_deref(), Some("console=ttyS0"));
+        assert!(payload.initramfs.is_none());
+
+        let cpus = ch.cpus.unwrap();
+        assert_eq!(cpus.boot_vcpus, 2);
+        assert_eq!(cpus.max_vcpus, 4);
+
+        let memory = ch.memory.unwrap();
+        assert_eq!(memory.size, 1024 * 1024 * 1024);
+
+        let disks = ch.disks.unwrap();
+        assert_eq!(disks.len(), 1);
+        assert_eq!(disks[0].id.as_deref(), Some("root"));
+        assert_eq!(disks[0].path.as_deref(), Some("/tmp/disk.raw"));
+
+        let net = ch.net.unwrap();
+        assert_eq!(net.len(), 1);
+        assert_eq!(net[0].mac.as_deref(), Some("52:54:00:00:00:01"));
+    }
+
+    #[test]
+    fn test_vm_create_config_to_ch_empty_disks_and_nics() {
+        let config = bt::VmCreateConfig::default();
+        let ch = vm_create_config_to_ch(config);
+
+        assert!(ch.disks.is_none());
+        assert!(ch.net.is_none());
+    }
+
+    #[test]
+    fn test_disk_create_config_to_ch() {
+        let disk = bt::DiskCreateConfig {
+            path: Some("/tmp/test.iso".to_string()),
+            id: Some("cdrom".to_string()),
+            readonly: true,
+            vhost_user: Some(false),
+            vhost_socket: None,
+        };
+
+        let ch = disk_create_config_to_ch(disk);
+        assert_eq!(ch.path.as_deref(), Some("/tmp/test.iso"));
+        assert_eq!(ch.id.as_deref(), Some("cdrom"));
+        assert!(ch.readonly);
+        assert_eq!(ch.vhost_user, Some(false));
+        assert!(ch.vhost_socket.is_none());
+    }
+}

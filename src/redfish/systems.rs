@@ -284,3 +284,43 @@ pub async fn patch_system(
 
     Ok(Json(serde_json::json!({"message": "System updated"})))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_power_state_to_redfish() {
+        assert_eq!(power_state_to_redfish(VmPowerState::On), "On");
+        assert_eq!(power_state_to_redfish(VmPowerState::Off), "Off");
+        assert_eq!(power_state_to_redfish(VmPowerState::Paused), "Paused");
+        assert_eq!(power_state_to_redfish(VmPowerState::Unknown), "Off");
+    }
+
+    #[test]
+    fn test_power_state_to_status_on() {
+        let s = power_state_to_status(VmPowerState::On);
+        assert_eq!(s.state.as_deref(), Some("Enabled"));
+        assert_eq!(s.health.as_deref(), Some("OK"));
+    }
+
+    #[test]
+    fn test_power_state_to_status_off() {
+        let s = power_state_to_status(VmPowerState::Off);
+        assert_eq!(s.state.as_deref(), Some("Disabled"));
+        assert_eq!(s.health.as_deref(), Some("OK"));
+    }
+
+    #[test]
+    fn test_power_state_to_status_paused() {
+        let s = power_state_to_status(VmPowerState::Paused);
+        assert_eq!(s.state.as_deref(), Some("Quiesced"));
+    }
+
+    #[test]
+    fn test_power_state_to_status_unknown() {
+        let s = power_state_to_status(VmPowerState::Unknown);
+        assert_eq!(s.state.as_deref(), Some("Unavailable"));
+        assert_eq!(s.health.as_deref(), Some("Critical"));
+    }
+}

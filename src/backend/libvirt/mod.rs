@@ -236,3 +236,64 @@ pub fn build_backend(config: &AppConfig) -> super::Backend {
 
     super::Backend::Libvirt(LibvirtBackend::new(uri, domains))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_dominfo_state_running() {
+        let output = "Id:             3\nName:           test-vm\nState:          running\n";
+        assert_eq!(LibvirtBackend::parse_dominfo_state(output), bt::VmPowerState::On);
+    }
+
+    #[test]
+    fn test_parse_dominfo_state_shut_off() {
+        let output = "Id:             -\nName:           test-vm\nState:          shut off\n";
+        assert_eq!(LibvirtBackend::parse_dominfo_state(output), bt::VmPowerState::Off);
+    }
+
+    #[test]
+    fn test_parse_dominfo_state_paused() {
+        let output = "State:          paused\n";
+        assert_eq!(LibvirtBackend::parse_dominfo_state(output), bt::VmPowerState::Paused);
+    }
+
+    #[test]
+    fn test_parse_dominfo_state_crashed() {
+        let output = "State:          crashed\n";
+        assert_eq!(LibvirtBackend::parse_dominfo_state(output), bt::VmPowerState::Off);
+    }
+
+    #[test]
+    fn test_parse_dominfo_state_unknown() {
+        let output = "State:          pmsuspended\n";
+        assert_eq!(LibvirtBackend::parse_dominfo_state(output), bt::VmPowerState::Unknown);
+    }
+
+    #[test]
+    fn test_parse_dominfo_state_missing() {
+        let output = "Id:             3\nName:           test-vm\n";
+        assert_eq!(LibvirtBackend::parse_dominfo_state(output), bt::VmPowerState::Unknown);
+    }
+
+    #[test]
+    fn test_parse_dominfo_state_empty() {
+        assert_eq!(LibvirtBackend::parse_dominfo_state(""), bt::VmPowerState::Unknown);
+    }
+
+    #[test]
+    fn test_domain_for_missing() {
+        let backend = LibvirtBackend::new("qemu:///system".to_string(), HashMap::new());
+        let err = backend.domain_for("nonexistent").unwrap_err();
+        assert!(matches!(err, BackendError::VmNotFound));
+    }
+
+    #[test]
+    fn test_domain_for_existing() {
+        let mut domains = HashMap::new();
+        domains.insert("vm1".to_string(), "my-domain".to_string());
+        let backend = LibvirtBackend::new("qemu:///system".to_string(), domains);
+        assert_eq!(backend.domain_for("vm1").unwrap(), "my-domain");
+    }
+}

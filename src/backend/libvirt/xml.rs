@@ -344,4 +344,145 @@ mod tests {
             Some("52:54:00:12:34:56")
         );
     }
+
+    #[test]
+    fn test_parse_memory_kib() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>1</vcpu>
+          <memory unit='KiB'>1048576</memory>
+          <devices></devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.memory_bytes, 1048576 * 1024); // 1 GiB
+    }
+
+    #[test]
+    fn test_parse_memory_gib() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>1</vcpu>
+          <memory unit='GiB'>2</memory>
+          <devices></devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.memory_bytes, 2 * 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_readonly_disk() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>1</vcpu>
+          <memory unit='MiB'>512</memory>
+          <devices>
+            <disk type='file' device='cdrom'>
+              <source file='/tmp/boot.iso'/>
+              <target dev='hda' bus='ide'/>
+              <readonly/>
+            </disk>
+          </devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.disks.len(), 1);
+        assert!(info.disks[0].readonly);
+        assert_eq!(info.disks[0].protocol, bt::DiskProtocol::SATA); // ide maps to SATA
+    }
+
+    #[test]
+    fn test_parse_sata_disk() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>1</vcpu>
+          <memory unit='MiB'>512</memory>
+          <devices>
+            <disk type='file' device='disk'>
+              <source file='/tmp/disk.qcow2'/>
+              <target dev='sda' bus='sata'/>
+            </disk>
+          </devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.disks[0].protocol, bt::DiskProtocol::SATA);
+    }
+
+    #[test]
+    fn test_parse_multiple_disks_and_nics() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>2</vcpu>
+          <memory unit='MiB'>1024</memory>
+          <devices>
+            <disk type='file' device='disk'>
+              <source file='/tmp/disk1.qcow2'/>
+              <target dev='vda' bus='virtio'/>
+            </disk>
+            <disk type='file' device='disk'>
+              <source file='/tmp/disk2.qcow2'/>
+              <target dev='vdb' bus='virtio'/>
+            </disk>
+            <interface type='network'>
+              <mac address='52:54:00:00:00:01'/>
+            </interface>
+            <interface type='bridge'>
+              <mac address='52:54:00:00:00:02'/>
+            </interface>
+          </devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.disks.len(), 2);
+        assert_eq!(info.disks[0].id, "vda");
+        assert_eq!(info.disks[1].id, "vdb");
+        assert_eq!(info.nics.len(), 2);
+        assert_eq!(info.nics[0].id, "NIC0");
+        assert_eq!(info.nics[1].id, "NIC1");
+        assert_eq!(info.nics[0].mac_address.as_deref(), Some("52:54:00:00:00:01"));
+        assert_eq!(info.nics[1].mac_address.as_deref(), Some("52:54:00:00:00:02"));
+    }
+
+    #[test]
+    fn test_parse_pci_hostdev() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>1</vcpu>
+          <memory unit='MiB'>512</memory>
+          <devices>
+            <hostdev mode='subsystem' type='pci' managed='yes'>
+              <source>
+                <address domain='0x0000' bus='0x03' slot='0x00' function='0x0'/>
+              </source>
+            </hostdev>
+          </devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.pci_devices.len(), 1);
+        assert_eq!(info.pci_devices[0].bdf, "0000:03:00.0");
+        assert!(info.pci_devices[0].is_passthrough);
+    }
+
+    #[test]
+    fn test_parse_empty_domain() {
+        let xml = r#"<domain type='kvm'></domain>"#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.vcpu_count, 0);
+        assert_eq!(info.memory_bytes, 0);
+        assert!(info.disks.is_empty());
+        assert!(info.nics.is_empty());
+        assert!(info.pci_devices.is_empty());
+    }
+
+    #[test]
+    fn test_parse_hex_values() {
+        assert_eq!(parse_hex("0x0000"), 0);
+        assert_eq!(parse_hex("0x03"), 3);
+        assert_eq!(parse_hex("0xff"), 255);
+        assert_eq!(parse_hex("10"), 16);
+        assert_eq!(parse_hex(""), 0);
+    }
 }
