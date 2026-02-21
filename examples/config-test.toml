@@ -1,0 +1,35 @@
+# Test configuration for DMTF Redfish Service Validator.
+# Uses Cloud-Hypervisor backend with non-existent sockets.
+# All systems will report as powered off / unavailable.
+
+backend = "cloud_hypervisor"
+
+[server]
+bind_address = "127.0.0.1"
+port = 18000
+
+[auth]
+enabled = false
+
+[defaults]
+firmware_path = "/usr/share/OVMF/OVMF_CODE.fd"
+boot_source = "Hdd"
+
+[metrics]
+enabled = false
+
+[systems.vm1]
+name = "Test VM 1"
+socket_path = "/tmp/vbmc-rs-test-nonexistent-1.sock"
+
+[systems.vm1.hardware]
+cpu_count = 2
+memory_mib = 1024
+
+[systems.vm2]
+name = "Test VM 2"
+socket_path = "/tmp/vbmc-rs-test-nonexistent-2.sock"
+
+[systems.vm2.hardware]
+cpu_count = 4
+memory_mib = 4096

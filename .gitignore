@@ -1,3 +1,5 @@
 /target
 audit.jsonl
 *.json.tmp
+/.venv-dmtf
+/dmtf-reports
