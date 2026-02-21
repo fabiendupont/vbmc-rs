@@ -693,3 +693,113 @@ async fn test_pcie_devices_empty() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["Members@odata.count"], 0);
 }
+
+// ── DMTF Validator compliance ─────────────────────────────────────────
+
+#[tokio::test]
+async fn test_odata_context_on_individual_resource() {
+    let mut systems = HashMap::new();
+    systems.insert("vm1".to_string(), make_system_config("VM 1"));
+    let mock = MockBackend::new().with_vm("vm1", make_running_vm());
+    let state = make_app_state(mock, systems);
+    let app = build_app(state);
+
+    // ComputerSystem should have @odata.context derived from @odata.type
+    let (status, json, _) = get(&app, "/redfish/v1/Systems/vm1").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        json["@odata.context"],
+        "/redfish/v1/$metadata#ComputerSystem.ComputerSystem"
+    );
+}
+
+#[tokio::test]
+async fn test_odata_context_on_service_root() {
+    let state = make_app_state(MockBackend::new(), HashMap::new());
+    let app = build_app(state);
+
+    let (_, json, _) = get(&app, "/redfish/v1").await;
+    assert_eq!(
+        json["@odata.context"],
+        "/redfish/v1/$metadata#ServiceRoot.ServiceRoot"
+    );
+}
+
+#[tokio::test]
+async fn test_odata_context_on_manager() {
+    let state = make_app_state(MockBackend::new(), HashMap::new());
+    let app = build_app(state);
+
+    let (_, json, _) = get(&app, "/redfish/v1/Managers/vbmc").await;
+    assert_eq!(
+        json["@odata.context"],
+        "/redfish/v1/$metadata#Manager.Manager"
+    );
+}
+
+#[tokio::test]
+async fn test_odata_context_on_chassis() {
+    let state = make_app_state(MockBackend::new(), HashMap::new());
+    let app = build_app(state);
+
+    let (_, json, _) = get(&app, "/redfish/v1/Chassis/1").await;
+    assert_eq!(
+        json["@odata.context"],
+        "/redfish/v1/$metadata#Chassis.Chassis"
+    );
+}
+
+#[tokio::test]
+async fn test_odata_context_on_collection() {
+    let state = make_app_state(MockBackend::new(), HashMap::new());
+    let app = build_app(state);
+
+    // Collection already has @odata.context set by Collection::new,
+    // middleware should not overwrite it
+    let (_, json, _) = get(&app, "/redfish/v1/Systems").await;
+    assert_eq!(json["@odata.context"], "/redfish/v1/$metadata");
+}
+
+#[tokio::test]
+async fn test_odata_context_on_processor() {
+    let mut systems = HashMap::new();
+    systems.insert("vm1".to_string(), make_system_config("VM 1"));
+    let mock = MockBackend::new().with_vm("vm1", make_running_vm());
+    let state = make_app_state(mock, systems);
+    let app = build_app(state);
+
+    let (_, json, _) = get(&app, "/redfish/v1/Systems/vm1/Processors/CPU0").await;
+    assert_eq!(
+        json["@odata.context"],
+        "/redfish/v1/$metadata#Processor.Processor"
+    );
+}
+
+#[tokio::test]
+async fn test_service_root_uuid_stable() {
+    let state = make_app_state(MockBackend::new(), HashMap::new());
+    let app = build_app(state);
+
+    let (_, json1, _) = get(&app, "/redfish/v1").await;
+    let (_, json2, _) = get(&app, "/redfish/v1").await;
+
+    let uuid1 = json1["UUID"].as_str().unwrap();
+    let uuid2 = json2["UUID"].as_str().unwrap();
+    assert_eq!(uuid1, uuid2);
+    assert!(!uuid1.is_empty());
+}
+
+#[tokio::test]
+async fn test_method_not_allowed() {
+    let state = make_app_state(MockBackend::new(), HashMap::new());
+    let app = build_app(state);
+
+    // POST to a GET-only endpoint should return 405
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/redfish/v1/Systems")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+}

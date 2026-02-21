@@ -1,7 +1,11 @@
+use std::sync::Arc;
+
+use axum::extract::State;
 use axum::Json;
 use serde::Serialize;
 
 use super::types::ODataId;
+use crate::app_state::AppState;
 
 #[derive(Debug, Serialize)]
 pub struct ServiceRoot {
@@ -43,14 +47,16 @@ pub struct ServiceRoot {
     pub license_service: Option<ODataId>,
 }
 
-pub async fn get_service_root() -> Json<ServiceRoot> {
+pub async fn get_service_root(
+    State(state): State<Arc<AppState>>,
+) -> Json<ServiceRoot> {
     Json(ServiceRoot {
         odata_id: "/redfish/v1",
         odata_type: "#ServiceRoot.v1_16_0.ServiceRoot",
         id: "RootService",
         name: "vbmc-rs Redfish Service",
         redfish_version: "1.21.0",
-        uuid: uuid::Uuid::new_v4().to_string(),
+        uuid: state.instance_uuid.clone(),
         systems: ODataId::new("/redfish/v1/Systems"),
         managers: ODataId::new("/redfish/v1/Managers"),
         session_service: Some(ODataId::new("/redfish/v1/SessionService")),

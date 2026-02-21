@@ -21,6 +21,7 @@ pub struct AppState {
     pub session_store: SessionStore,
     pub account_store: std::sync::Mutex<AccountStore>,
     pub subscription_store: SubscriptionStore,
+    pub instance_uuid: String,
     system_locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
@@ -52,6 +53,7 @@ impl AppState {
             session_store,
             account_store: std::sync::Mutex::new(account_store),
             subscription_store: SubscriptionStore::new(),
+            instance_uuid: uuid::Uuid::new_v4().to_string(),
             system_locks: DashMap::new(),
         }
     }
