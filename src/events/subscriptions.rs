@@ -70,6 +70,85 @@ impl Default for SubscriptionStore {
     }
 }
 
+#[cfg(test)]
+mod tests_subscription_store {
+    use super::*;
+
+    #[test]
+    fn test_add_subscription() {
+        let store = SubscriptionStore::new();
+        let sub = store.add(
+            "https://example.com/hook",
+            "Redfish",
+            vec!["StatusChange".to_string()],
+        );
+
+        assert_eq!(sub.id, "1");
+        assert_eq!(sub.destination, "https://example.com/hook");
+        assert_eq!(sub.protocol, "Redfish");
+        assert_eq!(sub.event_types, vec!["StatusChange"]);
+    }
+
+    #[test]
+    fn test_add_increments_id() {
+        let store = SubscriptionStore::new();
+        let s1 = store.add("https://a.com", "Redfish", vec![]);
+        let s2 = store.add("https://b.com", "Redfish", vec![]);
+        assert_eq!(s1.id, "1");
+        assert_eq!(s2.id, "2");
+    }
+
+    #[test]
+    fn test_get_subscription() {
+        let store = SubscriptionStore::new();
+        let sub = store.add("https://example.com", "Redfish", vec![]);
+
+        let fetched = store.get(&sub.id).unwrap();
+        assert_eq!(fetched.destination, "https://example.com");
+    }
+
+    #[test]
+    fn test_get_nonexistent() {
+        let store = SubscriptionStore::new();
+        assert!(store.get("999").is_none());
+    }
+
+    #[test]
+    fn test_remove_subscription() {
+        let store = SubscriptionStore::new();
+        let sub = store.add("https://example.com", "Redfish", vec![]);
+
+        assert!(store.remove(&sub.id));
+        assert!(store.get(&sub.id).is_none());
+    }
+
+    #[test]
+    fn test_remove_nonexistent() {
+        let store = SubscriptionStore::new();
+        assert!(!store.remove("999"));
+    }
+
+    #[test]
+    fn test_list_subscriptions() {
+        let store = SubscriptionStore::new();
+        assert!(store.list().is_empty());
+
+        store.add("https://a.com", "Redfish", vec![]);
+        store.add("https://b.com", "Redfish", vec![]);
+        assert_eq!(store.list().len(), 2);
+    }
+
+    #[test]
+    fn test_list_after_remove() {
+        let store = SubscriptionStore::new();
+        let s1 = store.add("https://a.com", "Redfish", vec![]);
+        store.add("https://b.com", "Redfish", vec![]);
+
+        store.remove(&s1.id);
+        assert_eq!(store.list().len(), 1);
+    }
+}
+
 pub fn start_webhook_delivery(
     mut rx: broadcast::Receiver<RedfishEvent>,
     subscription: Subscription,

@@ -117,3 +117,97 @@ fn generate_token() -> String {
     let bytes: Vec<u8> = (0..32).map(|_| rng.r#gen()).collect();
     base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &bytes)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_session() {
+        let store = SessionStore::new(3600, 64);
+        let session = store.create_session("admin", "Administrator").unwrap();
+
+        assert_eq!(session.username, "admin");
+        assert_eq!(session.role, "Administrator");
+        assert!(!session.id.is_empty());
+        assert!(!session.token.is_empty());
+        assert!(session.expires > session.created);
+    }
+
+    #[test]
+    fn test_validate_token() {
+        let store = SessionStore::new(3600, 64);
+        let session = store.create_session("user", "ReadOnly").unwrap();
+
+        let validated = store.validate_token(&session.token).unwrap();
+        assert_eq!(validated.username, "user");
+        assert_eq!(validated.id, session.id);
+    }
+
+    #[test]
+    fn test_validate_invalid_token() {
+        let store = SessionStore::new(3600, 64);
+        assert!(store.validate_token("bogus_token").is_none());
+    }
+
+    #[test]
+    fn test_validate_expired_token() {
+        let store = SessionStore::new(0, 64); // 0 second timeout
+        let session = store.create_session("user", "ReadOnly").unwrap();
+
+        // Session expires immediately (or already expired)
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert!(store.validate_token(&session.token).is_none());
+    }
+
+    #[test]
+    fn test_delete_session_by_id() {
+        let store = SessionStore::new(3600, 64);
+        let session = store.create_session("user", "ReadOnly").unwrap();
+        let session_id = session.id.clone();
+        let token = session.token.clone();
+
+        assert!(store.delete_session_by_id(&session_id));
+        assert!(store.validate_token(&token).is_none());
+    }
+
+    #[test]
+    fn test_delete_nonexistent_session() {
+        let store = SessionStore::new(3600, 64);
+        assert!(!store.delete_session_by_id("nonexistent"));
+    }
+
+    #[test]
+    fn test_list_sessions() {
+        let store = SessionStore::new(3600, 64);
+        assert!(store.list_sessions().is_empty());
+
+        store.create_session("a", "ReadOnly");
+        store.create_session("b", "Operator");
+        assert_eq!(store.list_sessions().len(), 2);
+    }
+
+    #[test]
+    fn test_max_sessions_enforced() {
+        let store = SessionStore::new(3600, 2);
+        assert!(store.create_session("a", "ReadOnly").is_some());
+        assert!(store.create_session("b", "ReadOnly").is_some());
+        assert!(store.create_session("c", "ReadOnly").is_none()); // should fail
+    }
+
+    #[test]
+    fn test_unique_tokens() {
+        let store = SessionStore::new(3600, 64);
+        let s1 = store.create_session("a", "ReadOnly").unwrap();
+        let s2 = store.create_session("b", "ReadOnly").unwrap();
+        assert_ne!(s1.token, s2.token);
+        assert_ne!(s1.id, s2.id);
+    }
+
+    #[test]
+    fn test_generate_token_length() {
+        let token = generate_token();
+        // 32 bytes base64url-encoded without padding = 43 chars
+        assert_eq!(token.len(), 43);
+    }
+}

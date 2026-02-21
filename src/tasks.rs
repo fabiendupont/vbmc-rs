@@ -97,3 +97,108 @@ impl Default for TaskManager {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_task() {
+        let mgr = TaskManager::new();
+        let id = mgr.create_task("test job");
+        assert_eq!(id, "1");
+
+        let task = mgr.get_task(&id).unwrap();
+        assert_eq!(task.name, "test job");
+        assert_eq!(task.task_state, TaskState::Running);
+        assert_eq!(task.task_status, "OK");
+        assert_eq!(task.percent_complete, Some(0));
+        assert!(task.end_time.is_none());
+        assert!(task.result.is_none());
+    }
+
+    #[test]
+    fn test_create_multiple_tasks_increments_id() {
+        let mgr = TaskManager::new();
+        let id1 = mgr.create_task("first");
+        let id2 = mgr.create_task("second");
+        let id3 = mgr.create_task("third");
+        assert_eq!(id1, "1");
+        assert_eq!(id2, "2");
+        assert_eq!(id3, "3");
+    }
+
+    #[test]
+    fn test_complete_task() {
+        let mgr = TaskManager::new();
+        let id = mgr.create_task("completable");
+
+        let result = serde_json::json!({"output": "done"});
+        mgr.complete_task(&id, Some(result.clone()));
+
+        let task = mgr.get_task(&id).unwrap();
+        assert_eq!(task.task_state, TaskState::Completed);
+        assert_eq!(task.percent_complete, Some(100));
+        assert!(task.end_time.is_some());
+        assert_eq!(task.result, Some(result));
+    }
+
+    #[test]
+    fn test_complete_task_without_result() {
+        let mgr = TaskManager::new();
+        let id = mgr.create_task("no result");
+        mgr.complete_task(&id, None);
+
+        let task = mgr.get_task(&id).unwrap();
+        assert_eq!(task.task_state, TaskState::Completed);
+        assert!(task.result.is_none());
+    }
+
+    #[test]
+    fn test_fail_task() {
+        let mgr = TaskManager::new();
+        let id = mgr.create_task("will fail");
+        mgr.fail_task(&id, "something went wrong");
+
+        let task = mgr.get_task(&id).unwrap();
+        assert_eq!(task.task_state, TaskState::Exception);
+        assert_eq!(task.task_status, "Critical");
+        assert!(task.end_time.is_some());
+        assert_eq!(task.messages, vec!["something went wrong"]);
+    }
+
+    #[test]
+    fn test_get_nonexistent_task() {
+        let mgr = TaskManager::new();
+        assert!(mgr.get_task("999").is_none());
+    }
+
+    #[test]
+    fn test_list_tasks() {
+        let mgr = TaskManager::new();
+        assert!(mgr.list_tasks().is_empty());
+
+        mgr.create_task("a");
+        mgr.create_task("b");
+        assert_eq!(mgr.list_tasks().len(), 2);
+    }
+
+    #[test]
+    fn test_complete_nonexistent_task_is_noop() {
+        let mgr = TaskManager::new();
+        mgr.complete_task("999", None); // should not panic
+    }
+
+    #[test]
+    fn test_fail_nonexistent_task_is_noop() {
+        let mgr = TaskManager::new();
+        mgr.fail_task("999", "oops"); // should not panic
+    }
+
+    #[test]
+    fn test_default() {
+        let mgr = TaskManager::default();
+        let id = mgr.create_task("default");
+        assert_eq!(id, "1");
+    }
+}
