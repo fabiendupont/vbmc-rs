@@ -58,7 +58,9 @@ async fn main() -> anyhow::Result<()> {
             let sockets = config
                 .systems
                 .iter()
-                .map(|(id, sys)| (id.clone(), sys.socket_path.clone()))
+                .filter_map(|(id, sys)| {
+                    sys.socket_path.clone().map(|p| (id.clone(), p))
+                })
                 .collect();
             Backend::CloudHypervisor(CloudHypervisorBackend::new(sockets))
         }

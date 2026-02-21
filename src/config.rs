@@ -122,7 +122,8 @@ pub struct DiskHardwareConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SystemConfig {
     pub name: Option<String>,
-    pub socket_path: PathBuf,
+    #[serde(default)]
+    pub socket_path: Option<PathBuf>,
     pub firmware_path: Option<String>,
     #[serde(default)]
     pub boot_source: Option<String>,
@@ -189,5 +190,52 @@ impl AppConfig {
         let content = std::fs::read_to_string(path)?;
         let config: AppConfig = toml::from_str(&content)?;
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_cloud_hypervisor_config() {
+        let config = AppConfig::load(Path::new("examples/config.toml")).unwrap();
+        assert_eq!(config.backend, BackendType::CloudHypervisor);
+        assert_eq!(config.server.port, 8000);
+        assert_eq!(config.systems.len(), 2);
+
+        let vm1 = &config.systems["vm1"];
+        assert_eq!(vm1.name.as_deref(), Some("Test VM 1"));
+        assert_eq!(
+            vm1.socket_path.as_ref().unwrap().to_str().unwrap(),
+            "/tmp/cloud-hypervisor-vm1.sock"
+        );
+        assert_eq!(vm1.hardware.cpu_count, 2);
+        assert_eq!(vm1.hardware.memory_mib, 1024);
+        assert_eq!(vm1.hardware.disks.len(), 1);
+        assert_eq!(vm1.hardware.disks[0].id.as_deref(), Some("rootdisk"));
+
+        let vm2 = &config.systems["vm2"];
+        assert_eq!(vm2.hardware.cpu_count, 4);
+        assert_eq!(vm2.hardware.memory_mib, 4096);
+        assert_eq!(vm2.hardware.disks.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_libvirt_config() {
+        let content = std::fs::read_to_string("examples/config-libvirt.toml").unwrap();
+        // Parse without the libvirt feature — backend field should still parse
+        // as a string but we test the rest of the structure
+        let config: AppConfig = toml::from_str(&content).unwrap();
+        assert_eq!(config.server.port, 8000);
+        assert_eq!(config.systems.len(), 2);
+
+        let vm1 = &config.systems["vm1"];
+        assert_eq!(vm1.domain_name.as_deref(), Some("my-test-vm"));
+        assert_eq!(
+            vm1.connection_uri.as_deref(),
+            Some("qemu:///system")
+        );
+        assert!(vm1.socket_path.is_none());
     }
 }

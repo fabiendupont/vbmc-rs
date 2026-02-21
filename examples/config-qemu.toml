@@ -1,0 +1,45 @@
+# vbmc-rs configuration — QEMU backend
+#
+# Manages pre-existing QEMU instances via QMP (JSON over Unix socket).
+# QEMU must be started separately with a QMP socket, e.g.:
+#
+#   qemu-system-x86_64 \
+#     -qmp unix:/tmp/qmp-vm1.sock,server,nowait \
+#     -m 2048 -smp 2 \
+#     -drive file=/var/lib/vbmc-rs/images/vm1.qcow2,format=qcow2 \
+#     ...
+#
+# The QEMU backend is manage-only: vm_create (power on from scratch) is
+# not supported. Use "On" reset to resume a paused VM, or start QEMU
+# externally before issuing Redfish commands.
+#
+# Build with: cargo build --features qemu
+
+backend = "qemu"
+
+[server]
+bind_address = "127.0.0.1"
+port = 8000
+
+[auth]
+enabled = false
+
+[metrics]
+enabled = false
+
+# Each system points socket_path at the QEMU QMP Unix socket.
+[systems.vm1]
+name = "QEMU VM 1"
+socket_path = "/tmp/qmp-vm1.sock"
+
+[systems.vm1.hardware]
+cpu_count = 2
+memory_mib = 2048
+
+[systems.vm2]
+name = "QEMU VM 2"
+socket_path = "/tmp/qmp-vm2.sock"
+
+[systems.vm2.hardware]
+cpu_count = 4
+memory_mib = 4096

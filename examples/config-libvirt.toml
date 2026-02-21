@@ -1,0 +1,44 @@
+# vbmc-rs configuration — Libvirt backend
+#
+# Manages libvirt domains via the virsh CLI (no C FFI dependency).
+# Requires virsh to be installed and accessible in PATH.
+#
+# Build with: cargo build --features libvirt
+#
+# The connection_uri is passed to virsh --connect and defaults to
+# "qemu:///system" if not specified. It can be set on any system entry
+# (the first one found is used for all systems in this instance).
+#
+# Each system maps to a libvirt domain by domain_name. If domain_name
+# is omitted, the system ID (e.g. "vm1") is used as the domain name.
+
+backend = "libvirt"
+
+[server]
+bind_address = "127.0.0.1"
+port = 8000
+
+[auth]
+enabled = false
+
+[metrics]
+enabled = false
+
+# socket_path is not needed for libvirt — use connection_uri and domain_name.
+[systems.vm1]
+name = "Libvirt VM 1"
+connection_uri = "qemu:///system"
+domain_name = "my-test-vm"
+
+[systems.vm1.hardware]
+cpu_count = 2
+memory_mib = 2048
+
+[systems.vm2]
+name = "Libvirt VM 2"
+connection_uri = "qemu:///system"
+domain_name = "my-other-vm"
+
+[systems.vm2.hardware]
+cpu_count = 4
+memory_mib = 8192

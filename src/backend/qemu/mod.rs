@@ -243,7 +243,9 @@ pub fn build_backend(config: &AppConfig) -> super::Backend {
     let sockets = config
         .systems
         .iter()
-        .map(|(id, sys)| (id.clone(), sys.socket_path.clone()))
+        .filter_map(|(id, sys)| {
+            sys.socket_path.clone().map(|p| (id.clone(), p))
+        })
         .collect();
     super::Backend::Qemu(QemuBackend::new(sockets))
 }

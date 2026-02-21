@@ -1,13 +1,30 @@
+# vbmc-rs configuration — Cloud-Hypervisor backend
+#
+# Backend type: "cloud_hypervisor" (default), "qemu", or "libvirt"
+# All systems in an instance use the same backend.
+backend = "cloud_hypervisor"
+
 [server]
 bind_address = "127.0.0.1"
 port = 8000
+# tls_cert = "/etc/vbmc-rs/tls/server.crt"
+# tls_key = "/etc/vbmc-rs/tls/server.key"
+# tls_client_ca = "/etc/vbmc-rs/tls/ca.crt"
 
 [auth]
 enabled = false
+# session_timeout_seconds = 3600
+# max_sessions = 64
+# lockout_threshold = 5
+# lockout_duration_seconds = 300
+# accounts_file = "/etc/vbmc-rs/accounts.json"
 
 [defaults]
 firmware_path = "/usr/share/OVMF/OVMF_CODE.fd"
 boot_source = "Hdd"
+
+# state_directory = "/var/lib/vbmc-rs"
+# audit_log = "/var/log/vbmc-rs/audit.jsonl"
 
 [metrics]
 enabled = true
@@ -16,7 +33,31 @@ port = 9090
 [systems.vm1]
 name = "Test VM 1"
 socket_path = "/tmp/cloud-hypervisor-vm1.sock"
+# firmware_path = "/usr/share/OVMF/OVMF_CODE.fd"
+# boot_source = "Hdd"
+# virtual_media_directory = "/var/lib/vbmc-rs/media/vm1"
+
+[systems.vm1.hardware]
+cpu_count = 2
+# max_cpu_count = 4
+memory_mib = 1024
+
+[[systems.vm1.hardware.disks]]
+path = "/var/lib/vbmc-rs/images/vm1.qcow2"
+id = "rootdisk"
 
 [systems.vm2]
 name = "Test VM 2"
 socket_path = "/tmp/cloud-hypervisor-vm2.sock"
+
+[systems.vm2.hardware]
+cpu_count = 4
+memory_mib = 4096
+
+[[systems.vm2.hardware.disks]]
+path = "/var/lib/vbmc-rs/images/vm2.qcow2"
+id = "rootdisk"
+
+[[systems.vm2.hardware.disks]]
+path = "/var/lib/vbmc-rs/images/vm2-data.qcow2"
+id = "datadisk"
