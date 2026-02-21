@@ -33,10 +33,15 @@ pub struct Collection<T: Serialize> {
 impl<T: Serialize> Collection<T> {
     pub fn new(odata_id: impl Into<String>, odata_type: impl Into<String>, name: impl Into<String>, members: Vec<T>) -> Self {
         let count = members.len();
+        let odata_type = odata_type.into();
+        // Derive @odata.context from @odata.type: "#Foo.Foo" → "/redfish/v1/$metadata#Foo.Foo"
+        let odata_context = odata_type
+            .strip_prefix('#')
+            .map(|t| format!("/redfish/v1/$metadata#{t}"));
         Self {
             odata_id: odata_id.into(),
-            odata_type: odata_type.into(),
-            odata_context: Some("/redfish/v1/$metadata".to_string()),
+            odata_type,
+            odata_context,
             name: name.into(),
             members,
             members_count: count,
@@ -65,7 +70,7 @@ impl Status {
 
     pub fn unavailable_critical() -> Self {
         Self {
-            state: Some("Unavailable".to_string()),
+            state: Some("UnavailableOffline".to_string()),
             health: Some("Critical".to_string()),
             health_rollup: Some("Critical".to_string()),
         }
@@ -126,7 +131,10 @@ mod tests {
         assert_eq!(coll.odata_id, "/redfish/v1/Systems");
         assert_eq!(coll.members_count, 2);
         assert_eq!(coll.members.len(), 2);
-        assert_eq!(coll.odata_context.as_deref(), Some("/redfish/v1/$metadata"));
+        assert_eq!(
+            coll.odata_context.as_deref(),
+            Some("/redfish/v1/$metadata#ComputerSystemCollection.ComputerSystemCollection")
+        );
     }
 
     #[test]
@@ -152,7 +160,7 @@ mod tests {
         let json = serde_json::to_value(&coll).unwrap();
         assert_eq!(json["@odata.id"], "/redfish/v1/Systems");
         assert_eq!(json["@odata.type"], "#ComputerSystemCollection.ComputerSystemCollection");
-        assert_eq!(json["@odata.context"], "/redfish/v1/$metadata");
+        assert_eq!(json["@odata.context"], "/redfish/v1/$metadata#ComputerSystemCollection.ComputerSystemCollection");
         assert_eq!(json["Name"], "Systems");
         assert_eq!(json["Members@odata.count"], 1);
         assert_eq!(json["Members"][0]["@odata.id"], "/redfish/v1/Systems/vm1");
@@ -169,7 +177,7 @@ mod tests {
     #[test]
     fn test_status_unavailable_critical() {
         let s = Status::unavailable_critical();
-        assert_eq!(s.state.as_deref(), Some("Unavailable"));
+        assert_eq!(s.state.as_deref(), Some("UnavailableOffline"));
         assert_eq!(s.health.as_deref(), Some("Critical"));
     }
 

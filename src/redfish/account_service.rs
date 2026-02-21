@@ -191,6 +191,8 @@ pub struct RoleResource {
     pub odata_type: &'static str,
     #[serde(rename = "Id")]
     pub id: String,
+    #[serde(rename = "RoleId")]
+    pub role_id: String,
     #[serde(rename = "Name")]
     pub name: String,
     #[serde(rename = "IsPredefined")]
@@ -220,6 +222,7 @@ pub async fn get_role(
         odata_id: format!("/redfish/v1/AccountService/Roles/{role_id}"),
         odata_type: "#Role.v1_3_1.Role",
         id: role_id.clone(),
+        role_id: role_id.clone(),
         name: format!("{role_id} Role"),
         is_predefined: true,
         assigned_privileges: privileges.into_iter().map(String::from).collect(),

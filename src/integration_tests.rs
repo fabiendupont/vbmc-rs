@@ -274,7 +274,7 @@ async fn test_service_root() {
 
     let (status, json, _) = get(&app, "/redfish/v1").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["@odata.type"], "#ServiceRoot.v1_16_0.ServiceRoot");
+    assert_eq!(json["@odata.type"], "#ServiceRoot.v1_17_0.ServiceRoot");
     assert_eq!(json["RedfishVersion"], "1.21.0");
     assert_eq!(json["Systems"]["@odata.id"], "/redfish/v1/Systems");
     assert_eq!(json["Managers"]["@odata.id"], "/redfish/v1/Managers");
@@ -296,7 +296,7 @@ async fn test_systems_collection() {
     let (status, json, _) = get(&app, "/redfish/v1/Systems").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["Members@odata.count"], 2);
-    assert_eq!(json["@odata.context"], "/redfish/v1/$metadata");
+    assert!(json["@odata.context"].as_str().unwrap().starts_with("/redfish/v1/$metadata#"));
 }
 
 #[tokio::test]
@@ -347,7 +347,7 @@ async fn test_get_system_backend_down() {
     let (status, json, _) = get(&app, "/redfish/v1/Systems/vm1").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["PowerState"], "Off");
-    assert_eq!(json["Status"]["State"], "Unavailable");
+    assert_eq!(json["Status"]["State"], "UnavailableOffline");
 }
 
 #[tokio::test]
@@ -506,7 +506,7 @@ async fn test_memory() {
     let (status, json, _) = get(&app, "/redfish/v1/Systems/vm1/Memory/DIMM0").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["CapacityMiB"], 4096);
-    assert_eq!(json["MemoryDeviceType"], "DRAM");
+    assert_eq!(json["MemoryDeviceType"], "DDR4");
 }
 
 // ── Managers ──────────────────────────────────────────────────────────
@@ -754,10 +754,12 @@ async fn test_odata_context_on_collection() {
     let state = make_app_state(MockBackend::new(), HashMap::new());
     let app = build_app(state);
 
-    // Collection already has @odata.context set by Collection::new,
-    // middleware should not overwrite it
+    // Collection has @odata.context derived from odata_type by Collection::new
     let (_, json, _) = get(&app, "/redfish/v1/Systems").await;
-    assert_eq!(json["@odata.context"], "/redfish/v1/$metadata");
+    assert_eq!(
+        json["@odata.context"],
+        "/redfish/v1/$metadata#ComputerSystemCollection.ComputerSystemCollection"
+    );
 }
 
 #[tokio::test]

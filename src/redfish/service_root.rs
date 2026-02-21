@@ -31,7 +31,7 @@ pub struct ServiceRoot {
     pub account_service: Option<ODataId>,
     #[serde(rename = "EventService", skip_serializing_if = "Option::is_none")]
     pub event_service: Option<ODataId>,
-    #[serde(rename = "TaskService", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "Tasks", skip_serializing_if = "Option::is_none")]
     pub task_service: Option<ODataId>,
     #[serde(rename = "TelemetryService", skip_serializing_if = "Option::is_none")]
     pub telemetry_service: Option<ODataId>,
@@ -45,6 +45,14 @@ pub struct ServiceRoot {
     pub update_service: Option<ODataId>,
     #[serde(rename = "LicenseService", skip_serializing_if = "Option::is_none")]
     pub license_service: Option<ODataId>,
+    #[serde(rename = "Links")]
+    pub links: ServiceRootLinks,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ServiceRootLinks {
+    #[serde(rename = "Sessions")]
+    pub sessions: ODataId,
 }
 
 pub async fn get_service_root(
@@ -52,7 +60,7 @@ pub async fn get_service_root(
 ) -> Json<ServiceRoot> {
     Json(ServiceRoot {
         odata_id: "/redfish/v1",
-        odata_type: "#ServiceRoot.v1_16_0.ServiceRoot",
+        odata_type: "#ServiceRoot.v1_17_0.ServiceRoot",
         id: "RootService",
         name: "vbmc-rs Redfish Service",
         redfish_version: "1.21.0",
@@ -69,6 +77,9 @@ pub async fn get_service_root(
         component_integrity: Some(ODataId::new("/redfish/v1/ComponentIntegrity")),
         update_service: Some(ODataId::new("/redfish/v1/UpdateService")),
         license_service: Some(ODataId::new("/redfish/v1/LicenseService")),
+        links: ServiceRootLinks {
+            sessions: ODataId::new("/redfish/v1/SessionService/Sessions"),
+        },
     })
 }
 

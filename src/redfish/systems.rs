@@ -49,7 +49,7 @@ pub struct ComputerSystem {
     #[serde(rename = "Storage")]
     pub storage: ODataId,
     #[serde(rename = "PCIeDevices")]
-    pub pcie_devices: ODataId,
+    pub pcie_devices: Vec<ODataId>,
     #[serde(rename = "Bios")]
     pub bios: ODataId,
     #[serde(rename = "LogServices")]
@@ -239,9 +239,7 @@ pub async fn get_system(
         storage: ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/Storage"
         )),
-        pcie_devices: ODataId::new(format!(
-            "/redfish/v1/Systems/{system_id}/PCIeDevices"
-        )),
+        pcie_devices: Vec::new(),
         bios: ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/Bios"
         )),
@@ -320,7 +318,7 @@ mod tests {
     #[test]
     fn test_power_state_to_status_unknown() {
         let s = power_state_to_status(VmPowerState::Unknown);
-        assert_eq!(s.state.as_deref(), Some("Unavailable"));
+        assert_eq!(s.state.as_deref(), Some("UnavailableOffline"));
         assert_eq!(s.health.as_deref(), Some("Critical"));
     }
 }

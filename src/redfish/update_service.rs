@@ -55,19 +55,10 @@ pub async fn get_update_service() -> Json<UpdateServiceResource> {
     })
 }
 
-pub async fn get_firmware_inventory(
-    State(state): State<Arc<AppState>>,
-) -> Json<Collection<ODataId>> {
-    let mut members = vec![ODataId::new(
+pub async fn get_firmware_inventory() -> Json<Collection<ODataId>> {
+    let members = vec![ODataId::new(
         "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
     )];
-
-    // Add firmware entries for each system
-    for system_id in state.config.systems.keys() {
-        members.push(ODataId::new(format!(
-            "/redfish/v1/UpdateService/FirmwareInventory/firmware_{system_id}"
-        )));
-    }
 
     Json(Collection::new(
         "/redfish/v1/UpdateService/FirmwareInventory",

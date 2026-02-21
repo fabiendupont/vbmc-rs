@@ -21,6 +21,8 @@ pub struct ThermalResource {
 
 #[derive(Debug, Serialize)]
 pub struct Temperature {
+    #[serde(rename = "@odata.id")]
+    pub odata_id: String,
     #[serde(rename = "MemberId")]
     pub member_id: &'static str,
     #[serde(rename = "Name")]
@@ -35,6 +37,8 @@ pub struct Temperature {
 
 #[derive(Debug, Serialize)]
 pub struct Fan {
+    #[serde(rename = "@odata.id")]
+    pub odata_id: String,
     #[serde(rename = "MemberId")]
     pub member_id: &'static str,
     #[serde(rename = "Name")]
@@ -54,6 +58,7 @@ pub async fn get_thermal() -> Json<ThermalResource> {
         id: "Thermal",
         name: "Thermal",
         temperatures: vec![Temperature {
+            odata_id: "/redfish/v1/Chassis/1/Thermal#/Temperatures/0".to_string(),
             member_id: "0",
             name: "CPU Temperature",
             reading_celsius: 35,
@@ -61,6 +66,7 @@ pub async fn get_thermal() -> Json<ThermalResource> {
             status: Status::enabled_ok(),
         }],
         fans: vec![Fan {
+            odata_id: "/redfish/v1/Chassis/1/Thermal#/Fans/0".to_string(),
             member_id: "0",
             name: "System Fan",
             reading: 3000,

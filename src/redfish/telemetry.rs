@@ -52,17 +52,11 @@ pub struct MetricDefinition {
 }
 
 pub async fn get_metric_definitions() -> Json<Collection<ODataId>> {
-    let members = vec![
-        ODataId::new("/redfish/v1/TelemetryService/MetricDefinitions/HttpRequests"),
-        ODataId::new("/redfish/v1/TelemetryService/MetricDefinitions/HttpDuration"),
-        ODataId::new("/redfish/v1/TelemetryService/MetricDefinitions/AuthAttempts"),
-    ];
-
     Json(Collection::new(
         "/redfish/v1/TelemetryService/MetricDefinitions",
         "#MetricDefinitionCollection.MetricDefinitionCollection",
         "Metric Definitions",
-        members,
+        Vec::<ODataId>::new(),
     ))
 }
 

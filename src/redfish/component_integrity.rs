@@ -22,16 +22,18 @@ pub struct ComponentIntegrityResource {
     pub component_integrity_type: &'static str,
     #[serde(rename = "ComponentIntegrityTypeVersion")]
     pub component_integrity_type_version: &'static str,
+    #[serde(rename = "TargetComponentURI")]
+    pub target_component_uri: String,
     #[serde(rename = "Status")]
     pub status: Status,
-    #[serde(rename = "SPDMinfo", skip_serializing_if = "Option::is_none")]
-    pub spdm_info: Option<SpdmInfo>,
+    #[serde(rename = "SPDM", skip_serializing_if = "Option::is_none")]
+    pub spdm: Option<SpdmInfo>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct SpdmInfo {
-    #[serde(rename = "VerificationStatus")]
-    pub verification_status: String,
+    #[serde(rename = "Requester")]
+    pub requester: super::types::ODataId,
 }
 
 pub async fn get_component_integrity_collection(
@@ -81,13 +83,18 @@ pub async fn get_component_integrity(
         name: format!("Integrity: {system_id}"),
         component_integrity_type: "SPDM",
         component_integrity_type_version: "1.0",
+        target_component_uri: format!(
+            "/redfish/v1/Chassis/1/TrustedComponents/{system_id}"
+        ),
         status: Status {
             state: Some("Enabled".to_string()),
             health: Some(health.to_string()),
             health_rollup: Some(health.to_string()),
         },
-        spdm_info: Some(SpdmInfo {
-            verification_status,
+        spdm: Some(SpdmInfo {
+            requester: super::types::ODataId::new(format!(
+                "/redfish/v1/ComponentIntegrity/{system_id}"
+            )),
         }),
     }))
 }

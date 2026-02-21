@@ -3,3 +3,4 @@ audit.jsonl
 *.json.tmp
 /.venv-dmtf
 /dmtf-reports
+/SchemaFiles

@@ -33,6 +33,8 @@ pub struct StorageResource {
 
 #[derive(Debug, Serialize)]
 pub struct StorageControllerEntry {
+    #[serde(rename = "@odata.id")]
+    pub odata_id: String,
     #[serde(rename = "MemberId")]
     pub member_id: String,
     #[serde(rename = "Name")]
@@ -95,6 +97,16 @@ fn media_type_to_string(m: DiskMediaType) -> String {
         DiskMediaType::HDD => "HDD".to_string(),
         DiskMediaType::Virtual => "Virtual".to_string(),
         DiskMediaType::Unknown => "Unknown".to_string(),
+    }
+}
+
+fn protocol_to_redfish_standard(ctrl_id: &str) -> String {
+    match ctrl_id {
+        "Virtio" => "PCIe".to_string(),
+        "NVMe" => "NVMe".to_string(),
+        "SATA" => "SATA".to_string(),
+        "VhostUser" => "PCIe".to_string(),
+        other => other.to_string(),
     }
 }
 
@@ -180,9 +192,12 @@ pub async fn get_storage(
         id: ctrl_id.clone(),
         name: format!("{ctrl_id} Storage Controller"),
         storage_controllers: vec![StorageControllerEntry {
+            odata_id: format!(
+                "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}#/StorageControllers/0"
+            ),
             member_id: "0".to_string(),
             name: format!("{ctrl_id} Controller"),
-            supported_device_protocols: vec![ctrl_id.clone()],
+            supported_device_protocols: vec![protocol_to_redfish_standard(&ctrl_id)],
             status: Status::enabled_ok(),
         }],
         drives,

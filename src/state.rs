@@ -27,7 +27,7 @@ pub struct LicenseInfo {
     pub license_string: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BootOverride {
     pub target: Option<String>,
     #[serde(default = "default_boot_override_enabled")]
@@ -37,6 +37,16 @@ pub struct BootOverride {
 
 fn default_boot_override_enabled() -> String {
     "Disabled".to_string()
+}
+
+impl Default for BootOverride {
+    fn default() -> Self {
+        Self {
+            target: None,
+            enabled: default_boot_override_enabled(),
+            mode: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

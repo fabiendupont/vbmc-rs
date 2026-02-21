@@ -75,7 +75,7 @@ pub async fn get_memory(
         id: dimm_id,
         name: "Virtual DIMM 0".to_string(),
         capacity_mib,
-        memory_device_type: "DRAM",
+        memory_device_type: "DDR4",
         status: Status::enabled_ok(),
     }))
 }

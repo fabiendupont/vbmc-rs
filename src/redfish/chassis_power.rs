@@ -21,6 +21,8 @@ pub struct PowerResource {
 
 #[derive(Debug, Serialize)]
 pub struct PowerControl {
+    #[serde(rename = "@odata.id")]
+    pub odata_id: String,
     #[serde(rename = "MemberId")]
     pub member_id: &'static str,
     #[serde(rename = "Name")]
@@ -35,6 +37,8 @@ pub struct PowerControl {
 
 #[derive(Debug, Serialize)]
 pub struct PowerSupply {
+    #[serde(rename = "@odata.id")]
+    pub odata_id: String,
     #[serde(rename = "MemberId")]
     pub member_id: &'static str,
     #[serde(rename = "Name")]
@@ -54,6 +58,7 @@ pub async fn get_power() -> Json<PowerResource> {
         id: "Power",
         name: "Power",
         power_control: vec![PowerControl {
+            odata_id: "/redfish/v1/Chassis/1/Power#/PowerControl/0".to_string(),
             member_id: "0",
             name: "System Power Control",
             power_consumed_watts: 50,
@@ -61,6 +66,7 @@ pub async fn get_power() -> Json<PowerResource> {
             status: Status::enabled_ok(),
         }],
         power_supplies: vec![PowerSupply {
+            odata_id: "/redfish/v1/Chassis/1/Power#/PowerSupplies/0".to_string(),
             member_id: "0",
             name: "Virtual PSU",
             power_capacity_watts: 500,
