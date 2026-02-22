@@ -21,6 +21,8 @@ pub struct TaskServiceResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "ServiceEnabled")]
     pub service_enabled: bool,
     #[serde(rename = "Tasks")]
@@ -33,6 +35,7 @@ pub async fn get_task_service() -> Json<TaskServiceResource> {
         odata_type: "#TaskService.v1_2_0.TaskService",
         id: "TaskService",
         name: "Task Service",
+        description: "Task management service",
         service_enabled: true,
         tasks: ODataId::new("/redfish/v1/TaskService/Tasks"),
     })
@@ -65,6 +68,8 @@ pub struct TaskResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "TaskState")]
     pub task_state: TaskState,
     #[serde(rename = "TaskStatus")]
@@ -93,6 +98,7 @@ pub async fn get_task(
         odata_type: "#Task.v1_7_0.Task",
         id: task.id.clone(),
         name: task.name,
+        description: "Background task",
         task_state: task.task_state,
         task_status: task.task_status,
         start_time: task.start_time.to_rfc3339(),

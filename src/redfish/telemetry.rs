@@ -13,6 +13,8 @@ pub struct TelemetryServiceResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "ServiceEnabled")]
     pub service_enabled: bool,
     #[serde(rename = "MetricDefinitions")]
@@ -27,6 +29,7 @@ pub async fn get_telemetry_service() -> Json<TelemetryServiceResource> {
         odata_type: "#TelemetryService.v1_3_0.TelemetryService",
         id: "TelemetryService",
         name: "Telemetry Service",
+        description: "Telemetry and metrics service",
         service_enabled: true,
         metric_definitions: ODataId::new(
             "/redfish/v1/TelemetryService/MetricDefinitions",

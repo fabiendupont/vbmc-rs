@@ -17,6 +17,8 @@ pub struct BiosResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "Attributes")]
     pub attributes: BiosAttributes,
     #[serde(rename = "@Redfish.Settings")]
@@ -58,6 +60,7 @@ pub async fn get_bios(
         odata_type: "#Bios.v1_2_1.Bios",
         id: "Bios",
         name: "BIOS Configuration",
+        description: "BIOS configuration",
         attributes: attrs,
         settings: SettingsObject {
             settings_object: super::types::ODataId::new(format!(

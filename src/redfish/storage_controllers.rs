@@ -21,6 +21,8 @@ pub struct StorageResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "StorageControllers")]
     pub storage_controllers: Vec<StorageControllerEntry>,
     #[serde(rename = "Drives")]
@@ -55,6 +57,8 @@ pub struct DriveResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "CapacityBytes", skip_serializing_if = "Option::is_none")]
     pub capacity_bytes: Option<u64>,
     #[serde(rename = "MediaType")]
@@ -75,6 +79,8 @@ pub struct VolumeResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "CapacityBytes", skip_serializing_if = "Option::is_none")]
     pub capacity_bytes: Option<u64>,
     #[serde(rename = "Status")]
@@ -191,6 +197,7 @@ pub async fn get_storage(
         odata_type: "#Storage.v1_15_0.Storage",
         id: ctrl_id.clone(),
         name: format!("{ctrl_id} Storage Controller"),
+        description: "Storage controller",
         storage_controllers: vec![StorageControllerEntry {
             odata_id: format!(
                 "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}#/StorageControllers/0"
@@ -237,6 +244,7 @@ pub async fn get_drive(
         odata_type: "#Drive.v1_18_0.Drive",
         id: drive_id,
         name: disk.id.clone(),
+        description: "Virtual disk drive",
         capacity_bytes: disk.capacity_bytes,
         media_type: media_type_to_string(disk.media_type),
         protocol: protocol_to_string(disk.protocol),
@@ -304,6 +312,7 @@ pub async fn get_volume(
         odata_type: "#Volume.v1_10_0.Volume",
         id: vol_id,
         name: disk.id.clone(),
+        description: "Storage volume",
         capacity_bytes: disk.capacity_bytes,
         status: Status::enabled_ok(),
     }))

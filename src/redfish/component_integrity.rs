@@ -19,16 +19,30 @@ pub struct ComponentIntegrityResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: String,
     #[serde(rename = "ComponentIntegrityType")]
     pub component_integrity_type: &'static str,
     #[serde(rename = "ComponentIntegrityTypeVersion")]
     pub component_integrity_type_version: &'static str,
+    #[serde(rename = "ComponentIntegrityEnabled")]
+    pub component_integrity_enabled: bool,
     #[serde(rename = "TargetComponentURI")]
     pub target_component_uri: String,
+    #[serde(rename = "LastUpdated", skip_serializing_if = "Option::is_none")]
+    pub last_updated: Option<String>,
     #[serde(rename = "Status")]
     pub status: Status,
+    #[serde(rename = "Links")]
+    pub links: ComponentIntegrityLinks,
     #[serde(rename = "SPDM", skip_serializing_if = "Option::is_none")]
     pub spdm: Option<SpdmInfo>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ComponentIntegrityLinks {
+    #[serde(rename = "ComponentsProtected")]
+    pub components_protected: Vec<ODataId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -219,15 +233,23 @@ pub async fn get_component_integrity(
         odata_type: "#ComponentIntegrity.v1_2_0.ComponentIntegrity",
         id: system_id.clone(),
         name: format!("Integrity: {system_id}"),
+        description: format!("SPDM integrity status for {system_id}"),
         component_integrity_type: "SPDM",
         component_integrity_type_version: "1.0",
+        component_integrity_enabled: true,
         target_component_uri: format!(
             "/redfish/v1/Chassis/1/TrustedComponents/{system_id}"
         ),
+        last_updated: vm_state.attestation.last_checked.clone(),
         status: Status {
             state: Some("Enabled".to_string()),
             health: Some(health.to_string()),
             health_rollup: Some(health.to_string()),
+        },
+        links: ComponentIntegrityLinks {
+            components_protected: vec![ODataId::new(format!(
+                "/redfish/v1/Systems/{system_id}"
+            ))],
         },
         spdm: Some(spdm),
     }))

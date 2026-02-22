@@ -23,6 +23,8 @@ pub struct VirtualMediaResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "MediaTypes")]
     pub media_types: Vec<&'static str>,
     #[serde(rename = "Inserted")]
@@ -102,6 +104,7 @@ pub async fn get_virtual_media(
         odata_type: "#VirtualMedia.v1_6_0.VirtualMedia",
         id: "Cd",
         name: "Virtual CD",
+        description: "Virtual media device",
         media_types: vec!["CD", "DVD"],
         inserted: vm_state.virtual_media.inserted,
         image: vm_state.virtual_media.image_url.clone(),

@@ -81,6 +81,7 @@ pub struct VmInfo {
     pub disks: Vec<DiskInfo>,
     pub nics: Vec<NicInfo>,
     pub pci_devices: Vec<PciDeviceInfo>,
+    pub uuid: Option<String>,
     pub raw: Option<serde_json::Value>,
 }
 
@@ -204,6 +205,7 @@ mod tests {
                 speed_mbps: 25000,
             }],
             pci_devices: vec![],
+            uuid: None,
             raw: None,
         };
 

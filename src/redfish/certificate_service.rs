@@ -13,6 +13,8 @@ pub struct CertificateServiceResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "CertificateLocations")]
     pub certificate_locations: ODataId,
     #[serde(rename = "Actions")]
@@ -38,6 +40,7 @@ pub async fn get_certificate_service() -> Json<CertificateServiceResource> {
         odata_type: "#CertificateService.v1_0_5.CertificateService",
         id: "CertificateService",
         name: "Certificate Service",
+        description: "Certificate management service",
         certificate_locations: ODataId::new(
             "/redfish/v1/CertificateService/CertificateLocations",
         ),

@@ -19,6 +19,8 @@ pub struct PCIeDeviceResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "DeviceType")]
     pub device_type: &'static str,
     #[serde(rename = "Manufacturer", skip_serializing_if = "Option::is_none")]
@@ -39,6 +41,8 @@ pub struct PCIeFunctionResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "FunctionId")]
     pub function_id: u8,
     #[serde(rename = "VendorId", skip_serializing_if = "Option::is_none")]
@@ -112,6 +116,7 @@ pub async fn get_pcie_device(
             .device_name
             .clone()
             .unwrap_or_else(|| format!("PCIe Device {}", dev.bdf)),
+        description: "PCIe device",
         device_type: if dev.is_passthrough {
             "SingleFunction"
         } else {
@@ -215,6 +220,7 @@ pub async fn get_pcie_function(
         odata_type: "#PCIeFunction.v1_5_1.PCIeFunction",
         id: func_id,
         name: format!("Function {}", func.function_id),
+        description: "PCIe function",
         function_id: func.function_id,
         vendor_id: func.vendor_id.clone(),
         device_id: func.device_id.clone(),

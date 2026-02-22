@@ -20,6 +20,14 @@ pub struct ComputerSystem {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
+    #[serde(rename = "Manufacturer")]
+    pub manufacturer: &'static str,
+    #[serde(rename = "Model")]
+    pub model: &'static str,
+    #[serde(rename = "UUID", skip_serializing_if = "Option::is_none")]
+    pub uuid: Option<String>,
     #[serde(rename = "SystemType")]
     pub system_type: &'static str,
     #[serde(rename = "Status")]
@@ -72,6 +80,12 @@ pub struct BootOptions {
 pub struct ProcessorSummary {
     #[serde(rename = "Count")]
     pub count: u32,
+    #[serde(rename = "Model")]
+    pub model: String,
+    #[serde(rename = "CoreCount")]
+    pub core_count: u32,
+    #[serde(rename = "LogicalProcessorCount")]
+    pub logical_processor_count: u32,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -80,6 +94,8 @@ pub struct ProcessorSummary {
 pub struct MemorySummary {
     #[serde(rename = "TotalSystemMemoryGiB")]
     pub total_system_memory_gib: f64,
+    #[serde(rename = "TotalSystemPersistentMemoryGiB")]
+    pub total_system_persistent_memory_gib: f64,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -95,6 +111,24 @@ pub struct ResetAction {
     pub target: String,
     #[serde(rename = "ResetType@Redfish.AllowableValues")]
     pub allowable_values: Vec<String>,
+}
+
+fn get_host_cpu_model() -> String {
+    std::fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|content| {
+            content
+                .lines()
+                .find(|l| l.starts_with("model name"))
+                .map(|l| {
+                    l.split(':')
+                        .nth(1)
+                        .unwrap_or("Virtual CPU")
+                        .trim()
+                        .to_string()
+                })
+        })
+        .unwrap_or_else(|| "Virtual CPU".to_string())
 }
 
 fn power_state_to_redfish(ps: VmPowerState) -> String {
@@ -158,22 +192,36 @@ pub async fn get_system(
 
     let vm_state = state.get_vm_state(&system_id);
 
-    let (power_state, status, cpu_count, memory_gib) =
+    let (power_state, status, cpu_count, max_cpu_count, memory_gib, vm_uuid) =
         match state.backend.vm_info(&system_id).await {
             Ok(info) => {
                 let ps = info.power_state;
                 let st = power_state_to_status(ps);
                 let cpus = info.cpu_count;
+                let max_cpus = info.max_cpu_count;
                 let mem = info.memory_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-                (power_state_to_redfish(ps), st, cpus, mem)
+                let uuid = info.uuid.clone();
+                (power_state_to_redfish(ps), st, cpus, max_cpus, mem, uuid)
             }
             Err(_) => (
                 "Off".to_string(),
                 Status::unavailable_critical(),
                 0,
+                0,
                 0.0,
+                None,
             ),
         };
+
+    let system_uuid = vm_uuid.unwrap_or_else(|| {
+        uuid::Uuid::new_v5(
+            &uuid::Uuid::NAMESPACE_URL,
+            format!("vbmc-rs:system:{system_id}").as_bytes(),
+        )
+        .to_string()
+    });
+
+    let cpu_model = get_host_cpu_model();
 
     let boot = BootOptions {
         boot_source_override_target: vm_state.boot_override.target.clone(),
@@ -192,16 +240,24 @@ pub async fn get_system(
         odata_type: "#ComputerSystem.v1_20_0.ComputerSystem",
         id: system_id.clone(),
         name,
+        description: "Virtual machine managed by vbmc-rs",
+        manufacturer: state.config.backend.display_name(),
+        model: "vBMC",
+        uuid: Some(system_uuid),
         system_type: "Virtual",
         status,
         power_state,
         boot,
         processor_summary: ProcessorSummary {
             count: cpu_count,
+            model: cpu_model,
+            core_count: cpu_count,
+            logical_processor_count: max_cpu_count,
             status: Status::enabled_ok(),
         },
         memory_summary: MemorySummary {
             total_system_memory_gib: memory_gib,
+            total_system_persistent_memory_gib: 0.0,
             status: Status::enabled_ok(),
         },
         actions: SystemActions {

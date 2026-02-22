@@ -19,6 +19,8 @@ pub struct EthernetInterface {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "MACAddress", skip_serializing_if = "Option::is_none")]
     pub mac_address: Option<String>,
     #[serde(rename = "SpeedMbps")]
@@ -87,6 +89,7 @@ pub async fn get_ethernet_interface(
         odata_type: "#EthernetInterface.v1_12_0.EthernetInterface",
         id: nic_id,
         name: nic.id.clone(),
+        description: "Virtual network interface",
         mac_address: nic.mac_address.clone(),
         speed_mbps: nic.speed_mbps,
         status: Status::enabled_ok(),

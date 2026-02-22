@@ -19,6 +19,8 @@ pub struct NetworkAdapterResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "Manufacturer")]
     pub manufacturer: &'static str,
     #[serde(rename = "NetworkDeviceFunctions")]
@@ -97,6 +99,7 @@ pub async fn get_network_adapter(
         odata_type: "#NetworkAdapter.v1_10_0.NetworkAdapter",
         id: adapter_id.clone(),
         name: format!("Network Adapter {adapter_id}"),
+        description: "Virtual network adapter",
         manufacturer: "Virtual",
         network_device_functions: ODataId::new(format!(
             "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions"

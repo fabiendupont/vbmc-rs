@@ -18,6 +18,18 @@ impl Default for BackendType {
     }
 }
 
+impl BackendType {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::CloudHypervisor => "Cloud Hypervisor",
+            #[cfg(feature = "qemu")]
+            Self::Qemu => "QEMU",
+            #[cfg(feature = "libvirt")]
+            Self::Libvirt => "Libvirt",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
     pub server: ServerConfig,

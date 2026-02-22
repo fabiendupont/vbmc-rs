@@ -18,6 +18,8 @@ pub struct LogServiceResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "Entries")]
     pub entries: ODataId,
     #[serde(rename = "Status")]
@@ -34,6 +36,8 @@ pub struct LogEntryResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "EntryType")]
     pub entry_type: &'static str,
     #[serde(rename = "Message")]
@@ -87,6 +91,7 @@ pub async fn get_system_log_service(
         odata_type: "#LogService.v1_5_0.LogService",
         id: "Console".to_string(),
         name: "Console Log".to_string(),
+        description: "Log service",
         entries: ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/LogServices/Console/Entries"
         )),
@@ -146,6 +151,7 @@ pub async fn get_manager_log_service(
         odata_type: "#LogService.v1_5_0.LogService",
         id: "Audit".to_string(),
         name: "Audit Log".to_string(),
+        description: "Log service",
         entries: ODataId::new("/redfish/v1/Managers/vbmc/LogServices/Audit/Entries"),
         status: Status::enabled_ok(),
     }))
@@ -179,6 +185,7 @@ pub async fn get_manager_log_entries(
                     odata_type: "#LogEntry.v1_16_0.LogEntry",
                     id: i.to_string(),
                     name: format!("Audit Entry {i}"),
+                    description: "Log entry",
                     entry_type: "Event",
                     message: event
                         .get("message")

@@ -13,6 +13,8 @@ pub struct ThermalResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "Temperatures")]
     pub temperatures: Vec<Temperature>,
     #[serde(rename = "Fans")]
@@ -57,6 +59,7 @@ pub async fn get_thermal() -> Json<ThermalResource> {
         odata_type: "#Thermal.v1_7_2.Thermal",
         id: "Thermal",
         name: "Thermal",
+        description: "Thermal sensors and fans",
         temperatures: vec![Temperature {
             odata_id: "/redfish/v1/Chassis/1/Thermal#/Temperatures/0".to_string(),
             member_id: "0",

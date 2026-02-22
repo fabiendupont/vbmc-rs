@@ -76,6 +76,7 @@ fn make_running_vm() -> VmInfo {
             speed_mbps: 25000,
         }],
         pci_devices: vec![],
+        uuid: None,
         raw: None,
     }
 }

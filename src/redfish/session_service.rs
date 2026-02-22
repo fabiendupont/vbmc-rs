@@ -23,6 +23,8 @@ pub struct SessionServiceResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "ServiceEnabled")]
     pub service_enabled: bool,
     #[serde(rename = "SessionTimeout")]
@@ -39,6 +41,7 @@ pub async fn get_session_service(
         odata_type: "#SessionService.v1_1_9.SessionService",
         id: "SessionService",
         name: "Session Service",
+        description: "Session management service",
         service_enabled: true,
         session_timeout: state.config.auth.session_timeout_seconds,
         sessions: ODataId::new("/redfish/v1/SessionService/Sessions"),
@@ -80,6 +83,8 @@ pub struct SessionResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "UserName")]
     pub user_name: String,
 }
@@ -139,6 +144,7 @@ pub async fn create_session(
         odata_type: "#Session.v1_7_0.Session",
         id: session.id.clone(),
         name: format!("Session for {}", body.user_name),
+        description: "User session",
         user_name: body.user_name,
     };
 

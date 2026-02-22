@@ -17,6 +17,8 @@ pub struct SecurityPolicyResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "SPDM")]
     pub spdm: SpdmPolicy,
     #[serde(rename = "TLS")]
@@ -43,6 +45,7 @@ pub async fn get_security_policy(
         odata_type: "#SecurityPolicy.v1_0_0.SecurityPolicy",
         id: "SecurityPolicy",
         name: "Security Policy",
+        description: "Security policy configuration",
         spdm: SpdmPolicy {
             enabled: state.config.security_policy.spdm_enabled,
         },

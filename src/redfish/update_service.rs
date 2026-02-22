@@ -17,6 +17,8 @@ pub struct UpdateServiceResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "ServiceEnabled")]
     pub service_enabled: bool,
     #[serde(rename = "FirmwareInventory")]
@@ -35,6 +37,8 @@ pub struct SoftwareInventoryResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "Version")]
     pub version: &'static str,
     #[serde(rename = "Updateable")]
@@ -49,6 +53,7 @@ pub async fn get_update_service() -> Json<UpdateServiceResource> {
         odata_type: "#UpdateService.v1_14_0.UpdateService",
         id: "UpdateService",
         name: "Update Service",
+        description: "Firmware update service",
         service_enabled: true,
         firmware_inventory: ODataId::new("/redfish/v1/UpdateService/FirmwareInventory"),
         status: Status::enabled_ok(),
@@ -77,6 +82,7 @@ pub async fn get_firmware_inventory_item(
             odata_type: "#SoftwareInventory.v1_10_0.SoftwareInventory",
             id: "vbmc-rs".to_string(),
             name: "vbmc-rs BMC Firmware".to_string(),
+            description: "Software component",
             version: env!("CARGO_PKG_VERSION"),
             updateable: false,
             status: Status::enabled_ok(),

@@ -130,6 +130,7 @@ impl VmmBackend for QemuBackend {
             disks,
             nics: Vec::new(), // QEMU NIC enumeration requires device model knowledge
             pci_devices,
+            uuid: None,
             raw: None,
         })
     }

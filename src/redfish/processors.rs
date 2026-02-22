@@ -19,6 +19,8 @@ pub struct Processor {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "ProcessorType")]
     pub processor_type: &'static str,
     #[serde(rename = "TotalCores")]
@@ -84,6 +86,7 @@ pub async fn get_processor(
         odata_type: "#Processor.v1_18_0.Processor",
         id: "CPU0",
         name: "Virtual CPU",
+        description: "Virtual CPU",
         processor_type: "CPU",
         total_cores: cores,
         total_threads: threads,

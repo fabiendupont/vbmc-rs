@@ -19,6 +19,8 @@ pub struct MemoryResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "CapacityMiB")]
     pub capacity_mib: u64,
     #[serde(rename = "MemoryDeviceType")]
@@ -74,6 +76,7 @@ pub async fn get_memory(
         odata_type: "#Memory.v1_19_0.Memory",
         id: dimm_id,
         name: "Virtual DIMM 0".to_string(),
+        description: "Virtual memory module",
         capacity_mib,
         memory_device_type: "DDR4",
         status: Status::enabled_ok(),

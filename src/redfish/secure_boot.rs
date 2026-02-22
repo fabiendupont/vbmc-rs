@@ -17,6 +17,8 @@ pub struct SecureBootResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "SecureBootEnable")]
     pub secure_boot_enable: bool,
     #[serde(rename = "SecureBootCurrentBoot")]
@@ -42,6 +44,7 @@ pub async fn get_secure_boot(
         odata_type: "#SecureBoot.v1_1_0.SecureBoot",
         id: "SecureBoot",
         name: "UEFI Secure Boot",
+        description: "UEFI Secure Boot settings",
         secure_boot_enable: vm_state.secure_boot_enabled,
         secure_boot_current_boot: if vm_state.secure_boot_enabled {
             "Enabled"

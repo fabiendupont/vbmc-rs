@@ -24,6 +24,8 @@ pub struct EventServiceResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "ServiceEnabled")]
     pub service_enabled: bool,
     #[serde(rename = "Subscriptions")]
@@ -38,6 +40,7 @@ pub async fn get_event_service() -> Json<EventServiceResource> {
         odata_type: "#EventService.v1_10_0.EventService",
         id: "EventService",
         name: "Event Service",
+        description: "Redfish event delivery service",
         service_enabled: true,
         subscriptions: ODataId::new("/redfish/v1/EventService/Subscriptions"),
         sse_uri: "/redfish/v1/EventService/SSE",

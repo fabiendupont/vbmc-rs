@@ -13,6 +13,8 @@ pub struct PowerResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "PowerControl")]
     pub power_control: Vec<PowerControl>,
     #[serde(rename = "PowerSupplies")]
@@ -57,6 +59,7 @@ pub async fn get_power() -> Json<PowerResource> {
         odata_type: "#Power.v1_7_2.Power",
         id: "Power",
         name: "Power",
+        description: "Power consumption and supplies",
         power_control: vec![PowerControl {
             odata_id: "/redfish/v1/Chassis/1/Power#/PowerControl/0".to_string(),
             member_id: "0",

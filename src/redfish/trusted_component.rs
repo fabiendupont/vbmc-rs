@@ -18,6 +18,8 @@ pub struct ChassisResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "ChassisType")]
     pub chassis_type: &'static str,
     #[serde(rename = "Status")]
@@ -28,6 +30,10 @@ pub struct ChassisResource {
     pub power: ODataId,
     #[serde(rename = "Thermal")]
     pub thermal: ODataId,
+    #[serde(rename = "PowerSubsystem")]
+    pub power_subsystem: ODataId,
+    #[serde(rename = "ThermalSubsystem")]
+    pub thermal_subsystem: ODataId,
     #[serde(rename = "NetworkAdapters")]
     pub network_adapters: ODataId,
 }
@@ -48,11 +54,14 @@ pub async fn get_chassis() -> Json<ChassisResource> {
         odata_type: "#Chassis.v1_25_0.Chassis",
         id: "1",
         name: "Virtual Chassis",
+        description: "Virtual chassis for vbmc-rs managed VMs",
         chassis_type: "RackMount",
         status: Status::enabled_ok(),
         trusted_components: ODataId::new("/redfish/v1/Chassis/1/TrustedComponents"),
         power: ODataId::new("/redfish/v1/Chassis/1/Power"),
         thermal: ODataId::new("/redfish/v1/Chassis/1/Thermal"),
+        power_subsystem: ODataId::new("/redfish/v1/Chassis/1/PowerSubsystem"),
+        thermal_subsystem: ODataId::new("/redfish/v1/Chassis/1/ThermalSubsystem"),
         network_adapters: ODataId::new("/redfish/v1/Chassis/1/NetworkAdapters"),
     })
 }
@@ -89,6 +98,8 @@ pub struct TrustedComponentResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: String,
     #[serde(rename = "TrustedComponentType")]
     pub trusted_component_type: &'static str,
     #[serde(rename = "Status")]
@@ -112,6 +123,7 @@ pub async fn get_trusted_component(
         odata_type: "#TrustedComponent.v1_3_0.TrustedComponent",
         id: component_id.clone(),
         name: format!("Trusted: {component_id}"),
+        description: format!("Trusted component: {component_id}"),
         trusted_component_type: "Discrete",
         status: Status::enabled_ok(),
     }))

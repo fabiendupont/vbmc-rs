@@ -19,6 +19,8 @@ pub struct SimpleStorage {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "Devices")]
     pub devices: Vec<StorageDevice>,
     #[serde(rename = "Status")]
@@ -91,6 +93,7 @@ pub async fn get_simple_storage(
         odata_type: "#SimpleStorage.v1_3_0.SimpleStorage",
         id: storage_id,
         name: "Simple Storage Controller".to_string(),
+        description: "Simple storage view",
         devices,
         status: Status::enabled_ok(),
     }))

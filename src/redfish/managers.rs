@@ -17,6 +17,8 @@ pub struct Manager {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "ManagerType")]
     pub manager_type: &'static str,
     #[serde(rename = "FirmwareVersion")]
@@ -51,6 +53,7 @@ pub async fn get_manager(
         odata_type: "#Manager.v1_19_0.Manager",
         id: MANAGER_ID,
         name: "vbmc-rs Virtual BMC",
+        description: "vbmc-rs Virtual Baseboard Management Controller",
         manager_type: "BMC",
         firmware_version: env!("CARGO_PKG_VERSION"),
         status: Status::enabled_ok(),

@@ -17,6 +17,8 @@ pub struct ServiceRoot {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "RedfishVersion")]
     pub redfish_version: &'static str,
     #[serde(rename = "UUID")]
@@ -63,6 +65,7 @@ pub async fn get_service_root(
         odata_type: "#ServiceRoot.v1_17_0.ServiceRoot",
         id: "RootService",
         name: "vbmc-rs Redfish Service",
+        description: "vbmc-rs Redfish Service Root",
         redfish_version: "1.21.0",
         uuid: state.instance_uuid.clone(),
         systems: ODataId::new("/redfish/v1/Systems"),

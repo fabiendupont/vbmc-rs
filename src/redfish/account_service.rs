@@ -22,6 +22,8 @@ pub struct AccountServiceResource {
     pub id: &'static str,
     #[serde(rename = "Name")]
     pub name: &'static str,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "ServiceEnabled")]
     pub service_enabled: bool,
     #[serde(rename = "Accounts")]
@@ -42,6 +44,7 @@ pub async fn get_account_service(
         odata_type: "#AccountService.v1_15_0.AccountService",
         id: "AccountService",
         name: "Account Service",
+        description: "Account management service",
         service_enabled: state.config.auth.enabled,
         accounts: ODataId::new("/redfish/v1/AccountService/Accounts"),
         roles: ODataId::new("/redfish/v1/AccountService/Roles"),
@@ -83,6 +86,8 @@ pub struct AccountResource {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "UserName")]
     pub user_name: String,
     #[serde(rename = "RoleId")]
@@ -109,6 +114,7 @@ pub async fn get_account(
         odata_type: "#ManagerAccount.v1_12_0.ManagerAccount",
         id: account.username.clone(),
         name: format!("Account: {}", account.username),
+        description: "User account",
         user_name: account.username.clone(),
         role_id: account.role.clone(),
         enabled: account.enabled,
@@ -195,6 +201,8 @@ pub struct RoleResource {
     pub role_id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
     #[serde(rename = "IsPredefined")]
     pub is_predefined: bool,
     #[serde(rename = "AssignedPrivileges")]
@@ -224,6 +232,7 @@ pub async fn get_role(
         id: role_id.clone(),
         role_id: role_id.clone(),
         name: format!("{role_id} Role"),
+        description: "User role",
         is_predefined: true,
         assigned_privileges: privileges.into_iter().map(String::from).collect(),
     }))

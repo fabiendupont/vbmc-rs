@@ -142,6 +142,12 @@ fn ch_vm_info_to_vm_info(ch_info: types::VmInfo) -> bt::VmInfo {
         })
         .unwrap_or_default();
 
+    let uuid = ch_info
+        .config
+        .platform
+        .as_ref()
+        .and_then(|p| p.uuid.clone());
+
     let raw = serde_json::to_value(&ch_info).ok();
 
     bt::VmInfo {
@@ -154,6 +160,7 @@ fn ch_vm_info_to_vm_info(ch_info: types::VmInfo) -> bt::VmInfo {
         disks,
         nics,
         pci_devices: Vec::new(),
+        uuid,
         raw,
     }
 }

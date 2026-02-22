@@ -2,7 +2,9 @@ pub mod account_service;
 pub mod bios;
 pub mod certificate_service;
 pub mod chassis_power;
+pub mod chassis_power_subsystem;
 pub mod chassis_thermal;
+pub mod chassis_thermal_subsystem;
 pub mod compliance;
 pub mod component_integrity;
 pub mod error;
@@ -320,6 +322,36 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/redfish/v1/Chassis/1/Thermal",
             get(chassis_thermal::get_thermal),
+        )
+        // PowerSubsystem (modern)
+        .route(
+            "/redfish/v1/Chassis/1/PowerSubsystem",
+            get(chassis_power_subsystem::get_power_subsystem),
+        )
+        .route(
+            "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies",
+            get(chassis_power_subsystem::get_power_supplies),
+        )
+        .route(
+            "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0",
+            get(chassis_power_subsystem::get_power_supply),
+        )
+        // ThermalSubsystem (modern)
+        .route(
+            "/redfish/v1/Chassis/1/ThermalSubsystem",
+            get(chassis_thermal_subsystem::get_thermal_subsystem),
+        )
+        .route(
+            "/redfish/v1/Chassis/1/ThermalSubsystem/ThermalMetrics",
+            get(chassis_thermal_subsystem::get_thermal_metrics),
+        )
+        .route(
+            "/redfish/v1/Chassis/1/ThermalSubsystem/Fans",
+            get(chassis_thermal_subsystem::get_fans),
+        )
+        .route(
+            "/redfish/v1/Chassis/1/ThermalSubsystem/Fans/0",
+            get(chassis_thermal_subsystem::get_fan),
         )
         .route(
             "/redfish/v1/Chassis/1/NetworkAdapters",
