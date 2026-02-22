@@ -77,6 +77,98 @@ impl Status {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct RedfishLocation {
+    #[serde(rename = "Info")]
+    pub info: String,
+    #[serde(rename = "InfoFormat")]
+    pub info_format: &'static str,
+    #[serde(rename = "Placement")]
+    pub placement: Placement,
+    #[serde(rename = "PostalAddress")]
+    pub postal_address: PostalAddress,
+    #[serde(rename = "PartLocation")]
+    pub part_location: PartLocation,
+    #[serde(rename = "PartLocationContext")]
+    pub part_location_context: String,
+    #[serde(rename = "Contacts")]
+    pub contacts: Vec<serde_json::Value>,
+    #[serde(rename = "AltitudeMeters")]
+    pub altitude_meters: f64,
+    #[serde(rename = "Latitude")]
+    pub latitude: f64,
+    #[serde(rename = "Longitude")]
+    pub longitude: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Placement {
+    #[serde(rename = "Row")]
+    pub row: &'static str,
+    #[serde(rename = "Rack")]
+    pub rack: &'static str,
+    #[serde(rename = "RackOffset")]
+    pub rack_offset: u32,
+    #[serde(rename = "RackOffsetUnits")]
+    pub rack_offset_units: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PostalAddress {
+    #[serde(rename = "Country")]
+    pub country: &'static str,
+    #[serde(rename = "Territory")]
+    pub territory: &'static str,
+    #[serde(rename = "City")]
+    pub city: &'static str,
+    #[serde(rename = "Street")]
+    pub street: &'static str,
+    #[serde(rename = "HouseNumber")]
+    pub house_number: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PartLocation {
+    #[serde(rename = "ServiceLabel")]
+    pub service_label: String,
+    #[serde(rename = "LocationType")]
+    pub location_type: &'static str,
+    #[serde(rename = "LocationOrdinalValue")]
+    pub location_ordinal_value: u32,
+}
+
+impl RedfishLocation {
+    pub fn new(info: impl Into<String>, info_format: &'static str, service_label: impl Into<String>, location_type: &'static str, ordinal: u32) -> Self {
+        Self {
+            info: info.into(),
+            info_format,
+            placement: Placement {
+                row: "1",
+                rack: "1",
+                rack_offset: 1,
+                rack_offset_units: "EIA_310",
+            },
+            postal_address: PostalAddress {
+                country: "",
+                territory: "",
+                city: "",
+                street: "",
+                house_number: 0,
+            },
+            part_location: PartLocation {
+                service_label: service_label.into(),
+                location_type,
+                location_ordinal_value: ordinal,
+            },
+            part_location_context: String::new(),
+            contacts: Vec::new(),
+            altitude_meters: 0.0,
+            latitude: 0.0,
+            longitude: 0.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusRollup {
     #[serde(rename = "Health")]

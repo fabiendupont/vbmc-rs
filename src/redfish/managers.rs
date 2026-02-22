@@ -65,7 +65,7 @@ pub struct Manager {
     #[serde(rename = "AutoDSTEnabled")]
     pub auto_dst_enabled: bool,
     #[serde(rename = "Location")]
-    pub location: ManagerLocation,
+    pub location: super::types::RedfishLocation,
     #[serde(rename = "LogServices", skip_serializing_if = "Option::is_none")]
     pub log_services: Option<ODataId>,
     #[serde(rename = "Links")]
@@ -82,13 +82,6 @@ pub struct ManagerConsole {
     pub connect_types_supported: Vec<&'static str>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct ManagerLocation {
-    #[serde(rename = "Info")]
-    pub info: &'static str,
-    #[serde(rename = "InfoFormat")]
-    pub info_format: &'static str,
-}
 
 #[derive(Debug, Serialize)]
 pub struct ManagerLinks {
@@ -176,10 +169,7 @@ pub async fn get_manager(
         time_zone_name: "UTC",
         service_identification: format!("vbmc-rs-{}", state.instance_uuid.split('-').next().unwrap_or("0000")),
         auto_dst_enabled: false,
-        location: ManagerLocation {
-            info: "Virtual BMC",
-            info_format: "Embedded",
-        },
+        location: super::types::RedfishLocation::new("Virtual BMC", "Embedded", "BMC", "Embedded", 0),
         log_services: Some(ODataId::new("/redfish/v1/Managers/vbmc/LogServices")),
         links: ManagerLinks {
             manager_for_servers,

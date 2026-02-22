@@ -124,7 +124,7 @@ pub struct FanResource {
     #[serde(rename = "HotPluggable")]
     pub hot_pluggable: bool,
     #[serde(rename = "Location")]
-    pub location: FanLocation,
+    pub location: super::types::RedfishLocation,
     #[serde(rename = "PartNumber")]
     pub part_number: &'static str,
     #[serde(rename = "Replaceable")]
@@ -133,13 +133,6 @@ pub struct FanResource {
     pub status: Status,
 }
 
-#[derive(Debug, Serialize)]
-pub struct FanLocation {
-    #[serde(rename = "Info")]
-    pub info: &'static str,
-    #[serde(rename = "InfoFormat")]
-    pub info_format: &'static str,
-}
 
 pub async fn get_thermal_subsystem() -> Json<ThermalSubsystemResource> {
     Json(ThermalSubsystemResource {
@@ -228,10 +221,7 @@ pub async fn get_fan() -> Json<FanResource> {
         serial_number: "VBMC-FAN-001",
         physical_context: "Exhaust",
         hot_pluggable: false,
-        location: FanLocation {
-            info: "Bay 1",
-            info_format: "Bay",
-        },
+        location: super::types::RedfishLocation::new("Bay 1", "Bay", "Fan 0", "Bay", 0),
         part_number: "VBMC-FAN",
         replaceable: false,
         status: Status::enabled_ok(),

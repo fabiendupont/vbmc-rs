@@ -73,10 +73,36 @@ pub struct MemoryResource {
     pub allowed_speeds_mhz: Vec<u32>,
     #[serde(rename = "MemoryLocation")]
     pub memory_location: MemoryLocation,
+    #[serde(rename = "IsRankSpareEnabled")]
+    pub is_rank_spare_enabled: bool,
+    #[serde(rename = "IsSpareDeviceEnabled")]
+    pub is_spare_device_enabled: bool,
+    #[serde(rename = "SpareDeviceCount")]
+    pub spare_device_count: u32,
+    #[serde(rename = "FirmwareApiVersion")]
+    pub firmware_api_version: &'static str,
+    #[serde(rename = "ModuleManufacturerID")]
+    pub module_manufacturer_id: &'static str,
+    #[serde(rename = "ModuleProductID")]
+    pub module_product_id: &'static str,
+    #[serde(rename = "MemorySubsystemControllerManufacturerID")]
+    pub memory_subsystem_controller_manufacturer_id: &'static str,
+    #[serde(rename = "MemorySubsystemControllerProductID")]
+    pub memory_subsystem_controller_product_id: &'static str,
+    #[serde(rename = "CacheSizeMiB")]
+    pub cache_size_mib: u32,
+    #[serde(rename = "Links")]
+    pub links: MemoryLinks,
     #[serde(rename = "Location")]
-    pub location: MemDimmLocation,
+    pub location: super::types::RedfishLocation,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MemoryLinks {
+    #[serde(rename = "Chassis")]
+    pub chassis: ODataId,
 }
 
 #[derive(Debug, Serialize)]
@@ -89,14 +115,6 @@ pub struct MemoryLocation {
     pub channel: u32,
     #[serde(rename = "Slot")]
     pub slot: u32,
-}
-
-#[derive(Debug, Serialize)]
-pub struct MemDimmLocation {
-    #[serde(rename = "Info")]
-    pub info: &'static str,
-    #[serde(rename = "InfoFormat")]
-    pub info_format: &'static str,
 }
 
 pub async fn get_memory_collection(
@@ -178,10 +196,19 @@ pub async fn get_memory(
             channel: 0,
             slot: 0,
         },
-        location: MemDimmLocation {
-            info: "DIMM 0",
-            info_format: "DIMM",
+        is_rank_spare_enabled: false,
+        is_spare_device_enabled: false,
+        spare_device_count: 0,
+        firmware_api_version: "1.0",
+        module_manufacturer_id: "0x0000",
+        module_product_id: "0x0000",
+        memory_subsystem_controller_manufacturer_id: "0x0000",
+        memory_subsystem_controller_product_id: "0x0000",
+        cache_size_mib: 0,
+        links: MemoryLinks {
+            chassis: ODataId::new("/redfish/v1/Chassis/1"),
         },
+        location: super::types::RedfishLocation::new("DIMM 0", "DIMM", "DIMM0", "Slot", 0),
         status: Status::enabled_ok(),
     }))
 }

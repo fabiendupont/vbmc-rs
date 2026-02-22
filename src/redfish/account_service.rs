@@ -234,6 +234,12 @@ pub struct RoleResource {
     pub is_predefined: bool,
     #[serde(rename = "AssignedPrivileges")]
     pub assigned_privileges: Vec<String>,
+    #[serde(rename = "AlternateRoleId")]
+    pub alternate_role_id: String,
+    #[serde(rename = "OemPrivileges")]
+    pub oem_privileges: Vec<String>,
+    #[serde(rename = "Restricted")]
+    pub restricted: bool,
 }
 
 pub async fn get_role(
@@ -262,5 +268,8 @@ pub async fn get_role(
         description: "User role",
         is_predefined: true,
         assigned_privileges: privileges.into_iter().map(String::from).collect(),
+        alternate_role_id: role_id,
+        oem_privileges: Vec::new(),
+        restricted: false,
     }))
 }

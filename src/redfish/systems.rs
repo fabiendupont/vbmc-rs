@@ -98,6 +98,12 @@ pub struct ComputerSystem {
     pub last_reset_time: String,
     #[serde(rename = "HostWatchdogTimer")]
     pub host_watchdog_timer: HostWatchdogTimer,
+    #[serde(rename = "GraphicalConsole")]
+    pub graphical_console: HostGraphicalConsole,
+    #[serde(rename = "SerialConsole")]
+    pub serial_console: HostSerialConsole,
+    #[serde(rename = "VirtualMediaConfig")]
+    pub virtual_media_config: VirtualMediaConfig,
     #[serde(rename = "Links")]
     pub links: ComputerSystemLinks,
 }
@@ -136,6 +142,42 @@ pub struct HostWatchdogTimer {
     pub warning_action: &'static str,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HostGraphicalConsole {
+    #[serde(rename = "ServiceEnabled")]
+    pub service_enabled: bool,
+    #[serde(rename = "MaxConcurrentSessions")]
+    pub max_concurrent_sessions: u32,
+    #[serde(rename = "ConnectTypesSupported")]
+    pub connect_types_supported: Vec<&'static str>,
+    #[serde(rename = "Port")]
+    pub port: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HostSerialConsole {
+    #[serde(rename = "MaxConcurrentSessions")]
+    pub max_concurrent_sessions: u32,
+    #[serde(rename = "IPMI")]
+    pub ipmi: ConsoleProtocol,
+    #[serde(rename = "SSH")]
+    pub ssh: ConsoleProtocol,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConsoleProtocol {
+    #[serde(rename = "ServiceEnabled")]
+    pub service_enabled: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VirtualMediaConfig {
+    #[serde(rename = "ServiceEnabled")]
+    pub service_enabled: bool,
+    #[serde(rename = "Port")]
+    pub port: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -180,6 +222,10 @@ pub struct BootOptions {
     pub boot_next: &'static str,
     #[serde(rename = "TrustedModuleRequiredToBoot")]
     pub trusted_module_required_to_boot: &'static str,
+    #[serde(rename = "BootOrderPropertySelection")]
+    pub boot_order_property_selection: &'static str,
+    #[serde(rename = "AliasBootOrder")]
+    pub alias_boot_order: Vec<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -371,6 +417,8 @@ pub async fn get_system(
         uefi_target: "",
         boot_next: "",
         trusted_module_required_to_boot: "Disabled",
+        boot_order_property_selection: "BootOrder",
+        alias_boot_order: Vec::new(),
     };
 
     Ok(Json(ComputerSystem {
@@ -478,6 +526,21 @@ pub async fn get_system(
             timeout_action: "None",
             warning_action: "None",
             status: Status::enabled_ok(),
+        },
+        graphical_console: HostGraphicalConsole {
+            service_enabled: false,
+            max_concurrent_sessions: 0,
+            connect_types_supported: Vec::new(),
+            port: 0,
+        },
+        serial_console: HostSerialConsole {
+            max_concurrent_sessions: 0,
+            ipmi: ConsoleProtocol { service_enabled: false },
+            ssh: ConsoleProtocol { service_enabled: false },
+        },
+        virtual_media_config: VirtualMediaConfig {
+            service_enabled: true,
+            port: 0,
         },
         links: ComputerSystemLinks {
             chassis: vec![ODataId::new("/redfish/v1/Chassis/1")],

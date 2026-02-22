@@ -81,7 +81,7 @@ pub struct ChassisResource {
     #[serde(rename = "PoweredByParent")]
     pub powered_by_parent: bool,
     #[serde(rename = "Location")]
-    pub location: ChassisLocation,
+    pub location: super::types::RedfishLocation,
     #[serde(rename = "PhysicalSecurity")]
     pub physical_security: PhysicalSecurity,
     #[serde(rename = "Links")]
@@ -98,13 +98,6 @@ pub struct PhysicalSecurity {
     pub intrusion_sensor_re_arm: &'static str,
 }
 
-#[derive(Debug, Serialize)]
-pub struct ChassisLocation {
-    #[serde(rename = "Info")]
-    pub info: &'static str,
-    #[serde(rename = "InfoFormat")]
-    pub info_format: &'static str,
-}
 
 #[derive(Debug, Serialize)]
 pub struct ChassisLinks {
@@ -184,10 +177,7 @@ pub async fn get_chassis(
         thermal_direction: "FrontToBack",
         thermal_managed_by_parent: false,
         powered_by_parent: false,
-        location: ChassisLocation {
-            info: "Rack 1, Unit 1",
-            info_format: "Rack:RackUnit",
-        },
+        location: super::types::RedfishLocation::new("Rack 1, Unit 1", "Rack:RackUnit", "Chassis 1", "Bay", 0),
         physical_security: PhysicalSecurity {
             intrusion_sensor_number: 1,
             intrusion_sensor: "Normal",
@@ -257,8 +247,22 @@ pub struct TrustedComponentResource {
     pub firmware_version: &'static str,
     #[serde(rename = "UUID")]
     pub uuid: String,
+    #[serde(rename = "PartNumber")]
+    pub part_number: &'static str,
+    #[serde(rename = "SKU")]
+    pub sku: &'static str,
+    #[serde(rename = "Links")]
+    pub tc_links: TrustedComponentLinks,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TrustedComponentLinks {
+    #[serde(rename = "ComponentIntegrity")]
+    pub component_integrity: Vec<ODataId>,
+    #[serde(rename = "IntegratedInto")]
+    pub integrated_into: ODataId,
 }
 
 pub async fn get_trusted_component(
@@ -289,6 +293,14 @@ pub async fn get_trusted_component(
             format!("vbmc-rs:tc:{component_id}").as_bytes(),
         )
         .to_string(),
+        part_number: "VBMC-TC",
+        sku: "VBMC-VIRTUAL",
+        tc_links: TrustedComponentLinks {
+            component_integrity: vec![ODataId::new(format!(
+                "/redfish/v1/ComponentIntegrity/{component_id}"
+            ))],
+            integrated_into: ODataId::new("/redfish/v1/Chassis/1"),
+        },
         status: Status::enabled_ok(),
     }))
 }

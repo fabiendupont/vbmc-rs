@@ -25,6 +25,8 @@ pub struct UpdateServiceResource {
     pub firmware_inventory: ODataId,
     #[serde(rename = "MaxImageSizeBytes")]
     pub max_image_size_bytes: u64,
+    #[serde(rename = "MultipartHttpPushUri")]
+    pub multipart_http_push_uri: &'static str,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -55,6 +57,12 @@ pub struct SoftwareInventoryResource {
     pub lowest_supported_version: &'static str,
     #[serde(rename = "VersionScheme")]
     pub version_scheme: &'static str,
+    #[serde(rename = "ReleaseType")]
+    pub release_type: &'static str,
+    #[serde(rename = "WriteProtected")]
+    pub write_protected: bool,
+    #[serde(rename = "RelatedItem")]
+    pub related_item: Vec<ODataId>,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -69,6 +77,7 @@ pub async fn get_update_service() -> Json<UpdateServiceResource> {
         service_enabled: true,
         firmware_inventory: ODataId::new("/redfish/v1/UpdateService/FirmwareInventory"),
         max_image_size_bytes: 0,
+        multipart_http_push_uri: "/redfish/v1/UpdateService/upload",
         status: Status::enabled_ok(),
     })
 }
@@ -103,6 +112,9 @@ pub async fn get_firmware_inventory_item(
             software_id: "vbmc-rs",
             lowest_supported_version: "0.1.0",
             version_scheme: "SemVer",
+            release_type: "Production",
+            write_protected: true,
+            related_item: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
             status: Status::enabled_ok(),
         }));
     }

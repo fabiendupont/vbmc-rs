@@ -83,8 +83,12 @@ pub struct Processor {
     pub throttle_causes: Vec<&'static str>,
     #[serde(rename = "LocationIndicatorActive")]
     pub location_indicator_active: bool,
+    #[serde(rename = "OperatingSpeedRangeMHz")]
+    pub operating_speed_range_mhz: SpeedRange,
+    #[serde(rename = "Links")]
+    pub proc_links: ProcessorLinks,
     #[serde(rename = "Location")]
-    pub location: ProcessorLocation,
+    pub location: super::types::RedfishLocation,
     #[serde(rename = "ProcessorId")]
     pub processor_id: ProcessorIdInfo,
     #[serde(rename = "Status")]
@@ -92,11 +96,17 @@ pub struct Processor {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ProcessorLocation {
-    #[serde(rename = "Info")]
-    pub info: &'static str,
-    #[serde(rename = "InfoFormat")]
-    pub info_format: &'static str,
+pub struct SpeedRange {
+    #[serde(rename = "AllowableMin")]
+    pub allowable_min: u32,
+    #[serde(rename = "AllowableMax")]
+    pub allowable_max: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProcessorLinks {
+    #[serde(rename = "Chassis")]
+    pub chassis: ODataId,
 }
 
 #[derive(Debug, Serialize)]
@@ -206,10 +216,14 @@ pub async fn get_processor(
         speed_locked: false,
         throttle_causes: Vec::new(),
         location_indicator_active: false,
-        location: ProcessorLocation {
-            info: "Socket CPU0",
-            info_format: "Socket",
+        operating_speed_range_mhz: SpeedRange {
+            allowable_min: 800,
+            allowable_max: max_speed_mhz,
         },
+        proc_links: ProcessorLinks {
+            chassis: ODataId::new("/redfish/v1/Chassis/1"),
+        },
+        location: super::types::RedfishLocation::new("Socket CPU0", "Socket", "CPU0", "Socket", 0),
         processor_id: ProcessorIdInfo {
             vendor_id: manufacturer.clone(),
             identification_registers: "0x00000000",

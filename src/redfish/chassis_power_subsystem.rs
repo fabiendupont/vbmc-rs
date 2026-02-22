@@ -54,7 +54,7 @@ pub struct PowerSupplyResource {
     #[serde(rename = "HotPluggable")]
     pub hot_pluggable: bool,
     #[serde(rename = "Location")]
-    pub location: PsuLocation,
+    pub location: super::types::RedfishLocation,
     #[serde(rename = "LineInputStatus")]
     pub line_input_status: &'static str,
     #[serde(rename = "OutputNominalVoltageType")]
@@ -71,13 +71,6 @@ pub struct PowerSupplyResource {
     pub status: Status,
 }
 
-#[derive(Debug, Serialize)]
-pub struct PsuLocation {
-    #[serde(rename = "Info")]
-    pub info: &'static str,
-    #[serde(rename = "InfoFormat")]
-    pub info_format: &'static str,
-}
 
 pub async fn get_power_subsystem() -> Json<PowerSubsystemResource> {
     Json(PowerSubsystemResource {
@@ -121,10 +114,7 @@ pub async fn get_power_supply() -> Json<PowerSupplyResource> {
         firmware_version: "1.0",
         input_nominal_voltage_type: "AC240V",
         hot_pluggable: false,
-        location: PsuLocation {
-            info: "Bay 1",
-            info_format: "Bay",
-        },
+        location: super::types::RedfishLocation::new("Bay 1", "Bay", "PSU 0", "Bay", 0),
         line_input_status: "Normal",
         output_nominal_voltage_type: "DC12V",
         phase_wiring_type: "OnePhase3Wire",
