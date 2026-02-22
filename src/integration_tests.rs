@@ -49,6 +49,7 @@ fn make_system_config(name: &str) -> SystemConfig {
         hardware: HardwareConfig::default(),
         connection_uri: None,
         domain_name: None,
+        attestation: None,
     }
 }
 
@@ -804,4 +805,77 @@ async fn test_method_not_allowed() {
         .unwrap();
     let response = app.clone().oneshot(req).await.unwrap();
     assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+}
+
+// ── ComponentIntegrity ────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_component_integrity_minimal_spdm() {
+    let mut systems = HashMap::new();
+    systems.insert("vm1".to_string(), make_system_config("VM 1"));
+    let state = make_app_state(MockBackend::new(), systems);
+    let app = build_app(state);
+
+    let (status, json, _) = get(&app, "/redfish/v1/ComponentIntegrity/vm1").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["ComponentIntegrityType"], "SPDM");
+    assert_eq!(json["SPDM"]["Requester"]["@odata.id"], "/redfish/v1/ComponentIntegrity/vm1");
+    // No evidence → no MeasurementSet or IdentityAuthentication
+    assert!(json["SPDM"]["MeasurementSet"].is_null());
+    assert!(json["SPDM"]["IdentityAuthentication"].is_null());
+}
+
+#[tokio::test]
+async fn test_component_integrity_with_evidence() {
+    use crate::attestation::trust_chain::{AttestationEvidence, MeasurementEntry, VerificationStatus};
+
+    let mut systems = HashMap::new();
+    systems.insert("vm1".to_string(), make_system_config("VM 1"));
+    let state = make_app_state(MockBackend::new(), systems);
+
+    // Set evidence on the VM state
+    let mut vm_state = state.get_vm_state("vm1");
+    vm_state.attestation.verification_status = Some("Success".to_string());
+    vm_state.attestation.evidence = Some(AttestationEvidence {
+        measurements: vec![MeasurementEntry {
+            index: 0,
+            measurement_type: "ImmutableROM".to_string(),
+            measurement: "dGVzdA==".to_string(),
+            hash_algorithm: "SHA-256".to_string(),
+            part_of_summary: true,
+            last_updated: Some("2026-01-15T10:00:00Z".to_string()),
+        }],
+        measurement_summary: Some("summary123".to_string()),
+        measurement_summary_algorithm: Some("SHA-256".to_string()),
+        measurement_summary_type: Some("TCB".to_string()),
+        responder_verification: Some(VerificationStatus::Success),
+        provider: Some("keylime".to_string()),
+    });
+    state.vm_states.insert("vm1".to_string(), vm_state);
+
+    let app = build_app(state);
+    let (status, json, _) = get(&app, "/redfish/v1/ComponentIntegrity/vm1").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["Status"]["Health"], "OK");
+
+    // Full SPDM structure present
+    let spdm = &json["SPDM"];
+    assert_eq!(spdm["Requester"]["@odata.id"], "/redfish/v1/ComponentIntegrity/vm1");
+
+    let mset = &spdm["MeasurementSet"];
+    assert_eq!(mset["MeasurementSpecification"], "DMTF");
+    assert_eq!(mset["MeasurementSummary"], "summary123");
+    assert_eq!(mset["MeasurementSummaryHashAlgorithm"], "SHA-256");
+    assert_eq!(mset["MeasurementSummaryType"], "TCB");
+
+    let m0 = &mset["Measurements"][0];
+    assert_eq!(m0["MeasurementIndex"], 0);
+    assert_eq!(m0["MeasurementType"], "ImmutableROM");
+    assert_eq!(m0["Measurement"], "dGVzdA==");
+    assert_eq!(m0["MeasurementHashAlgorithm"], "SHA-256");
+    assert_eq!(m0["PartofSummaryHash"], true);
+    assert_eq!(m0["LastUpdated"], "2026-01-15T10:00:00Z");
+
+    let identity = &spdm["IdentityAuthentication"];
+    assert_eq!(identity["ResponderAuthentication"]["VerificationStatus"], "Success");
 }

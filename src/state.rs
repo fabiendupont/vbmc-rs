@@ -64,6 +64,8 @@ pub struct AttestationState {
     pub verification_status: Option<String>,
     pub last_checked: Option<String>,
     pub component_integrity_id: Option<String>,
+    #[serde(default)]
+    pub evidence: Option<crate::attestation::trust_chain::AttestationEvidence>,
 }
 
 impl VmState {

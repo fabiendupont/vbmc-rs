@@ -14,7 +14,7 @@ use tracing::{error, info};
 use crate::app_state::AppState;
 use crate::events::registry::*;
 use crate::events::RedfishEvent;
-use trust_chain::VerificationStatus;
+use trust_chain::AttestationEvidence;
 
 pub struct AttestationCoordinator;
 
@@ -41,59 +41,98 @@ impl AttestationCoordinator {
     }
 
     async fn poll_all(state: &Arc<AppState>) {
-        for system_id in state.config.systems.keys() {
+        for (system_id, sys_config) in &state.config.systems {
+            if sys_config.attestation.is_none() {
+                continue;
+            }
+
             let result = Self::check_system(state, system_id).await;
             let mut vm_state = state.get_vm_state(system_id);
             let old_status = vm_state.attestation.verification_status.clone();
-            let new_status = match result {
-                Ok(status) => status.to_string(),
+
+            let (new_status, evidence) = match result {
+                Ok(evidence) => {
+                    let status = evidence
+                        .responder_verification
+                        .as_ref()
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    (status, Some(evidence))
+                }
                 Err(e) => {
                     error!("Attestation check failed for {system_id}: {e}");
-                    "Unknown".to_string()
+                    ("Unknown".to_string(), None)
                 }
             };
 
-            if old_status.as_deref() != Some(&new_status) {
+            if old_status.as_deref() != Some(&new_status) || evidence.is_some() {
                 vm_state.attestation.verification_status = Some(new_status.clone());
                 vm_state.attestation.last_checked = Some(Utc::now().to_rfc3339());
+                if evidence.is_some() {
+                    vm_state.attestation.evidence = evidence;
+                }
                 state.save_vm_state(system_id, &vm_state);
 
-                state.event_bus.emit(RedfishEvent {
-                    event_type: EVENT_TYPE_STATUS_CHANGE.to_string(),
-                    event_id: uuid::Uuid::new_v4().to_string(),
-                    event_timestamp: Utc::now(),
-                    message_id: MSG_ATTESTATION_CHANGED.to_string(),
-                    message: format!(
-                        "Attestation status changed for '{system_id}': {new_status}"
-                    ),
-                    origin_of_condition: Some(format!(
-                        "/redfish/v1/ComponentIntegrity/{system_id}"
-                    )),
-                    severity: if new_status == "Success" {
-                        SEVERITY_OK
-                    } else {
-                        SEVERITY_WARNING
-                    }
-                    .to_string(),
-                    actor: None,
-                    payload: None,
-                });
+                if old_status.as_deref() != Some(&new_status) {
+                    state.event_bus.emit(RedfishEvent {
+                        event_type: EVENT_TYPE_STATUS_CHANGE.to_string(),
+                        event_id: uuid::Uuid::new_v4().to_string(),
+                        event_timestamp: Utc::now(),
+                        message_id: MSG_ATTESTATION_CHANGED.to_string(),
+                        message: format!(
+                            "Attestation status changed for '{system_id}': {new_status}"
+                        ),
+                        origin_of_condition: Some(format!(
+                            "/redfish/v1/ComponentIntegrity/{system_id}"
+                        )),
+                        severity: if new_status == "Success" {
+                            SEVERITY_OK
+                        } else {
+                            SEVERITY_WARNING
+                        }
+                        .to_string(),
+                        actor: None,
+                        payload: None,
+                    });
+                }
             }
         }
     }
 
     async fn check_system(
-        _state: &Arc<AppState>,
-        _system_id: &str,
-    ) -> anyhow::Result<VerificationStatus> {
-        #[cfg(feature = "keylime")]
-        {
-            // Would call keylime verifier here
+        state: &Arc<AppState>,
+        system_id: &str,
+    ) -> anyhow::Result<AttestationEvidence> {
+        let sys_config = state
+            .config
+            .systems
+            .get(system_id)
+            .ok_or_else(|| anyhow::anyhow!("System '{system_id}' not found"))?;
+
+        let att_config = sys_config
+            .attestation
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No attestation config for '{system_id}'"))?;
+
+        let agent_id = att_config
+            .agent_id
+            .as_deref()
+            .unwrap_or(system_id);
+
+        match att_config.provider.as_str() {
+            #[cfg(feature = "keylime")]
+            "keylime" => {
+                let client = keylime::KeylimeClient::new(&att_config.provider_url);
+                client.get_agent_attestation(agent_id).await
+            }
+            #[cfg(feature = "trustee")]
+            "trustee" => {
+                let client = trustee::TrusteeClient::new(&att_config.provider_url);
+                client.attest_with_evidence(&[]).await
+            }
+            other => Err(anyhow::anyhow!(
+                "Unknown attestation provider '{other}' for system '{system_id}'"
+            )),
         }
-        #[cfg(feature = "trustee")]
-        {
-            // Would call trustee/KBS here
-        }
-        Ok(VerificationStatus::Unknown)
     }
 }

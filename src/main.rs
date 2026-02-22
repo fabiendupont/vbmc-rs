@@ -101,6 +101,26 @@ async fn main() -> anyhow::Result<()> {
     // Start session sweeper
     app_state.session_store.start_sweeper(cancel.clone());
 
+    // Auto-start attestation coordinator if any system has attestation configured
+    let attestation_intervals: Vec<u64> = config
+        .systems
+        .values()
+        .filter_map(|sys| sys.attestation.as_ref())
+        .map(|att| att.poll_interval_seconds)
+        .collect();
+    if !attestation_intervals.is_empty() {
+        let interval_secs = attestation_intervals.into_iter().min().unwrap_or(30);
+        info!(
+            "Starting attestation coordinator (poll interval: {}s)",
+            interval_secs
+        );
+        attestation::AttestationCoordinator::start_polling(
+            app_state.clone(),
+            std::time::Duration::from_secs(interval_secs),
+            cancel.clone(),
+        );
+    }
+
     // Start metrics server
     if config.metrics.enabled {
         tokio::spawn(prometheus::start_metrics_server(

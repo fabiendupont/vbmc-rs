@@ -135,6 +135,21 @@ pub struct SystemConfig {
     pub connection_uri: Option<String>,
     #[serde(default)]
     pub domain_name: Option<String>,
+    #[serde(default)]
+    pub attestation: Option<AttestationConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AttestationConfig {
+    pub provider: String,
+    pub provider_url: String,
+    pub agent_id: Option<String>,
+    #[serde(default = "default_poll_interval")]
+    pub poll_interval_seconds: u64,
+}
+
+fn default_poll_interval() -> u64 {
+    30
 }
 
 fn default_bind_address() -> String {

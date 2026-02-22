@@ -26,6 +26,12 @@ socket_path = "/tmp/vbmc-rs-test-nonexistent-1.sock"
 cpu_count = 2
 memory_mib = 1024
 
+# [systems.vm1.attestation]
+# provider = "keylime"
+# provider_url = "http://localhost:8881"
+# agent_id = "d432fbb3-..."
+# poll_interval_seconds = 30
+
 [systems.vm2]
 name = "Test VM 2"
 socket_path = "/tmp/vbmc-rs-test-nonexistent-2.sock"
