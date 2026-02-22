@@ -62,6 +62,8 @@ pub struct Manager {
     pub time_zone_name: &'static str,
     #[serde(rename = "ServiceIdentification")]
     pub service_identification: String,
+    #[serde(rename = "AutoDSTEnabled")]
+    pub auto_dst_enabled: bool,
     #[serde(rename = "Location")]
     pub location: ManagerLocation,
     #[serde(rename = "LogServices", skip_serializing_if = "Option::is_none")]
@@ -96,6 +98,12 @@ pub struct ManagerLinks {
     pub manager_for_chassis: Vec<ODataId>,
     #[serde(rename = "ManagerInChassis")]
     pub manager_in_chassis: ODataId,
+    #[serde(rename = "ManagedBy")]
+    pub managed_by: Vec<ODataId>,
+    #[serde(rename = "ManagerForManagers")]
+    pub manager_for_managers: Vec<ODataId>,
+    #[serde(rename = "ManagerForSwitches")]
+    pub manager_for_switches: Vec<ODataId>,
     #[serde(rename = "ActiveSoftwareImage")]
     pub active_software_image: ODataId,
     #[serde(rename = "SoftwareImages")]
@@ -167,6 +175,7 @@ pub async fn get_manager(
         location_indicator_active: false,
         time_zone_name: "UTC",
         service_identification: format!("vbmc-rs-{}", state.instance_uuid.split('-').next().unwrap_or("0000")),
+        auto_dst_enabled: false,
         location: ManagerLocation {
             info: "Virtual BMC",
             info_format: "Embedded",
@@ -176,6 +185,9 @@ pub async fn get_manager(
             manager_for_servers,
             manager_for_chassis: vec![ODataId::new("/redfish/v1/Chassis/1")],
             manager_in_chassis: ODataId::new("/redfish/v1/Chassis/1"),
+            managed_by: Vec::new(),
+            manager_for_managers: Vec::new(),
+            manager_for_switches: Vec::new(),
             active_software_image: ODataId::new(
                 "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
             ),

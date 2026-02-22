@@ -107,6 +107,8 @@ pub struct ExpandQuery {
 pub struct ServiceRootLinks {
     #[serde(rename = "Sessions")]
     pub sessions: ODataId,
+    #[serde(rename = "ManagerProvidingService")]
+    pub manager_providing_service: ODataId,
 }
 
 pub async fn get_service_root(
@@ -157,6 +159,7 @@ pub async fn get_service_root(
         },
         links: ServiceRootLinks {
             sessions: ODataId::new("/redfish/v1/SessionService/Sessions"),
+            manager_providing_service: ODataId::new("/redfish/v1/Managers/vbmc"),
         },
     })
 }

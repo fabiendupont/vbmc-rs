@@ -44,8 +44,10 @@ pub struct ChassisResource {
     pub model: &'static str,
     #[serde(rename = "SerialNumber")]
     pub serial_number: &'static str,
-    #[serde(rename = "AssetTag", skip_serializing_if = "Option::is_none")]
-    pub asset_tag: Option<String>,
+    #[serde(rename = "AssetTag")]
+    pub asset_tag: &'static str,
+    #[serde(rename = "Version")]
+    pub version: &'static str,
     #[serde(rename = "PartNumber")]
     pub part_number: &'static str,
     #[serde(rename = "SKU")]
@@ -122,6 +124,8 @@ pub struct ChassisLinks {
     pub power_supplies: Vec<ODataId>,
     #[serde(rename = "Processors")]
     pub processors: Vec<ODataId>,
+    #[serde(rename = "Contains")]
+    pub contains: Vec<ODataId>,
 }
 
 pub async fn get_chassis_collection() -> Json<Collection<ODataId>> {
@@ -162,7 +166,8 @@ pub async fn get_chassis(
         manufacturer: "vbmc-rs",
         model: "Virtual Chassis",
         serial_number: "VBMC-CHASSIS-001",
-        asset_tag: None,
+        asset_tag: "",
+        version: "1.0",
         part_number: "VBMC-CHS",
         sku: "VBMC-VIRTUAL",
         uuid: state.instance_uuid.clone(),
@@ -201,6 +206,7 @@ pub async fn get_chassis(
                 "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0",
             )],
             processors: Vec::new(),
+            contains: Vec::new(),
         },
     })
 }

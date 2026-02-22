@@ -29,10 +29,16 @@ pub struct VirtualMediaResource {
     pub media_types: Vec<&'static str>,
     #[serde(rename = "Inserted")]
     pub inserted: bool,
-    #[serde(rename = "Image", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "Image")]
     pub image: Option<String>,
-    #[serde(rename = "ImageName", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ImageName")]
     pub image_name: Option<String>,
+    #[serde(rename = "UserName")]
+    pub user_name: Option<String>,
+    #[serde(rename = "Password")]
+    pub password: Option<String>,
+    #[serde(rename = "EjectTimeout")]
+    pub eject_timeout: &'static str,
     #[serde(rename = "WriteProtected")]
     pub write_protected: bool,
     #[serde(rename = "ConnectedVia")]
@@ -119,6 +125,9 @@ pub async fn get_virtual_media(
         inserted: vm_state.virtual_media.inserted,
         image: vm_state.virtual_media.image_url.clone(),
         image_name,
+        user_name: None,
+        password: None,
+        eject_timeout: "PT0S",
         write_protected: true,
         connected_via: if vm_state.virtual_media.inserted {
             "URI"

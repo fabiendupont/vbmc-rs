@@ -39,6 +39,18 @@ pub struct ThermalMetricsResource {
     pub temperature_readings_celsius: Vec<TemperatureReading>,
     #[serde(rename = "TemperatureSummaryCelsius")]
     pub temperature_summary_celsius: TemperatureSummary,
+    #[serde(rename = "AirFlowCubicMetersPerMinute")]
+    pub air_flow_cubic_meters_per_minute: MetricReading,
+    #[serde(rename = "PowerWatts")]
+    pub power_watts: MetricReading,
+    #[serde(rename = "EnergykWh")]
+    pub energy_kwh: MetricReading,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetricReading {
+    #[serde(rename = "Reading")]
+    pub reading: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -47,6 +59,10 @@ pub struct TemperatureSummary {
     pub internal: SummaryReading,
     #[serde(rename = "Ambient")]
     pub ambient: SummaryReading,
+    #[serde(rename = "Exhaust")]
+    pub exhaust: SummaryReading,
+    #[serde(rename = "Intake")]
+    pub intake: SummaryReading,
 }
 
 #[derive(Debug, Serialize)]
@@ -165,7 +181,20 @@ pub async fn get_thermal_metrics() -> Json<ThermalMetricsResource> {
                 data_source_uri: None,
                 device_name: Some("Ambient"),
             },
+            exhaust: SummaryReading {
+                reading: 28.0,
+                data_source_uri: None,
+                device_name: Some("Exhaust"),
+            },
+            intake: SummaryReading {
+                reading: 20.0,
+                data_source_uri: None,
+                device_name: Some("Intake"),
+            },
         },
+        air_flow_cubic_meters_per_minute: MetricReading { reading: 0.5 },
+        power_watts: MetricReading { reading: 50.0 },
+        energy_kwh: MetricReading { reading: 0.0 },
     })
 }
 

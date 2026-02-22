@@ -113,8 +113,8 @@ pub struct ProcessorIdInfo {
     pub step: &'static str,
     #[serde(rename = "MicrocodeInfo")]
     pub microcode_info: &'static str,
-    #[serde(rename = "ProtectedIdentificationNumber", skip_serializing_if = "Option::is_none")]
-    pub protected_identification_number: Option<&'static str>,
+    #[serde(rename = "ProtectedIdentificationNumber")]
+    pub protected_identification_number: &'static str,
 }
 
 pub async fn get_processors(
@@ -217,7 +217,7 @@ pub async fn get_processor(
             effective_model: "0x3E",
             step: "0x04",
             microcode_info: "0x00000000",
-            protected_identification_number: None,
+            protected_identification_number: "0",
         },
         status: Status::enabled_ok(),
     }))

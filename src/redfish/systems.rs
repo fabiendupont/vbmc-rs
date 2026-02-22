@@ -70,8 +70,8 @@ pub struct ComputerSystem {
     pub host_name: String,
     #[serde(rename = "PowerRestorePolicy")]
     pub power_restore_policy: &'static str,
-    #[serde(rename = "AssetTag", skip_serializing_if = "Option::is_none")]
-    pub asset_tag: Option<String>,
+    #[serde(rename = "AssetTag")]
+    pub asset_tag: &'static str,
     #[serde(rename = "PartNumber")]
     pub part_number: &'static str,
     #[serde(rename = "SKU")]
@@ -122,6 +122,8 @@ pub struct BootProgress {
     pub last_state: &'static str,
     #[serde(rename = "LastStateTime")]
     pub last_state_time: String,
+    #[serde(rename = "LastBootTimeSeconds")]
+    pub last_boot_time_seconds: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -170,10 +172,12 @@ pub struct BootOptions {
     pub automatic_retry_attempts: u32,
     #[serde(rename = "RemainingAutomaticRetryAttempts")]
     pub remaining_automatic_retry_attempts: u32,
-    #[serde(rename = "HttpBootUri", skip_serializing_if = "Option::is_none")]
-    pub http_boot_uri: Option<String>,
-    #[serde(rename = "UefiTargetBootSourceOverride", skip_serializing_if = "Option::is_none")]
-    pub uefi_target: Option<String>,
+    #[serde(rename = "HttpBootUri")]
+    pub http_boot_uri: &'static str,
+    #[serde(rename = "UefiTargetBootSourceOverride")]
+    pub uefi_target: &'static str,
+    #[serde(rename = "BootNext")]
+    pub boot_next: &'static str,
     #[serde(rename = "TrustedModuleRequiredToBoot")]
     pub trusted_module_required_to_boot: &'static str,
 }
@@ -363,8 +367,9 @@ pub async fn get_system(
         automatic_retry_config: "Disabled",
         automatic_retry_attempts: 0,
         remaining_automatic_retry_attempts: 0,
-        http_boot_uri: None,
-        uefi_target: None,
+        http_boot_uri: "",
+        uefi_target: "",
+        boot_next: "",
         trusted_module_required_to_boot: "Disabled",
     };
 
@@ -441,7 +446,7 @@ pub async fn get_system(
         serial_number,
         host_name,
         power_restore_policy: "AlwaysOff",
-        asset_tag: None,
+        asset_tag: "",
         part_number: "VBMC-SYS",
         sku: "VBMC-VIRTUAL",
         sub_model: "Standard",
@@ -463,6 +468,7 @@ pub async fn get_system(
             last_state_time: chrono::Utc::now()
                 .format("%Y-%m-%dT%H:%M:%SZ")
                 .to_string(),
+            last_boot_time_seconds: 0,
         },
         last_reset_time: chrono::Utc::now()
             .format("%Y-%m-%dT%H:%M:%SZ")

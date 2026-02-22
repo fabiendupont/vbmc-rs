@@ -49,6 +49,10 @@ pub struct Voltage {
     pub min_reading_range: f64,
     #[serde(rename = "MaxReadingRange")]
     pub max_reading_range: f64,
+    #[serde(rename = "UpperThresholdFatal")]
+    pub upper_threshold_fatal: f64,
+    #[serde(rename = "LowerThresholdFatal")]
+    pub lower_threshold_fatal: f64,
     #[serde(rename = "Status")]
     pub status: Status,
     #[serde(rename = "RelatedItem")]
@@ -103,6 +107,8 @@ pub struct PowerLimit {
     pub limit_in_watts: u32,
     #[serde(rename = "LimitException")]
     pub limit_exception: &'static str,
+    #[serde(rename = "CorrectionInMs")]
+    pub correction_in_ms: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -139,6 +145,10 @@ pub struct PowerSupply {
     pub power_output_watts: u32,
     #[serde(rename = "EfficiencyPercent")]
     pub efficiency_percent: u32,
+    #[serde(rename = "HotPluggable")]
+    pub hot_pluggable: bool,
+    #[serde(rename = "IndicatorLED")]
+    pub indicator_led: &'static str,
     #[serde(rename = "RelatedItem")]
     pub related_item: Vec<ODataId>,
     #[serde(rename = "Status")]
@@ -168,6 +178,7 @@ pub async fn get_power() -> Json<PowerResource> {
             power_limit: PowerLimit {
                 limit_in_watts: 500,
                 limit_exception: "LogEventOnly",
+                correction_in_ms: 1000,
             },
             power_allocated_watts: 500,
             power_available_watts: 450,
@@ -192,6 +203,8 @@ pub async fn get_power() -> Json<PowerResource> {
             power_input_watts: 55,
             power_output_watts: 50,
             efficiency_percent: 90,
+            hot_pluggable: false,
+            indicator_led: "Off",
             related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
             status: Status::enabled_ok(),
         }],
@@ -208,6 +221,8 @@ pub async fn get_power() -> Json<PowerResource> {
             lower_threshold_non_critical: 11.4,
             min_reading_range: 0.0,
             max_reading_range: 15.0,
+            upper_threshold_fatal: 14.0,
+            lower_threshold_fatal: 10.0,
             status: Status::enabled_ok(),
             related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
         }],

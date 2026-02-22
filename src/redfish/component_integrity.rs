@@ -29,8 +29,8 @@ pub struct ComponentIntegrityResource {
     pub component_integrity_enabled: bool,
     #[serde(rename = "TargetComponentURI")]
     pub target_component_uri: String,
-    #[serde(rename = "LastUpdated", skip_serializing_if = "Option::is_none")]
-    pub last_updated: Option<String>,
+    #[serde(rename = "LastUpdated")]
+    pub last_updated: String,
     #[serde(rename = "Status")]
     pub status: Status,
     #[serde(rename = "Links")]
@@ -240,7 +240,11 @@ pub async fn get_component_integrity(
         target_component_uri: format!(
             "/redfish/v1/Chassis/1/TrustedComponents/{system_id}"
         ),
-        last_updated: vm_state.attestation.last_checked.clone(),
+        last_updated: vm_state
+            .attestation
+            .last_checked
+            .clone()
+            .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()),
         status: Status {
             state: Some("Enabled".to_string()),
             health: Some(health.to_string()),

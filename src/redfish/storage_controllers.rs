@@ -51,6 +51,8 @@ pub struct StorageIdentifier {
 pub struct StorageLinks {
     #[serde(rename = "Enclosures")]
     pub enclosures: Vec<ODataId>,
+    #[serde(rename = "SimpleStorage")]
+    pub simple_storage: ODataId,
 }
 
 #[derive(Debug, Serialize)]
@@ -77,6 +79,14 @@ pub struct StorageControllerEntry {
     pub serial_number: String,
     #[serde(rename = "SpeedGbps")]
     pub speed_gbps: f64,
+    #[serde(rename = "AssetTag")]
+    pub asset_tag: &'static str,
+    #[serde(rename = "PartNumber")]
+    pub part_number: &'static str,
+    #[serde(rename = "SKU")]
+    pub sku: &'static str,
+    #[serde(rename = "Identifiers")]
+    pub identifiers: Vec<StorageIdentifier>,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -246,6 +256,17 @@ pub async fn get_storage(
             model: format!("Virtual {ctrl_id} Controller"),
             serial_number: format!("VBMC-STOR-{ctrl_id}"),
             speed_gbps: 16.0,
+            asset_tag: "",
+            part_number: "VBMC-STOR",
+            sku: "VBMC-VIRTUAL",
+            identifiers: vec![StorageIdentifier {
+                durable_name: uuid::Uuid::new_v5(
+                    &uuid::Uuid::NAMESPACE_URL,
+                    format!("vbmc-rs:ctrl:{system_id}:{ctrl_id}").as_bytes(),
+                )
+                .to_string(),
+                durable_name_format: "UUID",
+            }],
             status: Status::enabled_ok(),
         }],
         drives,
@@ -264,6 +285,9 @@ pub async fn get_storage(
         encryption_mode: "Disabled",
         links: StorageLinks {
             enclosures: vec![ODataId::new("/redfish/v1/Chassis/1")],
+            simple_storage: ODataId::new(format!(
+                "/redfish/v1/Systems/{system_id}/SimpleStorage/1"
+            )),
         },
         status: Status::enabled_ok(),
     }))
