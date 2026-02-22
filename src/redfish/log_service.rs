@@ -34,6 +34,8 @@ pub struct LogServiceResource {
     pub date_time_local_offset: &'static str,
     #[serde(rename = "LogEntryType")]
     pub log_entry_type: &'static str,
+    #[serde(rename = "LogPurposes")]
+    pub log_purposes: Vec<&'static str>,
     #[serde(rename = "Overflow")]
     pub overflow: bool,
     #[serde(rename = "Persistency")]
@@ -117,6 +119,7 @@ pub async fn get_system_log_service(
         date_time: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
         date_time_local_offset: "+00:00",
         log_entry_type: "Event",
+        log_purposes: vec!["Diagnostic"],
         overflow: false,
         persistency: false,
         status: Status::enabled_ok(),
@@ -183,6 +186,7 @@ pub async fn get_manager_log_service(
         date_time: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
         date_time_local_offset: "+00:00",
         log_entry_type: "Event",
+        log_purposes: vec!["Security", "Diagnostic"],
         overflow: false,
         persistency: true,
         status: Status::enabled_ok(),

@@ -68,6 +68,16 @@ pub struct ChassisResource {
     pub max_power_watts: u32,
     #[serde(rename = "MinPowerWatts")]
     pub min_power_watts: u32,
+    #[serde(rename = "HotPluggable")]
+    pub hot_pluggable: bool,
+    #[serde(rename = "Replaceable")]
+    pub replaceable: bool,
+    #[serde(rename = "ThermalDirection")]
+    pub thermal_direction: &'static str,
+    #[serde(rename = "ThermalManagedByParent")]
+    pub thermal_managed_by_parent: bool,
+    #[serde(rename = "PoweredByParent")]
+    pub powered_by_parent: bool,
     #[serde(rename = "Location")]
     pub location: ChassisLocation,
     #[serde(rename = "PhysicalSecurity")]
@@ -164,6 +174,11 @@ pub async fn get_chassis(
         location_indicator_active: false,
         max_power_watts: 1000,
         min_power_watts: 50,
+        hot_pluggable: false,
+        replaceable: false,
+        thermal_direction: "FrontToBack",
+        thermal_managed_by_parent: false,
+        powered_by_parent: false,
         location: ChassisLocation {
             info: "Rack 1, Unit 1",
             info_format: "Rack:RackUnit",

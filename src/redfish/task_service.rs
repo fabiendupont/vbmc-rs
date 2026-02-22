@@ -27,6 +27,12 @@ pub struct TaskServiceResource {
     pub service_enabled: bool,
     #[serde(rename = "Tasks")]
     pub tasks: ODataId,
+    #[serde(rename = "CompletedTaskOverWritePolicy")]
+    pub completed_task_overwrite_policy: &'static str,
+    #[serde(rename = "TaskAutoDeleteTimeoutMinutes")]
+    pub task_auto_delete_timeout_minutes: u32,
+    #[serde(rename = "Status")]
+    pub status: super::types::Status,
 }
 
 pub async fn get_task_service() -> Json<TaskServiceResource> {
@@ -38,6 +44,9 @@ pub async fn get_task_service() -> Json<TaskServiceResource> {
         description: "Task management service",
         service_enabled: true,
         tasks: ODataId::new("/redfish/v1/TaskService/Tasks"),
+        completed_task_overwrite_policy: "Oldest",
+        task_auto_delete_timeout_minutes: 60,
+        status: super::types::Status::enabled_ok(),
     })
 }
 

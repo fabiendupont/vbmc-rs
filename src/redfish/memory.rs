@@ -63,6 +63,10 @@ pub struct MemoryResource {
     pub logical_size_mib: u64,
     #[serde(rename = "ConfigurationLocked")]
     pub configuration_locked: bool,
+    #[serde(rename = "MaxTDPMilliWatts")]
+    pub max_tdp_milliwatts: Vec<u32>,
+    #[serde(rename = "LocationIndicatorActive")]
+    pub location_indicator_active: bool,
     #[serde(rename = "FirmwareRevision")]
     pub firmware_revision: &'static str,
     #[serde(rename = "AllowedSpeedsMHz")]
@@ -164,6 +168,8 @@ pub async fn get_memory(
         base_module_type: "RDIMM",
         logical_size_mib: capacity_mib,
         configuration_locked: false,
+        max_tdp_milliwatts: vec![12000],
+        location_indicator_active: false,
         firmware_revision: "1.0",
         allowed_speeds_mhz: vec![2133, 2400, 2666, 3200],
         memory_location: MemoryLocation {

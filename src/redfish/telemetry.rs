@@ -21,6 +21,14 @@ pub struct TelemetryServiceResource {
     pub metric_definitions: ODataId,
     #[serde(rename = "MetricReports")]
     pub metric_reports: ODataId,
+    #[serde(rename = "MaxReports")]
+    pub max_reports: u32,
+    #[serde(rename = "MinCollectionInterval")]
+    pub min_collection_interval: &'static str,
+    #[serde(rename = "SupportedCollectionFunctions")]
+    pub supported_collection_functions: Vec<&'static str>,
+    #[serde(rename = "Status")]
+    pub status: super::types::Status,
 }
 
 pub async fn get_telemetry_service() -> Json<TelemetryServiceResource> {
@@ -35,6 +43,10 @@ pub async fn get_telemetry_service() -> Json<TelemetryServiceResource> {
             "/redfish/v1/TelemetryService/MetricDefinitions",
         ),
         metric_reports: ODataId::new("/redfish/v1/TelemetryService/MetricReports"),
+        max_reports: 10,
+        min_collection_interval: "PT10S",
+        supported_collection_functions: vec!["Average", "Maximum", "Minimum"],
+        status: super::types::Status::enabled_ok(),
     })
 }
 

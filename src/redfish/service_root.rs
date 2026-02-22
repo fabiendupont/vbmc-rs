@@ -47,6 +47,8 @@ pub struct ServiceRoot {
     pub update_service: Option<ODataId>,
     #[serde(rename = "LicenseService", skip_serializing_if = "Option::is_none")]
     pub license_service: Option<ODataId>,
+    #[serde(rename = "ServiceIdentification")]
+    pub service_identification: String,
     #[serde(rename = "Vendor")]
     pub vendor: &'static str,
     #[serde(rename = "Product")]
@@ -69,6 +71,22 @@ pub struct ProtocolFeatures {
     pub only_member_query: bool,
     #[serde(rename = "ExcerptQuery")]
     pub excerpt_query: bool,
+    #[serde(rename = "TopSkipQuery")]
+    pub top_skip_query: bool,
+    #[serde(rename = "MultipleHTTPRequests")]
+    pub multiple_http_requests: bool,
+    #[serde(rename = "DeepOperations")]
+    pub deep_operations: DeepOperations,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DeepOperations {
+    #[serde(rename = "DeepPATCH")]
+    pub deep_patch: bool,
+    #[serde(rename = "DeepPOST")]
+    pub deep_post: bool,
+    #[serde(rename = "MaxLevels")]
+    pub max_levels: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -114,6 +132,7 @@ pub async fn get_service_root(
         component_integrity: Some(ODataId::new("/redfish/v1/ComponentIntegrity")),
         update_service: Some(ODataId::new("/redfish/v1/UpdateService")),
         license_service: Some(ODataId::new("/redfish/v1/LicenseService")),
+        service_identification: format!("vbmc-rs-{}", state.instance_uuid.split('-').next().unwrap_or("0000")),
         vendor: "vbmc-rs",
         product: "Virtual BMC",
         protocol_features_supported: ProtocolFeatures {
@@ -128,6 +147,13 @@ pub async fn get_service_root(
             select_query: false,
             only_member_query: false,
             excerpt_query: false,
+            top_skip_query: false,
+            multiple_http_requests: false,
+            deep_operations: DeepOperations {
+                deep_patch: false,
+                deep_post: false,
+                max_levels: 1,
+            },
         },
         links: ServiceRootLinks {
             sessions: ODataId::new("/redfish/v1/SessionService/Sessions"),

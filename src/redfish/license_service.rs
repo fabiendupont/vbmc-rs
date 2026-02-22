@@ -20,6 +20,8 @@ pub struct LicenseServiceResource {
     pub name: &'static str,
     #[serde(rename = "Description")]
     pub description: &'static str,
+    #[serde(rename = "ServiceEnabled")]
+    pub service_enabled: bool,
     #[serde(rename = "Licenses")]
     pub licenses: ODataId,
 }
@@ -49,6 +51,7 @@ pub async fn get_license_service() -> Json<LicenseServiceResource> {
         id: "LicenseService",
         name: "License Service",
         description: "License management service",
+        service_enabled: true,
         licenses: ODataId::new("/redfish/v1/LicenseService/Licenses"),
     })
 }

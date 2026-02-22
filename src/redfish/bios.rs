@@ -21,6 +21,8 @@ pub struct BiosResource {
     pub description: &'static str,
     #[serde(rename = "Attributes")]
     pub attributes: BiosAttributes,
+    #[serde(rename = "AttributeRegistry")]
+    pub attribute_registry: &'static str,
     #[serde(rename = "@Redfish.Settings")]
     pub settings: SettingsObject,
 }
@@ -62,6 +64,7 @@ pub async fn get_bios(
         name: "BIOS Configuration",
         description: "BIOS configuration",
         attributes: attrs,
+        attribute_registry: "BiosAttributeRegistryVbmc.1.0",
         settings: SettingsObject {
             settings_object: super::types::ODataId::new(format!(
                 "/redfish/v1/Systems/{system_id}/Bios/Settings"

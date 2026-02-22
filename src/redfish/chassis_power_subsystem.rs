@@ -63,6 +63,10 @@ pub struct PowerSupplyResource {
     pub phase_wiring_type: &'static str,
     #[serde(rename = "Replaceable")]
     pub replaceable: bool,
+    #[serde(rename = "ProductionDate")]
+    pub production_date: &'static str,
+    #[serde(rename = "LocationIndicatorActive")]
+    pub location_indicator_active: bool,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -125,6 +129,8 @@ pub async fn get_power_supply() -> Json<PowerSupplyResource> {
         output_nominal_voltage_type: "DC12V",
         phase_wiring_type: "OnePhase3Wire",
         replaceable: false,
+        production_date: "2026-01-01T00:00:00Z",
+        location_indicator_active: false,
         status: Status::enabled_ok(),
     })
 }

@@ -23,6 +23,8 @@ pub struct UpdateServiceResource {
     pub service_enabled: bool,
     #[serde(rename = "FirmwareInventory")]
     pub firmware_inventory: ODataId,
+    #[serde(rename = "MaxImageSizeBytes")]
+    pub max_image_size_bytes: u64,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -43,6 +45,16 @@ pub struct SoftwareInventoryResource {
     pub version: &'static str,
     #[serde(rename = "Updateable")]
     pub updateable: bool,
+    #[serde(rename = "Manufacturer")]
+    pub manufacturer: &'static str,
+    #[serde(rename = "ReleaseDate")]
+    pub release_date: &'static str,
+    #[serde(rename = "SoftwareId")]
+    pub software_id: &'static str,
+    #[serde(rename = "LowestSupportedVersion")]
+    pub lowest_supported_version: &'static str,
+    #[serde(rename = "VersionScheme")]
+    pub version_scheme: &'static str,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -56,6 +68,7 @@ pub async fn get_update_service() -> Json<UpdateServiceResource> {
         description: "Firmware update service",
         service_enabled: true,
         firmware_inventory: ODataId::new("/redfish/v1/UpdateService/FirmwareInventory"),
+        max_image_size_bytes: 0,
         status: Status::enabled_ok(),
     })
 }
@@ -85,6 +98,11 @@ pub async fn get_firmware_inventory_item(
             description: "Software component",
             version: env!("CARGO_PKG_VERSION"),
             updateable: false,
+            manufacturer: "vbmc-rs",
+            release_date: "2026-01-01T00:00:00Z",
+            software_id: "vbmc-rs",
+            lowest_supported_version: "0.1.0",
+            version_scheme: "SemVer",
             status: Status::enabled_ok(),
         }));
     }

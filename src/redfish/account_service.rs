@@ -42,6 +42,14 @@ pub struct AccountServiceResource {
     pub lockout_counter_reset_after: u64,
     #[serde(rename = "AccountLockoutCounterResetEnabled")]
     pub lockout_counter_reset_enabled: bool,
+    #[serde(rename = "LocalAccountAuth")]
+    pub local_account_auth: &'static str,
+    #[serde(rename = "AuthFailureLoggingThreshold")]
+    pub auth_failure_logging_threshold: u32,
+    #[serde(rename = "SupportedAccountTypes")]
+    pub supported_account_types: Vec<&'static str>,
+    #[serde(rename = "HTTPBasicAuth")]
+    pub http_basic_auth: &'static str,
     #[serde(rename = "Status")]
     pub status: super::types::Status,
 }
@@ -64,6 +72,10 @@ pub async fn get_account_service(
         max_password_length: 128,
         lockout_counter_reset_after: state.config.auth.lockout_duration_seconds,
         lockout_counter_reset_enabled: true,
+        local_account_auth: "Enabled",
+        auth_failure_logging_threshold: 3,
+        supported_account_types: vec!["Redfish"],
+        http_basic_auth: "Enabled",
         status: super::types::Status::enabled_ok(),
     })
 }

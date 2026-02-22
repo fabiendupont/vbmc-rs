@@ -86,6 +86,10 @@ pub struct ComputerSystem {
     pub power_off_delay_seconds: f64,
     #[serde(rename = "PowerCycleDelaySeconds")]
     pub power_cycle_delay_seconds: f64,
+    #[serde(rename = "ManufacturingMode")]
+    pub manufacturing_mode: bool,
+    #[serde(rename = "IdlePowerSaver")]
+    pub idle_power_saver: IdlePowerSaver,
     #[serde(rename = "PowerMode")]
     pub power_mode: &'static str,
     #[serde(rename = "BootProgress")]
@@ -99,9 +103,25 @@ pub struct ComputerSystem {
 }
 
 #[derive(Debug, Serialize)]
+pub struct IdlePowerSaver {
+    #[serde(rename = "Enabled")]
+    pub enabled: bool,
+    #[serde(rename = "EnterDwellTimeSeconds")]
+    pub enter_dwell_time_seconds: u32,
+    #[serde(rename = "EnterUtilizationPercent")]
+    pub enter_utilization_percent: u32,
+    #[serde(rename = "ExitDwellTimeSeconds")]
+    pub exit_dwell_time_seconds: u32,
+    #[serde(rename = "ExitUtilizationPercent")]
+    pub exit_utilization_percent: u32,
+}
+
+#[derive(Debug, Serialize)]
 pub struct BootProgress {
     #[serde(rename = "LastState")]
     pub last_state: &'static str,
+    #[serde(rename = "LastStateTime")]
+    pub last_state_time: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -154,6 +174,8 @@ pub struct BootOptions {
     pub http_boot_uri: Option<String>,
     #[serde(rename = "UefiTargetBootSourceOverride", skip_serializing_if = "Option::is_none")]
     pub uefi_target: Option<String>,
+    #[serde(rename = "TrustedModuleRequiredToBoot")]
+    pub trusted_module_required_to_boot: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -178,6 +200,8 @@ pub struct MemorySummary {
     pub total_system_memory_gib: f64,
     #[serde(rename = "TotalSystemPersistentMemoryGiB")]
     pub total_system_persistent_memory_gib: f64,
+    #[serde(rename = "MemoryMirroring")]
+    pub memory_mirroring: &'static str,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -341,6 +365,7 @@ pub async fn get_system(
         remaining_automatic_retry_attempts: 0,
         http_boot_uri: None,
         uefi_target: None,
+        trusted_module_required_to_boot: "Disabled",
     };
 
     Ok(Json(ComputerSystem {
@@ -367,6 +392,7 @@ pub async fn get_system(
         memory_summary: MemorySummary {
             total_system_memory_gib: memory_gib,
             total_system_persistent_memory_gib: 0.0,
+            memory_mirroring: "None",
             status: Status::enabled_ok(),
         },
         actions: SystemActions {
@@ -423,9 +449,20 @@ pub async fn get_system(
         power_on_delay_seconds: 0.0,
         power_off_delay_seconds: 0.0,
         power_cycle_delay_seconds: 0.0,
+        manufacturing_mode: false,
+        idle_power_saver: IdlePowerSaver {
+            enabled: false,
+            enter_dwell_time_seconds: 600,
+            enter_utilization_percent: 8,
+            exit_dwell_time_seconds: 10,
+            exit_utilization_percent: 20,
+        },
         power_mode: "MaximumPerformance",
         boot_progress: BootProgress {
             last_state: boot_progress_state,
+            last_state_time: chrono::Utc::now()
+                .format("%Y-%m-%dT%H:%M:%SZ")
+                .to_string(),
         },
         last_reset_time: chrono::Utc::now()
             .format("%Y-%m-%dT%H:%M:%SZ")

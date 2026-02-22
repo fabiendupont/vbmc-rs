@@ -96,6 +96,10 @@ pub struct ManagerLinks {
     pub manager_for_chassis: Vec<ODataId>,
     #[serde(rename = "ManagerInChassis")]
     pub manager_in_chassis: ODataId,
+    #[serde(rename = "ActiveSoftwareImage")]
+    pub active_software_image: ODataId,
+    #[serde(rename = "SoftwareImages")]
+    pub software_images: Vec<ODataId>,
 }
 
 pub async fn get_managers() -> Json<Collection<ODataId>> {
@@ -172,6 +176,12 @@ pub async fn get_manager(
             manager_for_servers,
             manager_for_chassis: vec![ODataId::new("/redfish/v1/Chassis/1")],
             manager_in_chassis: ODataId::new("/redfish/v1/Chassis/1"),
+            active_software_image: ODataId::new(
+                "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
+            ),
+            software_images: vec![ODataId::new(
+                "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
+            )],
         },
     }))
 }

@@ -55,6 +55,8 @@ pub struct SummaryReading {
     pub reading: f64,
     #[serde(rename = "DataSourceUri", skip_serializing_if = "Option::is_none")]
     pub data_source_uri: Option<&'static str>,
+    #[serde(rename = "DeviceName", skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -63,6 +65,12 @@ pub struct TemperatureReading {
     pub data_source_uri: &'static str,
     #[serde(rename = "Reading")]
     pub reading: u32,
+    #[serde(rename = "DeviceName")]
+    pub device_name: &'static str,
+    #[serde(rename = "PhysicalContext")]
+    pub physical_context: &'static str,
+    #[serde(rename = "PhysicalSubContext")]
+    pub physical_sub_context: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -71,6 +79,8 @@ pub struct SensorExcerpt {
     pub reading: f64,
     #[serde(rename = "SpeedRPM", skip_serializing_if = "Option::is_none")]
     pub speed_rpm: Option<u32>,
+    #[serde(rename = "DeviceName", skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -140,15 +150,20 @@ pub async fn get_thermal_metrics() -> Json<ThermalMetricsResource> {
         temperature_readings_celsius: vec![TemperatureReading {
             data_source_uri: "/redfish/v1/Chassis/1/Thermal#/Temperatures/0",
             reading: 35,
+            device_name: "CPU Temperature",
+            physical_context: "CPU",
+            physical_sub_context: "Input",
         }],
         temperature_summary_celsius: TemperatureSummary {
             internal: SummaryReading {
                 reading: 35.0,
                 data_source_uri: None,
+                device_name: Some("CPU"),
             },
             ambient: SummaryReading {
                 reading: 22.0,
                 data_source_uri: None,
+                device_name: Some("Ambient"),
             },
         },
     })
@@ -177,6 +192,7 @@ pub async fn get_fan() -> Json<FanResource> {
         speed_percent: SensorExcerpt {
             reading: 50.0,
             speed_rpm: Some(3000),
+            device_name: Some("System Fan"),
         },
         manufacturer: "vbmc-rs",
         model: "Virtual Fan",

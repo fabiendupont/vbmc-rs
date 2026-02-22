@@ -75,6 +75,14 @@ pub struct Processor {
     pub min_speed_mhz: u32,
     #[serde(rename = "Replaceable")]
     pub replaceable: bool,
+    #[serde(rename = "SpeedLimitMHz")]
+    pub speed_limit_mhz: u32,
+    #[serde(rename = "SpeedLocked")]
+    pub speed_locked: bool,
+    #[serde(rename = "ThrottleCauses")]
+    pub throttle_causes: Vec<&'static str>,
+    #[serde(rename = "LocationIndicatorActive")]
+    pub location_indicator_active: bool,
     #[serde(rename = "Location")]
     pub location: ProcessorLocation,
     #[serde(rename = "ProcessorId")]
@@ -105,6 +113,8 @@ pub struct ProcessorIdInfo {
     pub step: &'static str,
     #[serde(rename = "MicrocodeInfo")]
     pub microcode_info: &'static str,
+    #[serde(rename = "ProtectedIdentificationNumber", skip_serializing_if = "Option::is_none")]
+    pub protected_identification_number: Option<&'static str>,
 }
 
 pub async fn get_processors(
@@ -192,6 +202,10 @@ pub async fn get_processor(
         processor_index: 0,
         min_speed_mhz: 800,
         replaceable: false,
+        speed_limit_mhz: max_speed_mhz,
+        speed_locked: false,
+        throttle_causes: Vec::new(),
+        location_indicator_active: false,
         location: ProcessorLocation {
             info: "Socket CPU0",
             info_format: "Socket",
@@ -203,6 +217,7 @@ pub async fn get_processor(
             effective_model: "0x3E",
             step: "0x04",
             microcode_info: "0x00000000",
+            protected_identification_number: None,
         },
         status: Status::enabled_ok(),
     }))
