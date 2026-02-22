@@ -29,8 +29,28 @@ pub struct StorageResource {
     pub drives: Vec<ODataId>,
     #[serde(rename = "Volumes")]
     pub volumes: ODataId,
+    #[serde(rename = "Identifiers")]
+    pub identifiers: Vec<StorageIdentifier>,
+    #[serde(rename = "EncryptionMode")]
+    pub encryption_mode: &'static str,
+    #[serde(rename = "Links")]
+    pub links: StorageLinks,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StorageIdentifier {
+    #[serde(rename = "DurableName")]
+    pub durable_name: String,
+    #[serde(rename = "DurableNameFormat")]
+    pub durable_name_format: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StorageLinks {
+    #[serde(rename = "Enclosures")]
+    pub enclosures: Vec<ODataId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -232,6 +252,19 @@ pub async fn get_storage(
         volumes: ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Volumes"
         )),
+        identifiers: vec![StorageIdentifier {
+            durable_name: uuid::Uuid::new_v5(
+                &uuid::Uuid::NAMESPACE_URL,
+                format!("vbmc-rs:storage:{system_id}:{ctrl_id}").as_bytes(),
+            )
+            .as_simple()
+            .to_string(),
+            durable_name_format: "NAA",
+        }],
+        encryption_mode: "Disabled",
+        links: StorageLinks {
+            enclosures: vec![ODataId::new("/redfish/v1/Chassis/1")],
+        },
         status: Status::enabled_ok(),
     }))
 }

@@ -70,8 +70,20 @@ pub struct ChassisResource {
     pub min_power_watts: u32,
     #[serde(rename = "Location")]
     pub location: ChassisLocation,
+    #[serde(rename = "PhysicalSecurity")]
+    pub physical_security: PhysicalSecurity,
     #[serde(rename = "Links")]
     pub links: ChassisLinks,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PhysicalSecurity {
+    #[serde(rename = "IntrusionSensorNumber")]
+    pub intrusion_sensor_number: u32,
+    #[serde(rename = "IntrusionSensor")]
+    pub intrusion_sensor: &'static str,
+    #[serde(rename = "IntrusionSensorReArm")]
+    pub intrusion_sensor_re_arm: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -94,6 +106,12 @@ pub struct ChassisLinks {
     pub drives: Vec<ODataId>,
     #[serde(rename = "Storage")]
     pub storage: Vec<ODataId>,
+    #[serde(rename = "Fans")]
+    pub fans: Vec<ODataId>,
+    #[serde(rename = "PowerSupplies")]
+    pub power_supplies: Vec<ODataId>,
+    #[serde(rename = "Processors")]
+    pub processors: Vec<ODataId>,
 }
 
 pub async fn get_chassis_collection() -> Json<Collection<ODataId>> {
@@ -150,12 +168,24 @@ pub async fn get_chassis(
             info: "Rack 1, Unit 1",
             info_format: "Rack:RackUnit",
         },
+        physical_security: PhysicalSecurity {
+            intrusion_sensor_number: 1,
+            intrusion_sensor: "Normal",
+            intrusion_sensor_re_arm: "Manual",
+        },
         links: ChassisLinks {
             computer_systems,
             managed_by: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
             managers_in_chassis: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
             drives: Vec::new(),
             storage: Vec::new(),
+            fans: vec![ODataId::new(
+                "/redfish/v1/Chassis/1/ThermalSubsystem/Fans/0",
+            )],
+            power_supplies: vec![ODataId::new(
+                "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0",
+            )],
+            processors: Vec::new(),
         },
     })
 }

@@ -37,6 +37,24 @@ pub struct ThermalMetricsResource {
     pub description: &'static str,
     #[serde(rename = "TemperatureReadingsCelsius")]
     pub temperature_readings_celsius: Vec<TemperatureReading>,
+    #[serde(rename = "TemperatureSummaryCelsius")]
+    pub temperature_summary_celsius: TemperatureSummary,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TemperatureSummary {
+    #[serde(rename = "Internal")]
+    pub internal: SummaryReading,
+    #[serde(rename = "Ambient")]
+    pub ambient: SummaryReading,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SummaryReading {
+    #[serde(rename = "Reading")]
+    pub reading: f64,
+    #[serde(rename = "DataSourceUri", skip_serializing_if = "Option::is_none")]
+    pub data_source_uri: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -123,6 +141,16 @@ pub async fn get_thermal_metrics() -> Json<ThermalMetricsResource> {
             data_source_uri: "/redfish/v1/Chassis/1/Thermal#/Temperatures/0",
             reading: 35,
         }],
+        temperature_summary_celsius: TemperatureSummary {
+            internal: SummaryReading {
+                reading: 35.0,
+                data_source_uri: None,
+            },
+            ambient: SummaryReading {
+                reading: 22.0,
+                data_source_uri: None,
+            },
+        },
     })
 }
 

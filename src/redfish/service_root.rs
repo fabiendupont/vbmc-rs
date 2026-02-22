@@ -47,8 +47,42 @@ pub struct ServiceRoot {
     pub update_service: Option<ODataId>,
     #[serde(rename = "LicenseService", skip_serializing_if = "Option::is_none")]
     pub license_service: Option<ODataId>,
+    #[serde(rename = "Vendor")]
+    pub vendor: &'static str,
+    #[serde(rename = "Product")]
+    pub product: &'static str,
+    #[serde(rename = "ProtocolFeaturesSupported")]
+    pub protocol_features_supported: ProtocolFeatures,
     #[serde(rename = "Links")]
     pub links: ServiceRootLinks,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProtocolFeatures {
+    #[serde(rename = "ExpandQuery")]
+    pub expand_query: ExpandQuery,
+    #[serde(rename = "FilterQuery")]
+    pub filter_query: bool,
+    #[serde(rename = "SelectQuery")]
+    pub select_query: bool,
+    #[serde(rename = "OnlyMemberQuery")]
+    pub only_member_query: bool,
+    #[serde(rename = "ExcerptQuery")]
+    pub excerpt_query: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExpandQuery {
+    #[serde(rename = "ExpandAll")]
+    pub expand_all: bool,
+    #[serde(rename = "Levels")]
+    pub levels: bool,
+    #[serde(rename = "Links")]
+    pub links: bool,
+    #[serde(rename = "NoLinks")]
+    pub no_links: bool,
+    #[serde(rename = "MaxLevels")]
+    pub max_levels: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -80,6 +114,21 @@ pub async fn get_service_root(
         component_integrity: Some(ODataId::new("/redfish/v1/ComponentIntegrity")),
         update_service: Some(ODataId::new("/redfish/v1/UpdateService")),
         license_service: Some(ODataId::new("/redfish/v1/LicenseService")),
+        vendor: "vbmc-rs",
+        product: "Virtual BMC",
+        protocol_features_supported: ProtocolFeatures {
+            expand_query: ExpandQuery {
+                expand_all: false,
+                levels: false,
+                links: false,
+                no_links: false,
+                max_levels: 1,
+            },
+            filter_query: false,
+            select_query: false,
+            only_member_query: false,
+            excerpt_query: false,
+        },
         links: ServiceRootLinks {
             sessions: ODataId::new("/redfish/v1/SessionService/Sessions"),
         },

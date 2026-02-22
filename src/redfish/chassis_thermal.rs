@@ -43,6 +43,10 @@ pub struct Temperature {
     pub min_reading_range_temp: i32,
     #[serde(rename = "MaxReadingRangeTemp")]
     pub max_reading_range_temp: u32,
+    #[serde(rename = "UpperThresholdFatal")]
+    pub upper_threshold_fatal: u32,
+    #[serde(rename = "LowerThresholdFatal")]
+    pub lower_threshold_fatal: i32,
     #[serde(rename = "PhysicalContext")]
     pub physical_context: &'static str,
     #[serde(rename = "SensorNumber")]
@@ -77,6 +81,22 @@ pub struct Fan {
     pub serial_number: &'static str,
     #[serde(rename = "PartNumber")]
     pub part_number: &'static str,
+    #[serde(rename = "MinReadingRange")]
+    pub min_reading_range: u32,
+    #[serde(rename = "MaxReadingRange")]
+    pub max_reading_range: u32,
+    #[serde(rename = "UpperThresholdCritical")]
+    pub upper_threshold_critical: u32,
+    #[serde(rename = "UpperThresholdFatal")]
+    pub upper_threshold_fatal: u32,
+    #[serde(rename = "UpperThresholdNonCritical")]
+    pub upper_threshold_non_critical: u32,
+    #[serde(rename = "LowerThresholdCritical")]
+    pub lower_threshold_critical: u32,
+    #[serde(rename = "LowerThresholdFatal")]
+    pub lower_threshold_fatal: u32,
+    #[serde(rename = "LowerThresholdNonCritical")]
+    pub lower_threshold_non_critical: u32,
     #[serde(rename = "RelatedItem")]
     pub related_item: Vec<ODataId>,
     #[serde(rename = "Redundancy")]
@@ -103,6 +123,8 @@ pub async fn get_thermal() -> Json<ThermalResource> {
             lower_threshold_non_critical: 5,
             min_reading_range_temp: -10,
             max_reading_range_temp: 120,
+            upper_threshold_fatal: 100,
+            lower_threshold_fatal: -20,
             physical_context: "CPU",
             sensor_number: 1,
             related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
@@ -120,6 +142,14 @@ pub async fn get_thermal() -> Json<ThermalResource> {
             model: "Virtual Fan",
             serial_number: "VBMC-FAN-001",
             part_number: "VBMC-FAN",
+            min_reading_range: 0,
+            max_reading_range: 10000,
+            upper_threshold_critical: 9000,
+            upper_threshold_fatal: 10000,
+            upper_threshold_non_critical: 8000,
+            lower_threshold_critical: 500,
+            lower_threshold_fatal: 0,
+            lower_threshold_non_critical: 1000,
             related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
             redundancy: Vec::new(),
             status: Status::enabled_ok(),

@@ -46,8 +46,30 @@ pub struct EventServiceResource {
     pub include_origin_of_condition_supported: bool,
     #[serde(rename = "SubordinateResourcesSupported")]
     pub subordinate_resources_supported: bool,
+    #[serde(rename = "Severities")]
+    pub severities: Vec<&'static str>,
+    #[serde(rename = "SSEFilterPropertiesSupported")]
+    pub sse_filter_properties_supported: SseFilterProperties,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SseFilterProperties {
+    #[serde(rename = "EventFormatType")]
+    pub event_format_type: bool,
+    #[serde(rename = "MessageId")]
+    pub message_id: bool,
+    #[serde(rename = "MetricReportDefinition")]
+    pub metric_report_definition: bool,
+    #[serde(rename = "OriginResource")]
+    pub origin_resource: bool,
+    #[serde(rename = "RegistryPrefix")]
+    pub registry_prefix: bool,
+    #[serde(rename = "ResourceType")]
+    pub resource_type: bool,
+    #[serde(rename = "SubordinateResources")]
+    pub subordinate_resources: bool,
 }
 
 pub async fn get_event_service() -> Json<EventServiceResource> {
@@ -67,6 +89,16 @@ pub async fn get_event_service() -> Json<EventServiceResource> {
         resource_types: vec!["ComputerSystem", "Manager", "Chassis"],
         include_origin_of_condition_supported: true,
         subordinate_resources_supported: false,
+        severities: vec!["OK", "Warning", "Critical"],
+        sse_filter_properties_supported: SseFilterProperties {
+            event_format_type: false,
+            message_id: true,
+            metric_report_definition: false,
+            origin_resource: true,
+            registry_prefix: true,
+            resource_type: true,
+            subordinate_resources: false,
+        },
         status: Status::enabled_ok(),
     })
 }

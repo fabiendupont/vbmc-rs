@@ -58,6 +58,12 @@ pub struct Manager {
     pub last_reset_time: String,
     #[serde(rename = "LocationIndicatorActive")]
     pub location_indicator_active: bool,
+    #[serde(rename = "TimeZoneName")]
+    pub time_zone_name: &'static str,
+    #[serde(rename = "ServiceIdentification")]
+    pub service_identification: String,
+    #[serde(rename = "Location")]
+    pub location: ManagerLocation,
     #[serde(rename = "LogServices", skip_serializing_if = "Option::is_none")]
     pub log_services: Option<ODataId>,
     #[serde(rename = "Links")]
@@ -70,6 +76,16 @@ pub struct ManagerConsole {
     pub service_enabled: bool,
     #[serde(rename = "MaxConcurrentSessions")]
     pub max_concurrent_sessions: u32,
+    #[serde(rename = "ConnectTypesSupported")]
+    pub connect_types_supported: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ManagerLocation {
+    #[serde(rename = "Info")]
+    pub info: &'static str,
+    #[serde(rename = "InfoFormat")]
+    pub info_format: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -136,13 +152,21 @@ pub async fn get_manager(
         graphical_console: ManagerConsole {
             service_enabled: false,
             max_concurrent_sessions: 0,
+            connect_types_supported: Vec::new(),
         },
         command_shell: ManagerConsole {
             service_enabled: false,
             max_concurrent_sessions: 0,
+            connect_types_supported: Vec::new(),
         },
         last_reset_time: now.clone(),
         location_indicator_active: false,
+        time_zone_name: "UTC",
+        service_identification: format!("vbmc-rs-{}", state.instance_uuid.split('-').next().unwrap_or("0000")),
+        location: ManagerLocation {
+            info: "Virtual BMC",
+            info_format: "Embedded",
+        },
         log_services: Some(ODataId::new("/redfish/v1/Managers/vbmc/LogServices")),
         links: ManagerLinks {
             manager_for_servers,

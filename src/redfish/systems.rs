@@ -86,16 +86,34 @@ pub struct ComputerSystem {
     pub power_off_delay_seconds: f64,
     #[serde(rename = "PowerCycleDelaySeconds")]
     pub power_cycle_delay_seconds: f64,
+    #[serde(rename = "PowerMode")]
+    pub power_mode: &'static str,
+    #[serde(rename = "BootProgress")]
+    pub boot_progress: BootProgress,
+    #[serde(rename = "LastResetTime")]
+    pub last_reset_time: String,
+    #[serde(rename = "HostWatchdogTimer")]
+    pub host_watchdog_timer: HostWatchdogTimer,
     #[serde(rename = "Links")]
     pub links: ComputerSystemLinks,
 }
 
 #[derive(Debug, Serialize)]
-pub struct HostConsole {
-    #[serde(rename = "ConnectTypesSupported")]
-    pub connect_types_supported: Vec<&'static str>,
-    #[serde(rename = "MaxConcurrentSessions")]
-    pub max_concurrent_sessions: u32,
+pub struct BootProgress {
+    #[serde(rename = "LastState")]
+    pub last_state: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HostWatchdogTimer {
+    #[serde(rename = "FunctionEnabled")]
+    pub function_enabled: bool,
+    #[serde(rename = "TimeoutAction")]
+    pub timeout_action: &'static str,
+    #[serde(rename = "WarningAction")]
+    pub warning_action: &'static str,
+    #[serde(rename = "Status")]
+    pub status: Status,
 }
 
 #[derive(Debug, Serialize)]
@@ -148,6 +166,8 @@ pub struct ProcessorSummary {
     pub core_count: u32,
     #[serde(rename = "LogicalProcessorCount")]
     pub logical_processor_count: u32,
+    #[serde(rename = "ThreadingEnabled")]
+    pub threading_enabled: bool,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -285,6 +305,11 @@ pub async fn get_system(
 
     let serial_number = format!("VBMC-{}", system_uuid.split('-').next().unwrap_or("0000"));
     let host_name = name.clone();
+    let boot_progress_state = if power_state == "On" {
+        "OSRunning"
+    } else {
+        "None"
+    };
     let cpu_model = get_host_cpu_model();
 
     let boot = BootOptions {
@@ -336,6 +361,7 @@ pub async fn get_system(
             model: cpu_model,
             core_count: cpu_count,
             logical_processor_count: max_cpu_count,
+            threading_enabled: max_cpu_count > cpu_count,
             status: Status::enabled_ok(),
         },
         memory_summary: MemorySummary {
@@ -397,6 +423,19 @@ pub async fn get_system(
         power_on_delay_seconds: 0.0,
         power_off_delay_seconds: 0.0,
         power_cycle_delay_seconds: 0.0,
+        power_mode: "MaximumPerformance",
+        boot_progress: BootProgress {
+            last_state: boot_progress_state,
+        },
+        last_reset_time: chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string(),
+        host_watchdog_timer: HostWatchdogTimer {
+            function_enabled: false,
+            timeout_action: "None",
+            warning_action: "None",
+            status: Status::enabled_ok(),
+        },
         links: ComputerSystemLinks {
             chassis: vec![ODataId::new("/redfish/v1/Chassis/1")],
             managed_by: vec![ODataId::new("/redfish/v1/Managers/vbmc")],

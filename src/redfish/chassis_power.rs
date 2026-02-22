@@ -19,6 +19,40 @@ pub struct PowerResource {
     pub power_control: Vec<PowerControl>,
     #[serde(rename = "PowerSupplies")]
     pub power_supplies: Vec<PowerSupply>,
+    #[serde(rename = "Voltages")]
+    pub voltages: Vec<Voltage>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Voltage {
+    #[serde(rename = "@odata.id")]
+    pub odata_id: String,
+    #[serde(rename = "MemberId")]
+    pub member_id: &'static str,
+    #[serde(rename = "Name")]
+    pub name: &'static str,
+    #[serde(rename = "ReadingVolts")]
+    pub reading_volts: f64,
+    #[serde(rename = "PhysicalContext")]
+    pub physical_context: &'static str,
+    #[serde(rename = "SensorNumber")]
+    pub sensor_number: u32,
+    #[serde(rename = "UpperThresholdCritical")]
+    pub upper_threshold_critical: f64,
+    #[serde(rename = "UpperThresholdNonCritical")]
+    pub upper_threshold_non_critical: f64,
+    #[serde(rename = "LowerThresholdCritical")]
+    pub lower_threshold_critical: f64,
+    #[serde(rename = "LowerThresholdNonCritical")]
+    pub lower_threshold_non_critical: f64,
+    #[serde(rename = "MinReadingRange")]
+    pub min_reading_range: f64,
+    #[serde(rename = "MaxReadingRange")]
+    pub max_reading_range: f64,
+    #[serde(rename = "Status")]
+    pub status: Status,
+    #[serde(rename = "RelatedItem")]
+    pub related_item: Vec<ODataId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -39,6 +73,12 @@ pub struct PowerControl {
     pub power_metrics: PowerMetrics,
     #[serde(rename = "PowerLimit")]
     pub power_limit: PowerLimit,
+    #[serde(rename = "PowerAllocatedWatts")]
+    pub power_allocated_watts: u32,
+    #[serde(rename = "PowerAvailableWatts")]
+    pub power_available_watts: u32,
+    #[serde(rename = "PowerRequestedWatts")]
+    pub power_requested_watts: u32,
     #[serde(rename = "RelatedItem")]
     pub related_item: Vec<ODataId>,
     #[serde(rename = "Status")]
@@ -129,6 +169,9 @@ pub async fn get_power() -> Json<PowerResource> {
                 limit_in_watts: 500,
                 limit_exception: "LogEventOnly",
             },
+            power_allocated_watts: 500,
+            power_available_watts: 450,
+            power_requested_watts: 50,
             related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
             status: Status::enabled_ok(),
         }],
@@ -151,6 +194,22 @@ pub async fn get_power() -> Json<PowerResource> {
             efficiency_percent: 90,
             related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
             status: Status::enabled_ok(),
+        }],
+        voltages: vec![Voltage {
+            odata_id: "/redfish/v1/Chassis/1/Power#/Voltages/0".to_string(),
+            member_id: "0",
+            name: "12V Rail",
+            reading_volts: 12.1,
+            physical_context: "SystemBoard",
+            sensor_number: 20,
+            upper_threshold_critical: 13.0,
+            upper_threshold_non_critical: 12.6,
+            lower_threshold_critical: 10.8,
+            lower_threshold_non_critical: 11.4,
+            min_reading_range: 0.0,
+            max_reading_range: 15.0,
+            status: Status::enabled_ok(),
+            related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
         }],
     })
 }

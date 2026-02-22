@@ -57,6 +57,12 @@ pub struct PowerSupplyResource {
     pub location: PsuLocation,
     #[serde(rename = "LineInputStatus")]
     pub line_input_status: &'static str,
+    #[serde(rename = "OutputNominalVoltageType")]
+    pub output_nominal_voltage_type: &'static str,
+    #[serde(rename = "PhaseWiringType")]
+    pub phase_wiring_type: &'static str,
+    #[serde(rename = "Replaceable")]
+    pub replaceable: bool,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -116,6 +122,9 @@ pub async fn get_power_supply() -> Json<PowerSupplyResource> {
             info_format: "Bay",
         },
         line_input_status: "Normal",
+        output_nominal_voltage_type: "DC12V",
+        phase_wiring_type: "OnePhase3Wire",
+        replaceable: false,
         status: Status::enabled_ok(),
     })
 }

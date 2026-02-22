@@ -34,6 +34,16 @@ pub struct AccountServiceResource {
     pub lockout_threshold: u32,
     #[serde(rename = "AccountLockoutDuration")]
     pub lockout_duration: u64,
+    #[serde(rename = "MinPasswordLength")]
+    pub min_password_length: u32,
+    #[serde(rename = "MaxPasswordLength")]
+    pub max_password_length: u32,
+    #[serde(rename = "AccountLockoutCounterResetAfter")]
+    pub lockout_counter_reset_after: u64,
+    #[serde(rename = "AccountLockoutCounterResetEnabled")]
+    pub lockout_counter_reset_enabled: bool,
+    #[serde(rename = "Status")]
+    pub status: super::types::Status,
 }
 
 pub async fn get_account_service(
@@ -50,6 +60,11 @@ pub async fn get_account_service(
         roles: ODataId::new("/redfish/v1/AccountService/Roles"),
         lockout_threshold: state.config.auth.lockout_threshold,
         lockout_duration: state.config.auth.lockout_duration_seconds,
+        min_password_length: 1,
+        max_password_length: 128,
+        lockout_counter_reset_after: state.config.auth.lockout_duration_seconds,
+        lockout_counter_reset_enabled: true,
+        status: super::types::Status::enabled_ok(),
     })
 }
 

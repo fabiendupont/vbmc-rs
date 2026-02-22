@@ -65,10 +65,30 @@ pub struct Processor {
     pub throttled: bool,
     #[serde(rename = "UUID")]
     pub uuid: String,
+    #[serde(rename = "Family")]
+    pub family: &'static str,
+    #[serde(rename = "Version")]
+    pub version: String,
+    #[serde(rename = "ProcessorIndex")]
+    pub processor_index: u32,
+    #[serde(rename = "MinSpeedMHz")]
+    pub min_speed_mhz: u32,
+    #[serde(rename = "Replaceable")]
+    pub replaceable: bool,
+    #[serde(rename = "Location")]
+    pub location: ProcessorLocation,
     #[serde(rename = "ProcessorId")]
     pub processor_id: ProcessorIdInfo,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProcessorLocation {
+    #[serde(rename = "Info")]
+    pub info: &'static str,
+    #[serde(rename = "InfoFormat")]
+    pub info_format: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -147,7 +167,7 @@ pub async fn get_processor(
         total_enabled_cores: cores,
         instruction_set: "x86-64",
         manufacturer: manufacturer.clone(),
-        model,
+        model: model.clone(),
         socket: "CPU0",
         processor_architecture: "x86",
         max_speed_mhz,
@@ -167,6 +187,15 @@ pub async fn get_processor(
             format!("vbmc-rs:cpu:{system_id}").as_bytes(),
         )
         .to_string(),
+        family: "Xeon",
+        version: model.to_string(),
+        processor_index: 0,
+        min_speed_mhz: 800,
+        replaceable: false,
+        location: ProcessorLocation {
+            info: "Socket CPU0",
+            info_format: "Socket",
+        },
         processor_id: ProcessorIdInfo {
             vendor_id: manufacturer.clone(),
             identification_registers: "0x00000000",

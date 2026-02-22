@@ -63,8 +63,36 @@ pub struct MemoryResource {
     pub logical_size_mib: u64,
     #[serde(rename = "ConfigurationLocked")]
     pub configuration_locked: bool,
+    #[serde(rename = "FirmwareRevision")]
+    pub firmware_revision: &'static str,
+    #[serde(rename = "AllowedSpeedsMHz")]
+    pub allowed_speeds_mhz: Vec<u32>,
+    #[serde(rename = "MemoryLocation")]
+    pub memory_location: MemoryLocation,
+    #[serde(rename = "Location")]
+    pub location: MemDimmLocation,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MemoryLocation {
+    #[serde(rename = "Socket")]
+    pub socket: u32,
+    #[serde(rename = "MemoryController")]
+    pub memory_controller: u32,
+    #[serde(rename = "Channel")]
+    pub channel: u32,
+    #[serde(rename = "Slot")]
+    pub slot: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MemDimmLocation {
+    #[serde(rename = "Info")]
+    pub info: &'static str,
+    #[serde(rename = "InfoFormat")]
+    pub info_format: &'static str,
 }
 
 pub async fn get_memory_collection(
@@ -136,6 +164,18 @@ pub async fn get_memory(
         base_module_type: "RDIMM",
         logical_size_mib: capacity_mib,
         configuration_locked: false,
+        firmware_revision: "1.0",
+        allowed_speeds_mhz: vec![2133, 2400, 2666, 3200],
+        memory_location: MemoryLocation {
+            socket: 0,
+            memory_controller: 0,
+            channel: 0,
+            slot: 0,
+        },
+        location: MemDimmLocation {
+            info: "DIMM 0",
+            info_format: "DIMM",
+        },
         status: Status::enabled_ok(),
     }))
 }
