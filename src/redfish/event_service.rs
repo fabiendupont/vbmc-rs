@@ -10,7 +10,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
 use super::error::RedfishApiError;
-use super::types::{Collection, ODataId};
+use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
 use crate::events::subscriptions::{Subscription, SubscriptionStore};
 
@@ -32,6 +32,22 @@ pub struct EventServiceResource {
     pub subscriptions: ODataId,
     #[serde(rename = "ServerSentEventUri")]
     pub sse_uri: &'static str,
+    #[serde(rename = "DeliveryRetryAttempts")]
+    pub delivery_retry_attempts: u32,
+    #[serde(rename = "DeliveryRetryIntervalSeconds")]
+    pub delivery_retry_interval_seconds: u32,
+    #[serde(rename = "EventFormatTypes")]
+    pub event_format_types: Vec<&'static str>,
+    #[serde(rename = "RegistryPrefixes")]
+    pub registry_prefixes: Vec<&'static str>,
+    #[serde(rename = "ResourceTypes")]
+    pub resource_types: Vec<&'static str>,
+    #[serde(rename = "IncludeOriginOfConditionSupported")]
+    pub include_origin_of_condition_supported: bool,
+    #[serde(rename = "SubordinateResourcesSupported")]
+    pub subordinate_resources_supported: bool,
+    #[serde(rename = "Status")]
+    pub status: Status,
 }
 
 pub async fn get_event_service() -> Json<EventServiceResource> {
@@ -44,6 +60,14 @@ pub async fn get_event_service() -> Json<EventServiceResource> {
         service_enabled: true,
         subscriptions: ODataId::new("/redfish/v1/EventService/Subscriptions"),
         sse_uri: "/redfish/v1/EventService/SSE",
+        delivery_retry_attempts: 3,
+        delivery_retry_interval_seconds: 30,
+        event_format_types: vec!["Event"],
+        registry_prefixes: vec!["ResourceEvent", "Security"],
+        resource_types: vec!["ComputerSystem", "Manager", "Chassis"],
+        include_origin_of_condition_supported: true,
+        subordinate_resources_supported: false,
+        status: Status::enabled_ok(),
     })
 }
 

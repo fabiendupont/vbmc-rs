@@ -35,6 +35,16 @@ pub struct VirtualMediaResource {
     pub image_name: Option<String>,
     #[serde(rename = "WriteProtected")]
     pub write_protected: bool,
+    #[serde(rename = "ConnectedVia")]
+    pub connected_via: &'static str,
+    #[serde(rename = "TransferMethod")]
+    pub transfer_method: &'static str,
+    #[serde(rename = "TransferProtocolType")]
+    pub transfer_protocol_type: &'static str,
+    #[serde(rename = "VerifyCertificate")]
+    pub verify_certificate: bool,
+    #[serde(rename = "EjectPolicy")]
+    pub eject_policy: &'static str,
     #[serde(rename = "Status")]
     pub status: Status,
     #[serde(rename = "Actions")]
@@ -110,6 +120,15 @@ pub async fn get_virtual_media(
         image: vm_state.virtual_media.image_url.clone(),
         image_name,
         write_protected: true,
+        connected_via: if vm_state.virtual_media.inserted {
+            "URI"
+        } else {
+            "NotConnected"
+        },
+        transfer_method: "Stream",
+        transfer_protocol_type: "HTTP",
+        verify_certificate: false,
+        eject_policy: "OnPowerOff",
         status: Status::enabled_ok(),
         actions: VirtualMediaActions {
             insert_media: ActionTarget {

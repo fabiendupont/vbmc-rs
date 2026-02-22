@@ -45,8 +45,28 @@ pub struct PowerSupplyResource {
     pub model: &'static str,
     #[serde(rename = "SerialNumber")]
     pub serial_number: &'static str,
+    #[serde(rename = "PartNumber")]
+    pub part_number: &'static str,
+    #[serde(rename = "FirmwareVersion")]
+    pub firmware_version: &'static str,
+    #[serde(rename = "InputNominalVoltageType")]
+    pub input_nominal_voltage_type: &'static str,
+    #[serde(rename = "HotPluggable")]
+    pub hot_pluggable: bool,
+    #[serde(rename = "Location")]
+    pub location: PsuLocation,
+    #[serde(rename = "LineInputStatus")]
+    pub line_input_status: &'static str,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PsuLocation {
+    #[serde(rename = "Info")]
+    pub info: &'static str,
+    #[serde(rename = "InfoFormat")]
+    pub info_format: &'static str,
 }
 
 pub async fn get_power_subsystem() -> Json<PowerSubsystemResource> {
@@ -87,6 +107,15 @@ pub async fn get_power_supply() -> Json<PowerSupplyResource> {
         manufacturer: "vbmc-rs",
         model: "Virtual PSU",
         serial_number: "VBMC-PSU-001",
+        part_number: "VBMC-PSU",
+        firmware_version: "1.0",
+        input_nominal_voltage_type: "AC240V",
+        hot_pluggable: false,
+        location: PsuLocation {
+            info: "Bay 1",
+            info_format: "Bay",
+        },
+        line_input_status: "Normal",
         status: Status::enabled_ok(),
     })
 }

@@ -44,8 +44,42 @@ pub struct ChassisResource {
     pub model: &'static str,
     #[serde(rename = "SerialNumber")]
     pub serial_number: &'static str,
+    #[serde(rename = "AssetTag", skip_serializing_if = "Option::is_none")]
+    pub asset_tag: Option<String>,
+    #[serde(rename = "PartNumber")]
+    pub part_number: &'static str,
+    #[serde(rename = "SKU")]
+    pub sku: &'static str,
+    #[serde(rename = "UUID")]
+    pub uuid: String,
+    #[serde(rename = "HeightMm")]
+    pub height_mm: f64,
+    #[serde(rename = "WidthMm")]
+    pub width_mm: f64,
+    #[serde(rename = "DepthMm")]
+    pub depth_mm: f64,
+    #[serde(rename = "WeightKg")]
+    pub weight_kg: f64,
+    #[serde(rename = "EnvironmentalClass")]
+    pub environmental_class: &'static str,
+    #[serde(rename = "LocationIndicatorActive")]
+    pub location_indicator_active: bool,
+    #[serde(rename = "MaxPowerWatts")]
+    pub max_power_watts: u32,
+    #[serde(rename = "MinPowerWatts")]
+    pub min_power_watts: u32,
+    #[serde(rename = "Location")]
+    pub location: ChassisLocation,
     #[serde(rename = "Links")]
     pub links: ChassisLinks,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChassisLocation {
+    #[serde(rename = "Info")]
+    pub info: &'static str,
+    #[serde(rename = "InfoFormat")]
+    pub info_format: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,6 +88,12 @@ pub struct ChassisLinks {
     pub computer_systems: Vec<ODataId>,
     #[serde(rename = "ManagedBy")]
     pub managed_by: Vec<ODataId>,
+    #[serde(rename = "ManagersInChassis")]
+    pub managers_in_chassis: Vec<ODataId>,
+    #[serde(rename = "Drives")]
+    pub drives: Vec<ODataId>,
+    #[serde(rename = "Storage")]
+    pub storage: Vec<ODataId>,
 }
 
 pub async fn get_chassis_collection() -> Json<Collection<ODataId>> {
@@ -94,9 +134,28 @@ pub async fn get_chassis(
         manufacturer: "vbmc-rs",
         model: "Virtual Chassis",
         serial_number: "VBMC-CHASSIS-001",
+        asset_tag: None,
+        part_number: "VBMC-CHS",
+        sku: "VBMC-VIRTUAL",
+        uuid: state.instance_uuid.clone(),
+        height_mm: 44.45,
+        width_mm: 482.6,
+        depth_mm: 730.0,
+        weight_kg: 15.0,
+        environmental_class: "A1",
+        location_indicator_active: false,
+        max_power_watts: 1000,
+        min_power_watts: 50,
+        location: ChassisLocation {
+            info: "Rack 1, Unit 1",
+            info_format: "Rack:RackUnit",
+        },
         links: ChassisLinks {
             computer_systems,
             managed_by: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
+            managers_in_chassis: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
+            drives: Vec::new(),
+            storage: Vec::new(),
         },
     })
 }
@@ -137,6 +196,16 @@ pub struct TrustedComponentResource {
     pub description: String,
     #[serde(rename = "TrustedComponentType")]
     pub trusted_component_type: &'static str,
+    #[serde(rename = "Manufacturer")]
+    pub manufacturer: &'static str,
+    #[serde(rename = "Model")]
+    pub model: &'static str,
+    #[serde(rename = "SerialNumber")]
+    pub serial_number: String,
+    #[serde(rename = "FirmwareVersion")]
+    pub firmware_version: &'static str,
+    #[serde(rename = "UUID")]
+    pub uuid: String,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -160,6 +229,15 @@ pub async fn get_trusted_component(
         name: format!("Trusted: {component_id}"),
         description: format!("Trusted component: {component_id}"),
         trusted_component_type: "Discrete",
+        manufacturer: "vbmc-rs",
+        model: "Virtual TPM",
+        serial_number: format!("VBMC-TC-{component_id}"),
+        firmware_version: env!("CARGO_PKG_VERSION"),
+        uuid: uuid::Uuid::new_v5(
+            &uuid::Uuid::NAMESPACE_URL,
+            format!("vbmc-rs:tc:{component_id}").as_bytes(),
+        )
+        .to_string(),
         status: Status::enabled_ok(),
     }))
 }

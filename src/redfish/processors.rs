@@ -41,8 +41,50 @@ pub struct Processor {
     pub processor_architecture: &'static str,
     #[serde(rename = "MaxSpeedMHz")]
     pub max_speed_mhz: u32,
+    #[serde(rename = "BaseSpeedMHz")]
+    pub base_speed_mhz: u32,
+    #[serde(rename = "OperatingSpeedMHz")]
+    pub operating_speed_mhz: u32,
+    #[serde(rename = "MaxTDPWatts")]
+    pub max_tdp_watts: u32,
+    #[serde(rename = "TDPWatts")]
+    pub tdp_watts: u32,
+    #[serde(rename = "SerialNumber")]
+    pub serial_number: String,
+    #[serde(rename = "PartNumber")]
+    pub part_number: &'static str,
+    #[serde(rename = "FirmwareVersion")]
+    pub firmware_version: &'static str,
+    #[serde(rename = "Enabled")]
+    pub enabled: bool,
+    #[serde(rename = "PowerState")]
+    pub power_state: &'static str,
+    #[serde(rename = "TurboState")]
+    pub turbo_state: &'static str,
+    #[serde(rename = "Throttled")]
+    pub throttled: bool,
+    #[serde(rename = "UUID")]
+    pub uuid: String,
+    #[serde(rename = "ProcessorId")]
+    pub processor_id: ProcessorIdInfo,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProcessorIdInfo {
+    #[serde(rename = "VendorId")]
+    pub vendor_id: String,
+    #[serde(rename = "IdentificationRegisters")]
+    pub identification_registers: &'static str,
+    #[serde(rename = "EffectiveFamily")]
+    pub effective_family: &'static str,
+    #[serde(rename = "EffectiveModel")]
+    pub effective_model: &'static str,
+    #[serde(rename = "Step")]
+    pub step: &'static str,
+    #[serde(rename = "MicrocodeInfo")]
+    pub microcode_info: &'static str,
 }
 
 pub async fn get_processors(
@@ -104,11 +146,35 @@ pub async fn get_processor(
         total_threads: threads,
         total_enabled_cores: cores,
         instruction_set: "x86-64",
-        manufacturer,
+        manufacturer: manufacturer.clone(),
         model,
         socket: "CPU0",
         processor_architecture: "x86",
         max_speed_mhz,
+        base_speed_mhz: max_speed_mhz,
+        operating_speed_mhz: max_speed_mhz,
+        max_tdp_watts: 125,
+        tdp_watts: 125,
+        serial_number: format!("VBMC-CPU-{system_id}"),
+        part_number: "VBMC-CPU",
+        firmware_version: "N/A",
+        enabled: true,
+        power_state: "On",
+        turbo_state: "Disabled",
+        throttled: false,
+        uuid: uuid::Uuid::new_v5(
+            &uuid::Uuid::NAMESPACE_URL,
+            format!("vbmc-rs:cpu:{system_id}").as_bytes(),
+        )
+        .to_string(),
+        processor_id: ProcessorIdInfo {
+            vendor_id: manufacturer.clone(),
+            identification_registers: "0x00000000",
+            effective_family: "0x06",
+            effective_model: "0x3E",
+            step: "0x04",
+            microcode_info: "0x00000000",
+        },
         status: Status::enabled_ok(),
     }))
 }

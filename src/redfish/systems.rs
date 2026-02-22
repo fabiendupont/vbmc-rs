@@ -70,8 +70,32 @@ pub struct ComputerSystem {
     pub host_name: String,
     #[serde(rename = "PowerRestorePolicy")]
     pub power_restore_policy: &'static str,
+    #[serde(rename = "AssetTag", skip_serializing_if = "Option::is_none")]
+    pub asset_tag: Option<String>,
+    #[serde(rename = "PartNumber")]
+    pub part_number: &'static str,
+    #[serde(rename = "SKU")]
+    pub sku: &'static str,
+    #[serde(rename = "SubModel")]
+    pub sub_model: &'static str,
+    #[serde(rename = "LocationIndicatorActive")]
+    pub location_indicator_active: bool,
+    #[serde(rename = "PowerOnDelaySeconds")]
+    pub power_on_delay_seconds: f64,
+    #[serde(rename = "PowerOffDelaySeconds")]
+    pub power_off_delay_seconds: f64,
+    #[serde(rename = "PowerCycleDelaySeconds")]
+    pub power_cycle_delay_seconds: f64,
     #[serde(rename = "Links")]
     pub links: ComputerSystemLinks,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HostConsole {
+    #[serde(rename = "ConnectTypesSupported")]
+    pub connect_types_supported: Vec<&'static str>,
+    #[serde(rename = "MaxConcurrentSessions")]
+    pub max_concurrent_sessions: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -80,18 +104,38 @@ pub struct ComputerSystemLinks {
     pub chassis: Vec<ODataId>,
     #[serde(rename = "ManagedBy")]
     pub managed_by: Vec<ODataId>,
+    #[serde(rename = "TrustedComponents")]
+    pub trusted_components: Vec<ODataId>,
+    #[serde(rename = "CooledBy")]
+    pub cooled_by: Vec<ODataId>,
+    #[serde(rename = "PoweredBy")]
+    pub powered_by: Vec<ODataId>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BootOptions {
-    #[serde(rename = "BootSourceOverrideTarget", skip_serializing_if = "Option::is_none")]
-    pub boot_source_override_target: Option<String>,
-    #[serde(rename = "BootSourceOverrideEnabled", skip_serializing_if = "Option::is_none")]
-    pub boot_source_override_enabled: Option<String>,
-    #[serde(rename = "BootSourceOverrideMode", skip_serializing_if = "Option::is_none")]
-    pub boot_source_override_mode: Option<String>,
-    #[serde(rename = "BootSourceOverrideTarget@Redfish.AllowableValues", skip_serializing_if = "Option::is_none")]
-    pub allowable_targets: Option<Vec<String>>,
+    #[serde(rename = "BootSourceOverrideTarget")]
+    pub boot_source_override_target: String,
+    #[serde(rename = "BootSourceOverrideEnabled")]
+    pub boot_source_override_enabled: String,
+    #[serde(rename = "BootSourceOverrideMode")]
+    pub boot_source_override_mode: String,
+    #[serde(rename = "BootSourceOverrideTarget@Redfish.AllowableValues")]
+    pub allowable_targets: Vec<String>,
+    #[serde(rename = "BootOrder")]
+    pub boot_order: Vec<String>,
+    #[serde(rename = "StopBootOnFault")]
+    pub stop_boot_on_fault: &'static str,
+    #[serde(rename = "AutomaticRetryConfig")]
+    pub automatic_retry_config: &'static str,
+    #[serde(rename = "AutomaticRetryAttempts")]
+    pub automatic_retry_attempts: u32,
+    #[serde(rename = "RemainingAutomaticRetryAttempts")]
+    pub remaining_automatic_retry_attempts: u32,
+    #[serde(rename = "HttpBootUri", skip_serializing_if = "Option::is_none")]
+    pub http_boot_uri: Option<String>,
+    #[serde(rename = "UefiTargetBootSourceOverride", skip_serializing_if = "Option::is_none")]
+    pub uefi_target: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -244,15 +288,34 @@ pub async fn get_system(
     let cpu_model = get_host_cpu_model();
 
     let boot = BootOptions {
-        boot_source_override_target: vm_state.boot_override.target.clone(),
-        boot_source_override_enabled: Some(vm_state.boot_override.enabled.clone()),
-        boot_source_override_mode: vm_state.boot_override.mode.clone(),
-        allowable_targets: Some(vec![
+        boot_source_override_target: vm_state
+            .boot_override
+            .target
+            .clone()
+            .unwrap_or_else(|| "None".to_string()),
+        boot_source_override_enabled: vm_state.boot_override.enabled.clone(),
+        boot_source_override_mode: vm_state
+            .boot_override
+            .mode
+            .clone()
+            .unwrap_or_else(|| "UEFI".to_string()),
+        allowable_targets: vec![
             "None".to_string(),
             "Pxe".to_string(),
             "Cd".to_string(),
             "Hdd".to_string(),
-        ]),
+        ],
+        boot_order: vec![
+            "Hdd".to_string(),
+            "Pxe".to_string(),
+            "Cd".to_string(),
+        ],
+        stop_boot_on_fault: "Never",
+        automatic_retry_config: "Disabled",
+        automatic_retry_attempts: 0,
+        remaining_automatic_retry_attempts: 0,
+        http_boot_uri: None,
+        uefi_target: None,
     };
 
     Ok(Json(ComputerSystem {
@@ -326,17 +389,44 @@ pub async fn get_system(
         serial_number,
         host_name,
         power_restore_policy: "AlwaysOff",
+        asset_tag: None,
+        part_number: "VBMC-SYS",
+        sku: "VBMC-VIRTUAL",
+        sub_model: "Standard",
+        location_indicator_active: false,
+        power_on_delay_seconds: 0.0,
+        power_off_delay_seconds: 0.0,
+        power_cycle_delay_seconds: 0.0,
         links: ComputerSystemLinks {
             chassis: vec![ODataId::new("/redfish/v1/Chassis/1")],
             managed_by: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
+            trusted_components: vec![ODataId::new(format!(
+                "/redfish/v1/Chassis/1/TrustedComponents/{system_id}"
+            ))],
+            cooled_by: vec![ODataId::new(
+                "/redfish/v1/Chassis/1/ThermalSubsystem/Fans/0",
+            )],
+            powered_by: vec![ODataId::new(
+                "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0",
+            )],
         },
     }))
 }
 
 #[derive(Debug, Deserialize)]
+pub struct PatchBootOptions {
+    #[serde(rename = "BootSourceOverrideTarget")]
+    pub boot_source_override_target: Option<String>,
+    #[serde(rename = "BootSourceOverrideEnabled")]
+    pub boot_source_override_enabled: Option<String>,
+    #[serde(rename = "BootSourceOverrideMode")]
+    pub boot_source_override_mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct PatchSystemRequest {
     #[serde(rename = "Boot")]
-    pub boot: Option<BootOptions>,
+    pub boot: Option<PatchBootOptions>,
 }
 
 pub async fn patch_system(

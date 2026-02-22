@@ -37,6 +37,32 @@ pub struct MemoryResource {
     pub operating_speed_mhz: u32,
     #[serde(rename = "Manufacturer")]
     pub manufacturer: &'static str,
+    #[serde(rename = "SerialNumber")]
+    pub serial_number: String,
+    #[serde(rename = "PartNumber")]
+    pub part_number: &'static str,
+    #[serde(rename = "Model")]
+    pub model: &'static str,
+    #[serde(rename = "RankCount")]
+    pub rank_count: u32,
+    #[serde(rename = "OperatingMemoryModes")]
+    pub operating_memory_modes: Vec<&'static str>,
+    #[serde(rename = "MemoryMedia")]
+    pub memory_media: Vec<&'static str>,
+    #[serde(rename = "SecurityState")]
+    pub security_state: &'static str,
+    #[serde(rename = "Enabled")]
+    pub enabled: bool,
+    #[serde(rename = "VolatileSizeMiB")]
+    pub volatile_size_mib: u64,
+    #[serde(rename = "NonVolatileSizeMiB")]
+    pub non_volatile_size_mib: u64,
+    #[serde(rename = "BaseModuleType")]
+    pub base_module_type: &'static str,
+    #[serde(rename = "LogicalSizeMiB")]
+    pub logical_size_mib: u64,
+    #[serde(rename = "ConfigurationLocked")]
+    pub configuration_locked: bool,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -97,6 +123,19 @@ pub async fn get_memory(
         error_correction: "NoECC",
         operating_speed_mhz: 3200,
         manufacturer: "Virtual",
+        serial_number: format!("VBMC-MEM-{system_id}-0"),
+        part_number: "VBMC-DIMM",
+        model: "Virtual DIMM",
+        rank_count: 1,
+        operating_memory_modes: vec!["Volatile"],
+        memory_media: vec!["DRAM"],
+        security_state: "Enabled",
+        enabled: true,
+        volatile_size_mib: capacity_mib,
+        non_volatile_size_mib: 0,
+        base_module_type: "RDIMM",
+        logical_size_mib: capacity_mib,
+        configuration_locked: false,
         status: Status::enabled_ok(),
     }))
 }

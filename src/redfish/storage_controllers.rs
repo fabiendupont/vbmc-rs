@@ -43,6 +43,20 @@ pub struct StorageControllerEntry {
     pub name: String,
     #[serde(rename = "SupportedDeviceProtocols")]
     pub supported_device_protocols: Vec<String>,
+    #[serde(rename = "SupportedControllerProtocols")]
+    pub supported_controller_protocols: Vec<&'static str>,
+    #[serde(rename = "SupportedRAIDTypes")]
+    pub supported_raid_types: Vec<&'static str>,
+    #[serde(rename = "FirmwareVersion")]
+    pub firmware_version: &'static str,
+    #[serde(rename = "Manufacturer")]
+    pub manufacturer: &'static str,
+    #[serde(rename = "Model")]
+    pub model: String,
+    #[serde(rename = "SerialNumber")]
+    pub serial_number: String,
+    #[serde(rename = "SpeedGbps")]
+    pub speed_gbps: f64,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -205,6 +219,13 @@ pub async fn get_storage(
             member_id: "0".to_string(),
             name: format!("{ctrl_id} Controller"),
             supported_device_protocols: vec![protocol_to_redfish_standard(&ctrl_id)],
+            supported_controller_protocols: vec!["PCIe"],
+            supported_raid_types: vec!["None"],
+            firmware_version: "1.0",
+            manufacturer: "vbmc-rs",
+            model: format!("Virtual {ctrl_id} Controller"),
+            serial_number: format!("VBMC-STOR-{ctrl_id}"),
+            speed_gbps: 16.0,
             status: Status::enabled_ok(),
         }],
         drives,

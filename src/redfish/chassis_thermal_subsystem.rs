@@ -51,6 +51,8 @@ pub struct TemperatureReading {
 pub struct SensorExcerpt {
     #[serde(rename = "Reading")]
     pub reading: f64,
+    #[serde(rename = "SpeedRPM", skip_serializing_if = "Option::is_none")]
+    pub speed_rpm: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -75,8 +77,24 @@ pub struct FanResource {
     pub serial_number: &'static str,
     #[serde(rename = "PhysicalContext")]
     pub physical_context: &'static str,
+    #[serde(rename = "HotPluggable")]
+    pub hot_pluggable: bool,
+    #[serde(rename = "Location")]
+    pub location: FanLocation,
+    #[serde(rename = "PartNumber")]
+    pub part_number: &'static str,
+    #[serde(rename = "Replaceable")]
+    pub replaceable: bool,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FanLocation {
+    #[serde(rename = "Info")]
+    pub info: &'static str,
+    #[serde(rename = "InfoFormat")]
+    pub info_format: &'static str,
 }
 
 pub async fn get_thermal_subsystem() -> Json<ThermalSubsystemResource> {
@@ -128,11 +146,21 @@ pub async fn get_fan() -> Json<FanResource> {
         id: "0",
         name: "System Fan",
         description: "Virtual cooling fan",
-        speed_percent: SensorExcerpt { reading: 50.0 },
+        speed_percent: SensorExcerpt {
+            reading: 50.0,
+            speed_rpm: Some(3000),
+        },
         manufacturer: "vbmc-rs",
         model: "Virtual Fan",
         serial_number: "VBMC-FAN-001",
         physical_context: "Exhaust",
+        hot_pluggable: false,
+        location: FanLocation {
+            info: "Bay 1",
+            info_format: "Bay",
+        },
+        part_number: "VBMC-FAN",
+        replaceable: false,
         status: Status::enabled_ok(),
     })
 }

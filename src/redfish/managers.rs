@@ -42,10 +42,34 @@ pub struct Manager {
     pub manufacturer: &'static str,
     #[serde(rename = "SerialNumber")]
     pub serial_number: String,
+    #[serde(rename = "PartNumber")]
+    pub part_number: &'static str,
+    #[serde(rename = "SparePartNumber")]
+    pub spare_part_number: &'static str,
+    #[serde(rename = "Version")]
+    pub version: &'static str,
+    #[serde(rename = "ServiceEntryPointUUID")]
+    pub service_entry_point_uuid: String,
+    #[serde(rename = "GraphicalConsole")]
+    pub graphical_console: ManagerConsole,
+    #[serde(rename = "CommandShell")]
+    pub command_shell: ManagerConsole,
+    #[serde(rename = "LastResetTime")]
+    pub last_reset_time: String,
+    #[serde(rename = "LocationIndicatorActive")]
+    pub location_indicator_active: bool,
     #[serde(rename = "LogServices", skip_serializing_if = "Option::is_none")]
     pub log_services: Option<ODataId>,
     #[serde(rename = "Links")]
     pub links: ManagerLinks,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ManagerConsole {
+    #[serde(rename = "ServiceEnabled")]
+    pub service_enabled: bool,
+    #[serde(rename = "MaxConcurrentSessions")]
+    pub max_concurrent_sessions: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,6 +78,8 @@ pub struct ManagerLinks {
     pub manager_for_servers: Vec<ODataId>,
     #[serde(rename = "ManagerForChassis")]
     pub manager_for_chassis: Vec<ODataId>,
+    #[serde(rename = "ManagerInChassis")]
+    pub manager_in_chassis: ODataId,
 }
 
 pub async fn get_managers() -> Json<Collection<ODataId>> {
@@ -96,17 +122,32 @@ pub async fn get_manager(
         manager_type: "BMC",
         firmware_version: env!("CARGO_PKG_VERSION"),
         status: Status::enabled_ok(),
-        date_time: now,
+        date_time: now.clone(),
         date_time_local_offset: "+00:00",
         uuid,
         power_state: "On",
         model: "Virtual BMC",
         manufacturer: "vbmc-rs",
         serial_number: serial,
+        part_number: "VBMC-MGR",
+        spare_part_number: "VBMC-MGR-SPARE",
+        version: env!("CARGO_PKG_VERSION"),
+        service_entry_point_uuid: state.instance_uuid.clone(),
+        graphical_console: ManagerConsole {
+            service_enabled: false,
+            max_concurrent_sessions: 0,
+        },
+        command_shell: ManagerConsole {
+            service_enabled: false,
+            max_concurrent_sessions: 0,
+        },
+        last_reset_time: now.clone(),
+        location_indicator_active: false,
         log_services: Some(ODataId::new("/redfish/v1/Managers/vbmc/LogServices")),
         links: ManagerLinks {
             manager_for_servers,
             manager_for_chassis: vec![ODataId::new("/redfish/v1/Chassis/1")],
+            manager_in_chassis: ODataId::new("/redfish/v1/Chassis/1"),
         },
     }))
 }
