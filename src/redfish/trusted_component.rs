@@ -36,6 +36,24 @@ pub struct ChassisResource {
     pub thermal_subsystem: ODataId,
     #[serde(rename = "NetworkAdapters")]
     pub network_adapters: ODataId,
+    #[serde(rename = "PowerState")]
+    pub power_state: &'static str,
+    #[serde(rename = "Manufacturer")]
+    pub manufacturer: &'static str,
+    #[serde(rename = "Model")]
+    pub model: &'static str,
+    #[serde(rename = "SerialNumber")]
+    pub serial_number: &'static str,
+    #[serde(rename = "Links")]
+    pub links: ChassisLinks,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChassisLinks {
+    #[serde(rename = "ComputerSystems")]
+    pub computer_systems: Vec<ODataId>,
+    #[serde(rename = "ManagedBy")]
+    pub managed_by: Vec<ODataId>,
 }
 
 pub async fn get_chassis_collection() -> Json<Collection<ODataId>> {
@@ -48,7 +66,16 @@ pub async fn get_chassis_collection() -> Json<Collection<ODataId>> {
     ))
 }
 
-pub async fn get_chassis() -> Json<ChassisResource> {
+pub async fn get_chassis(
+    State(state): State<Arc<AppState>>,
+) -> Json<ChassisResource> {
+    let computer_systems: Vec<ODataId> = state
+        .config
+        .systems
+        .keys()
+        .map(|id| ODataId::new(format!("/redfish/v1/Systems/{id}")))
+        .collect();
+
     Json(ChassisResource {
         odata_id: "/redfish/v1/Chassis/1".to_string(),
         odata_type: "#Chassis.v1_25_0.Chassis",
@@ -63,6 +90,14 @@ pub async fn get_chassis() -> Json<ChassisResource> {
         power_subsystem: ODataId::new("/redfish/v1/Chassis/1/PowerSubsystem"),
         thermal_subsystem: ODataId::new("/redfish/v1/Chassis/1/ThermalSubsystem"),
         network_adapters: ODataId::new("/redfish/v1/Chassis/1/NetworkAdapters"),
+        power_state: "On",
+        manufacturer: "vbmc-rs",
+        model: "Virtual Chassis",
+        serial_number: "VBMC-CHASSIS-001",
+        links: ChassisLinks {
+            computer_systems,
+            managed_by: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
+        },
     })
 }
 

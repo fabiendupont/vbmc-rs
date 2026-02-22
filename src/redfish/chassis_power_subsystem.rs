@@ -17,6 +17,8 @@ pub struct PowerSubsystemResource {
     pub description: &'static str,
     #[serde(rename = "Status")]
     pub status: Status,
+    #[serde(rename = "CapacityWatts")]
+    pub capacity_watts: u32,
     #[serde(rename = "PowerSupplies")]
     pub power_supplies: ODataId,
 }
@@ -37,6 +39,12 @@ pub struct PowerSupplyResource {
     pub power_capacity_watts: u32,
     #[serde(rename = "PowerSupplyType")]
     pub power_supply_type: &'static str,
+    #[serde(rename = "Manufacturer")]
+    pub manufacturer: &'static str,
+    #[serde(rename = "Model")]
+    pub model: &'static str,
+    #[serde(rename = "SerialNumber")]
+    pub serial_number: &'static str,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -49,6 +57,7 @@ pub async fn get_power_subsystem() -> Json<PowerSubsystemResource> {
         name: "Power Subsystem",
         description: "Power subsystem for virtual chassis",
         status: Status::enabled_ok(),
+        capacity_watts: 1000,
         power_supplies: ODataId::new("/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies"),
     })
 }
@@ -75,6 +84,9 @@ pub async fn get_power_supply() -> Json<PowerSupplyResource> {
         description: "Virtual power supply unit",
         power_capacity_watts: 500,
         power_supply_type: "AC",
+        manufacturer: "vbmc-rs",
+        model: "Virtual PSU",
+        serial_number: "VBMC-PSU-001",
         status: Status::enabled_ok(),
     })
 }

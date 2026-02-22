@@ -25,6 +25,18 @@ pub struct MemoryResource {
     pub capacity_mib: u64,
     #[serde(rename = "MemoryDeviceType")]
     pub memory_device_type: &'static str,
+    #[serde(rename = "MemoryType")]
+    pub memory_type: &'static str,
+    #[serde(rename = "DataWidthBits")]
+    pub data_width_bits: u32,
+    #[serde(rename = "BusWidthBits")]
+    pub bus_width_bits: u32,
+    #[serde(rename = "ErrorCorrection")]
+    pub error_correction: &'static str,
+    #[serde(rename = "OperatingSpeedMhz")]
+    pub operating_speed_mhz: u32,
+    #[serde(rename = "Manufacturer")]
+    pub manufacturer: &'static str,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -79,6 +91,12 @@ pub async fn get_memory(
         description: "Virtual memory module",
         capacity_mib,
         memory_device_type: "DDR4",
+        memory_type: "DRAM",
+        data_width_bits: 64,
+        bus_width_bits: 72,
+        error_correction: "NoECC",
+        operating_speed_mhz: 3200,
+        manufacturer: "Virtual",
         status: Status::enabled_ok(),
     }))
 }

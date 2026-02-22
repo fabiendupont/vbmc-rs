@@ -62,6 +62,24 @@ pub struct ComputerSystem {
     pub bios: ODataId,
     #[serde(rename = "LogServices")]
     pub log_services: ODataId,
+    #[serde(rename = "BiosVersion")]
+    pub bios_version: &'static str,
+    #[serde(rename = "SerialNumber")]
+    pub serial_number: String,
+    #[serde(rename = "HostName")]
+    pub host_name: String,
+    #[serde(rename = "PowerRestorePolicy")]
+    pub power_restore_policy: &'static str,
+    #[serde(rename = "Links")]
+    pub links: ComputerSystemLinks,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ComputerSystemLinks {
+    #[serde(rename = "Chassis")]
+    pub chassis: Vec<ODataId>,
+    #[serde(rename = "ManagedBy")]
+    pub managed_by: Vec<ODataId>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -221,6 +239,8 @@ pub async fn get_system(
         .to_string()
     });
 
+    let serial_number = format!("VBMC-{}", system_uuid.split('-').next().unwrap_or("0000"));
+    let host_name = name.clone();
     let cpu_model = get_host_cpu_model();
 
     let boot = BootOptions {
@@ -302,6 +322,14 @@ pub async fn get_system(
         log_services: ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/LogServices"
         )),
+        bios_version: "vbmc-rs",
+        serial_number,
+        host_name,
+        power_restore_policy: "AlwaysOff",
+        links: ComputerSystemLinks {
+            chassis: vec![ODataId::new("/redfish/v1/Chassis/1")],
+            managed_by: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
+        },
     }))
 }
 

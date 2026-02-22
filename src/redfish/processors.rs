@@ -29,8 +29,18 @@ pub struct Processor {
     pub total_threads: u32,
     #[serde(rename = "InstructionSet")]
     pub instruction_set: &'static str,
+    #[serde(rename = "TotalEnabledCores")]
+    pub total_enabled_cores: u32,
     #[serde(rename = "Manufacturer")]
     pub manufacturer: String,
+    #[serde(rename = "Model")]
+    pub model: String,
+    #[serde(rename = "Socket")]
+    pub socket: &'static str,
+    #[serde(rename = "ProcessorArchitecture")]
+    pub processor_architecture: &'static str,
+    #[serde(rename = "MaxSpeedMHz")]
+    pub max_speed_mhz: u32,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -78,6 +88,8 @@ pub async fn get_processor(
     };
 
     let manufacturer = get_host_cpu_manufacturer();
+    let model = get_host_cpu_model();
+    let max_speed_mhz = get_host_cpu_mhz();
 
     Ok(Json(Processor {
         odata_id: format!(
@@ -90,10 +102,50 @@ pub async fn get_processor(
         processor_type: "CPU",
         total_cores: cores,
         total_threads: threads,
+        total_enabled_cores: cores,
         instruction_set: "x86-64",
         manufacturer,
+        model,
+        socket: "CPU0",
+        processor_architecture: "x86",
+        max_speed_mhz,
         status: Status::enabled_ok(),
     }))
+}
+
+fn get_host_cpu_model() -> String {
+    std::fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|content| {
+            content
+                .lines()
+                .find(|l| l.starts_with("model name"))
+                .map(|l| {
+                    l.split(':')
+                        .nth(1)
+                        .unwrap_or("Virtual CPU")
+                        .trim()
+                        .to_string()
+                })
+        })
+        .unwrap_or_else(|| "Virtual CPU".to_string())
+}
+
+fn get_host_cpu_mhz() -> u32 {
+    std::fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|content| {
+            content
+                .lines()
+                .find(|l| l.starts_with("cpu MHz"))
+                .and_then(|l| {
+                    l.split(':')
+                        .nth(1)
+                        .and_then(|v| v.trim().parse::<f64>().ok())
+                        .map(|v| v as u32)
+                })
+        })
+        .unwrap_or(0)
 }
 
 fn get_host_cpu_manufacturer() -> String {

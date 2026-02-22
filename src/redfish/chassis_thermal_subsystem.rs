@@ -48,6 +48,12 @@ pub struct TemperatureReading {
 }
 
 #[derive(Debug, Serialize)]
+pub struct SensorExcerpt {
+    #[serde(rename = "Reading")]
+    pub reading: f64,
+}
+
+#[derive(Debug, Serialize)]
 pub struct FanResource {
     #[serde(rename = "@odata.id")]
     pub odata_id: &'static str,
@@ -59,8 +65,16 @@ pub struct FanResource {
     pub name: &'static str,
     #[serde(rename = "Description")]
     pub description: &'static str,
-    #[serde(rename = "SpeedRPM")]
-    pub speed_rpm: u32,
+    #[serde(rename = "SpeedPercent")]
+    pub speed_percent: SensorExcerpt,
+    #[serde(rename = "Manufacturer")]
+    pub manufacturer: &'static str,
+    #[serde(rename = "Model")]
+    pub model: &'static str,
+    #[serde(rename = "SerialNumber")]
+    pub serial_number: &'static str,
+    #[serde(rename = "PhysicalContext")]
+    pub physical_context: &'static str,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -114,7 +128,11 @@ pub async fn get_fan() -> Json<FanResource> {
         id: "0",
         name: "System Fan",
         description: "Virtual cooling fan",
-        speed_rpm: 3000,
+        speed_percent: SensorExcerpt { reading: 50.0 },
+        manufacturer: "vbmc-rs",
+        model: "Virtual Fan",
+        serial_number: "VBMC-FAN-001",
+        physical_context: "Exhaust",
         status: Status::enabled_ok(),
     })
 }

@@ -22,6 +22,12 @@ pub struct LogServiceResource {
     pub description: &'static str,
     #[serde(rename = "Entries")]
     pub entries: ODataId,
+    #[serde(rename = "ServiceEnabled")]
+    pub service_enabled: bool,
+    #[serde(rename = "OverWritePolicy")]
+    pub overwrite_policy: &'static str,
+    #[serde(rename = "MaxNumberOfRecords")]
+    pub max_number_of_records: u32,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -95,6 +101,9 @@ pub async fn get_system_log_service(
         entries: ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/LogServices/Console/Entries"
         )),
+        service_enabled: true,
+        overwrite_policy: "WrapsWhenFull",
+        max_number_of_records: 1000,
         status: Status::enabled_ok(),
     }))
 }
@@ -153,6 +162,9 @@ pub async fn get_manager_log_service(
         name: "Audit Log".to_string(),
         description: "Log service",
         entries: ODataId::new("/redfish/v1/Managers/vbmc/LogServices/Audit/Entries"),
+        service_enabled: true,
+        overwrite_policy: "WrapsWhenFull",
+        max_number_of_records: 1000,
         status: Status::enabled_ok(),
     }))
 }
