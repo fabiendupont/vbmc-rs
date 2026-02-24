@@ -27,6 +27,12 @@ pub struct UpdateServiceResource {
     pub max_image_size_bytes: u64,
     #[serde(rename = "MultipartHttpPushUri")]
     pub multipart_http_push_uri: &'static str,
+    #[serde(rename = "VerifyRemoteServerCertificate")]
+    pub verify_remote_server_certificate: bool,
+    #[serde(rename = "VerifyRemoteServerSSHKey")]
+    pub verify_remote_server_ssh_key: bool,
+    #[serde(rename = "SupportedUpdateImageFormats")]
+    pub supported_update_image_formats: Vec<&'static str>,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -78,6 +84,9 @@ pub async fn get_update_service() -> Json<UpdateServiceResource> {
         firmware_inventory: ODataId::new("/redfish/v1/UpdateService/FirmwareInventory"),
         max_image_size_bytes: 0,
         multipart_http_push_uri: "/redfish/v1/UpdateService/upload",
+        verify_remote_server_certificate: false,
+        verify_remote_server_ssh_key: false,
+        supported_update_image_formats: Vec::new(),
         status: Status::enabled_ok(),
     })
 }

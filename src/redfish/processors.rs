@@ -73,6 +73,8 @@ pub struct Processor {
     pub processor_index: u32,
     #[serde(rename = "MinSpeedMHz")]
     pub min_speed_mhz: u32,
+    #[serde(rename = "SparePartNumber")]
+    pub spare_part_number: &'static str,
     #[serde(rename = "Replaceable")]
     pub replaceable: bool,
     #[serde(rename = "SpeedLimitMHz")]
@@ -223,6 +225,7 @@ pub async fn get_processor(
         version: model.to_string(),
         processor_index: 0,
         min_speed_mhz: 800,
+        spare_part_number: "VBMC-CPU-SPARE",
         replaceable: false,
         speed_limit_mhz: max_speed_mhz,
         speed_locked: false,

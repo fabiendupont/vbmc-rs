@@ -31,6 +31,10 @@ pub struct TaskServiceResource {
     pub completed_task_overwrite_policy: &'static str,
     #[serde(rename = "TaskAutoDeleteTimeoutMinutes")]
     pub task_auto_delete_timeout_minutes: u32,
+    #[serde(rename = "DateTime")]
+    pub date_time: String,
+    #[serde(rename = "LifeCycleEventOnTaskStateChange")]
+    pub life_cycle_event_on_task_state_change: bool,
     #[serde(rename = "Status")]
     pub status: super::types::Status,
 }
@@ -46,6 +50,8 @@ pub async fn get_task_service() -> Json<TaskServiceResource> {
         tasks: ODataId::new("/redfish/v1/TaskService/Tasks"),
         completed_task_overwrite_policy: "Oldest",
         task_auto_delete_timeout_minutes: 60,
+        date_time: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+        life_cycle_event_on_task_state_change: false,
         status: super::types::Status::enabled_ok(),
     })
 }

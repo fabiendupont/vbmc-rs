@@ -145,6 +145,10 @@ pub struct PowerSupply {
     pub power_output_watts: u32,
     #[serde(rename = "EfficiencyPercent")]
     pub efficiency_percent: u32,
+    #[serde(rename = "SparePartNumber")]
+    pub spare_part_number: &'static str,
+    #[serde(rename = "Location")]
+    pub location: super::types::RedfishLocation,
     #[serde(rename = "HotPluggable")]
     pub hot_pluggable: bool,
     #[serde(rename = "IndicatorLED")]
@@ -203,6 +207,8 @@ pub async fn get_power() -> Json<PowerResource> {
             power_input_watts: 55,
             power_output_watts: 50,
             efficiency_percent: 90,
+            spare_part_number: "VBMC-PSU-SPARE",
+            location: super::types::RedfishLocation::new("Bay 1", "Bay", "PSU 0", "Bay", 0),
             hot_pluggable: false,
             indicator_led: "Off",
             related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],

@@ -119,6 +119,14 @@ pub struct SensorExcerpt {
     pub speed_rpm: Option<u32>,
     #[serde(rename = "DeviceName", skip_serializing_if = "Option::is_none")]
     pub device_name: Option<&'static str>,
+    #[serde(rename = "DataSourceUri", skip_serializing_if = "Option::is_none")]
+    pub data_source_uri: Option<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FanLinks {
+    #[serde(rename = "CoolingChassis")]
+    pub cooling_chassis: Vec<super::types::ODataId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -145,6 +153,14 @@ pub struct FanResource {
     pub physical_context: &'static str,
     #[serde(rename = "HotPluggable")]
     pub hot_pluggable: bool,
+    #[serde(rename = "FanDiameterMm")]
+    pub fan_diameter_mm: u32,
+    #[serde(rename = "LocationIndicatorActive")]
+    pub location_indicator_active: bool,
+    #[serde(rename = "SparePartNumber")]
+    pub spare_part_number: &'static str,
+    #[serde(rename = "Links")]
+    pub fan_links: FanLinks,
     #[serde(rename = "Location")]
     pub location: super::types::RedfishLocation,
     #[serde(rename = "PartNumber")]
@@ -267,12 +283,19 @@ pub async fn get_fan() -> Json<FanResource> {
             reading: 50.0,
             speed_rpm: Some(3000),
             device_name: Some("System Fan"),
+            data_source_uri: None,
         },
         manufacturer: "vbmc-rs",
         model: "Virtual Fan",
         serial_number: "VBMC-FAN-001",
         physical_context: "Exhaust",
         hot_pluggable: false,
+        fan_diameter_mm: 120,
+        location_indicator_active: false,
+        spare_part_number: "VBMC-FAN-SPARE",
+        fan_links: FanLinks {
+            cooling_chassis: vec![super::types::ODataId::new("/redfish/v1/Chassis/1")],
+        },
         location: super::types::RedfishLocation::new("Bay 1", "Bay", "Fan 0", "Bay", 0),
         part_number: "VBMC-FAN",
         replaceable: false,

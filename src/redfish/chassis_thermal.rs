@@ -111,6 +111,10 @@ pub struct Fan {
     pub lower_threshold_non_critical: u32,
     #[serde(rename = "RelatedItem")]
     pub related_item: Vec<ODataId>,
+    #[serde(rename = "SparePartNumber")]
+    pub spare_part_number: &'static str,
+    #[serde(rename = "Location")]
+    pub location: super::types::RedfishLocation,
     #[serde(rename = "HotPluggable")]
     pub hot_pluggable: bool,
     #[serde(rename = "IndicatorLED")]
@@ -173,6 +177,8 @@ pub async fn get_thermal() -> Json<ThermalResource> {
             lower_threshold_fatal: 0,
             lower_threshold_non_critical: 1000,
             related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
+            spare_part_number: "VBMC-FAN-SPARE",
+            location: super::types::RedfishLocation::new("Bay 1", "Bay", "Fan 0", "Bay", 0),
             hot_pluggable: false,
             indicator_led: "Off",
             redundancy: Vec::new(),

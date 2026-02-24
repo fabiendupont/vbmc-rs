@@ -46,6 +46,10 @@ pub struct EventServiceResource {
     pub include_origin_of_condition_supported: bool,
     #[serde(rename = "SubordinateResourcesSupported")]
     pub subordinate_resources_supported: bool,
+    #[serde(rename = "ExcludeMessageId")]
+    pub exclude_message_id: bool,
+    #[serde(rename = "ExcludeRegistryPrefix")]
+    pub exclude_registry_prefix: bool,
     #[serde(rename = "Severities")]
     pub severities: Vec<&'static str>,
     #[serde(rename = "SSEFilterPropertiesSupported")]
@@ -89,6 +93,8 @@ pub async fn get_event_service() -> Json<EventServiceResource> {
         resource_types: vec!["ComputerSystem", "Manager", "Chassis"],
         include_origin_of_condition_supported: true,
         subordinate_resources_supported: false,
+        exclude_message_id: false,
+        exclude_registry_prefix: false,
         severities: vec!["OK", "Warning", "Critical"],
         sse_filter_properties_supported: SseFilterProperties {
             event_format_type: false,

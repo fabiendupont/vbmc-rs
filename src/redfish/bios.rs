@@ -23,8 +23,18 @@ pub struct BiosResource {
     pub attributes: BiosAttributes,
     #[serde(rename = "AttributeRegistry")]
     pub attribute_registry: &'static str,
+    #[serde(rename = "ResetBiosToDefaultsPending")]
+    pub reset_bios_to_defaults_pending: bool,
+    #[serde(rename = "Links")]
+    pub links: BiosLinks,
     #[serde(rename = "@Redfish.Settings")]
     pub settings: SettingsObject,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BiosLinks {
+    #[serde(rename = "ActiveSoftwareImage")]
+    pub active_software_image: super::types::ODataId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -65,6 +75,12 @@ pub async fn get_bios(
         description: "BIOS configuration",
         attributes: attrs,
         attribute_registry: "BiosAttributeRegistryVbmc.1.0",
+        reset_bios_to_defaults_pending: false,
+        links: BiosLinks {
+            active_software_image: super::types::ODataId::new(
+                "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
+            ),
+        },
         settings: SettingsObject {
             settings_object: super::types::ODataId::new(format!(
                 "/redfish/v1/Systems/{system_id}/Bios/Settings"
@@ -95,6 +111,13 @@ pub async fn get_bios_settings(
         "Id": "Settings",
         "Name": "BIOS Pending Settings",
         "Attributes": attrs,
+        "AttributeRegistry": "BiosAttributeRegistryVbmc.1.0",
+        "ResetBiosToDefaultsPending": false,
+        "Links": {
+            "ActiveSoftwareImage": {
+                "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs"
+            }
+        },
     })))
 }
 

@@ -199,10 +199,10 @@ pub struct PhysicalAddress {
     pub country: &'static str,
     #[serde(rename = "PostalCode")]
     pub postal_code: &'static str,
-    #[serde(rename = "ISOCountryCode", skip_serializing_if = "Option::is_none")]
-    pub iso_country_code: Option<&'static str>,
-    #[serde(rename = "ISOSubdivisionCode", skip_serializing_if = "Option::is_none")]
-    pub iso_subdivision_code: Option<&'static str>,
+    #[serde(rename = "ISOCountryCode")]
+    pub iso_country_code: &'static str,
+    #[serde(rename = "ISOSubdivisionCode")]
+    pub iso_subdivision_code: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -272,8 +272,8 @@ impl RedfishLocation {
                 state_or_province: "",
                 country: "",
                 postal_code: "",
-                iso_country_code: None,
-                iso_subdivision_code: None,
+                iso_country_code: "XX",
+                iso_subdivision_code: "XX",
             },
             part_location: PartLocation {
                 service_label: service_label.into(),
