@@ -266,6 +266,14 @@ pub struct TrustedComponentLinks {
     pub component_integrity: Vec<ODataId>,
     #[serde(rename = "IntegratedInto")]
     pub integrated_into: ODataId,
+    #[serde(rename = "Owner")]
+    pub owner: ODataId,
+    #[serde(rename = "ComponentsProtected")]
+    pub components_protected: Vec<ODataId>,
+    #[serde(rename = "ActiveSoftwareImage")]
+    pub active_software_image: ODataId,
+    #[serde(rename = "SoftwareImages")]
+    pub software_images: Vec<ODataId>,
 }
 
 pub async fn get_trusted_component(
@@ -303,6 +311,16 @@ pub async fn get_trusted_component(
                 "/redfish/v1/ComponentIntegrity/{component_id}"
             ))],
             integrated_into: ODataId::new("/redfish/v1/Chassis/1"),
+            owner: ODataId::new("/redfish/v1/Chassis/1"),
+            components_protected: vec![ODataId::new(format!(
+                "/redfish/v1/Systems/{component_id}"
+            ))],
+            active_software_image: ODataId::new(
+                "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
+            ),
+            software_images: vec![ODataId::new(
+                "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
+            )],
         },
         status: Status::enabled_ok(),
     }))

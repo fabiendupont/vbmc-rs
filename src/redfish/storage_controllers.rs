@@ -53,6 +53,12 @@ pub struct StorageLinks {
     pub enclosures: Vec<ODataId>,
     #[serde(rename = "SimpleStorage")]
     pub simple_storage: ODataId,
+    #[serde(rename = "NVMeoFDiscoverySubsystems")]
+    pub nvmeof_discovery_subsystems: Vec<ODataId>,
+    #[serde(rename = "HostingStorageSystems")]
+    pub hosting_storage_systems: Vec<ODataId>,
+    #[serde(rename = "StorageServices")]
+    pub storage_services: Vec<ODataId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -87,8 +93,48 @@ pub struct StorageControllerEntry {
     pub sku: &'static str,
     #[serde(rename = "Identifiers")]
     pub identifiers: Vec<StorageIdentifier>,
+    #[serde(rename = "CacheSummary")]
+    pub cache_summary: CtrlCacheSummary,
+    #[serde(rename = "ControllerRates")]
+    pub controller_rates: CtrlRates,
+    #[serde(rename = "PCIeInterface")]
+    pub pcie_interface: CtrlPcieInterface,
+    #[serde(rename = "Location")]
+    pub location: super::types::RedfishLocation,
+    #[serde(rename = "Links")]
+    pub ctrl_links: CtrlLinks,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CtrlCacheSummary {
+    #[serde(rename = "TotalCacheSizeMiB")]
+    pub total_cache_size_mib: u32,
+    #[serde(rename = "Status")]
+    pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CtrlRates {
+    #[serde(rename = "ConsistencyCheckRatePercent")]
+    pub consistency_check_rate_percent: u32,
+    #[serde(rename = "RebuildRatePercent")]
+    pub rebuild_rate_percent: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CtrlPcieInterface {
+    #[serde(rename = "MaxPCIeType")]
+    pub max_pcie_type: &'static str,
+    #[serde(rename = "MaxLanes")]
+    pub max_lanes: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CtrlLinks {
+    #[serde(rename = "Endpoints")]
+    pub endpoints: Vec<ODataId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -267,6 +313,25 @@ pub async fn get_storage(
                 .to_string(),
                 durable_name_format: "UUID",
             }],
+            cache_summary: CtrlCacheSummary {
+                total_cache_size_mib: 0,
+                status: Status::enabled_ok(),
+            },
+            controller_rates: CtrlRates {
+                consistency_check_rate_percent: 0,
+                rebuild_rate_percent: 0,
+            },
+            pcie_interface: CtrlPcieInterface {
+                max_pcie_type: "Gen4",
+                max_lanes: 4,
+            },
+            location: super::types::RedfishLocation::new(
+                format!("Controller {ctrl_id}"), "Embedded",
+                format!("Storage {ctrl_id}"), "Embedded", 0,
+            ),
+            ctrl_links: CtrlLinks {
+                endpoints: Vec::new(),
+            },
             status: Status::enabled_ok(),
         }],
         drives,
@@ -288,6 +353,9 @@ pub async fn get_storage(
             simple_storage: ODataId::new(format!(
                 "/redfish/v1/Systems/{system_id}/SimpleStorage/1"
             )),
+            nvmeof_discovery_subsystems: Vec::new(),
+            hosting_storage_systems: Vec::new(),
+            storage_services: Vec::new(),
         },
         status: Status::enabled_ok(),
     }))

@@ -121,6 +121,20 @@ pub struct ProcessorLinks {
     pub chassis: ODataId,
     #[serde(rename = "Memory")]
     pub memory: Vec<ODataId>,
+    #[serde(rename = "Endpoints")]
+    pub endpoints: Vec<ODataId>,
+    #[serde(rename = "ConnectedProcessors")]
+    pub connected_processors: Vec<ODataId>,
+    #[serde(rename = "FabricAdapters")]
+    pub fabric_adapters: Vec<ODataId>,
+    #[serde(rename = "GraphicsController", skip_serializing_if = "Option::is_none")]
+    pub graphics_controller: Option<ODataId>,
+    #[serde(rename = "NetworkDeviceFunctions")]
+    pub network_device_functions: Vec<ODataId>,
+    #[serde(rename = "PCIeDevice", skip_serializing_if = "Option::is_none")]
+    pub pcie_device: Option<ODataId>,
+    #[serde(rename = "PCIeFunctions")]
+    pub pcie_functions: Vec<ODataId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -245,6 +259,13 @@ pub async fn get_processor(
             memory: vec![ODataId::new(format!(
                 "/redfish/v1/Systems/{system_id}/Memory/DIMM0"
             ))],
+            endpoints: Vec::new(),
+            connected_processors: Vec::new(),
+            fabric_adapters: Vec::new(),
+            graphics_controller: None,
+            network_device_functions: Vec::new(),
+            pcie_device: None,
+            pcie_functions: Vec::new(),
         },
         location: super::types::RedfishLocation::new("Socket CPU0", "Socket", "CPU0", "Socket", 0),
         processor_id: ProcessorIdInfo {

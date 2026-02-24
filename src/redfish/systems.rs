@@ -104,6 +104,8 @@ pub struct ComputerSystem {
     pub serial_console: HostSerialConsole,
     #[serde(rename = "VirtualMediaConfig")]
     pub virtual_media_config: VirtualMediaConfig,
+    #[serde(rename = "HostingRoles")]
+    pub hosting_roles: Vec<&'static str>,
     #[serde(rename = "Links")]
     pub links: ComputerSystemLinks,
 }
@@ -202,6 +204,16 @@ pub struct ComputerSystemLinks {
     pub cooled_by: Vec<ODataId>,
     #[serde(rename = "PoweredBy")]
     pub powered_by: Vec<ODataId>,
+    #[serde(rename = "ConsumingComputerSystems")]
+    pub consuming_computer_systems: Vec<ODataId>,
+    #[serde(rename = "SupplyingComputerSystems")]
+    pub supplying_computer_systems: Vec<ODataId>,
+    #[serde(rename = "OffloadedNetworkDeviceFunctions")]
+    pub offloaded_network_device_functions: Vec<ODataId>,
+    #[serde(rename = "Endpoints")]
+    pub endpoints: Vec<ODataId>,
+    #[serde(rename = "ResourceBlocks")]
+    pub resource_blocks: Vec<ODataId>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -565,6 +577,7 @@ pub async fn get_system(
             service_enabled: true,
             port: 0,
         },
+        hosting_roles: Vec::new(),
         links: ComputerSystemLinks {
             chassis: vec![ODataId::new("/redfish/v1/Chassis/1")],
             managed_by: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
@@ -577,6 +590,11 @@ pub async fn get_system(
             powered_by: vec![ODataId::new(
                 "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0",
             )],
+            consuming_computer_systems: Vec::new(),
+            supplying_computer_systems: Vec::new(),
+            offloaded_network_device_functions: Vec::new(),
+            endpoints: Vec::new(),
+            resource_blocks: Vec::new(),
         },
     }))
 }

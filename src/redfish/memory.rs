@@ -97,6 +97,24 @@ pub struct MemoryResource {
     pub volatile_size_limit_mib: u64,
     #[serde(rename = "NonVolatileSizeLimitMiB")]
     pub non_volatile_size_limit_mib: u64,
+    #[serde(rename = "VolatileRegionNumberLimit")]
+    pub volatile_region_number_limit: u32,
+    #[serde(rename = "PersistentRegionNumberLimit")]
+    pub persistent_region_number_limit: u32,
+    #[serde(rename = "VolatileRegionSizeMaxMiB")]
+    pub volatile_region_size_max_mib: u64,
+    #[serde(rename = "PersistentRegionSizeMaxMiB")]
+    pub persistent_region_size_max_mib: u64,
+    #[serde(rename = "VolatileRegionSizeLimitMiB")]
+    pub volatile_region_size_limit_mib: u64,
+    #[serde(rename = "PersistentRegionSizeLimitMiB")]
+    pub persistent_region_size_limit_mib: u64,
+    #[serde(rename = "AllocationIncrementMiB")]
+    pub allocation_increment_mib: u64,
+    #[serde(rename = "AllocationAlignmentMiB")]
+    pub allocation_alignment_mib: u64,
+    #[serde(rename = "PoisonListMaxMediaErrorRecords")]
+    pub poison_list_max_media_error_records: u32,
     #[serde(rename = "Links")]
     pub links: MemoryLinks,
     #[serde(rename = "Location")]
@@ -111,6 +129,14 @@ pub struct MemoryLinks {
     pub chassis: ODataId,
     #[serde(rename = "Processors")]
     pub processors: Vec<ODataId>,
+    #[serde(rename = "Batteries")]
+    pub batteries: Vec<ODataId>,
+    #[serde(rename = "MemoryMediaSources")]
+    pub memory_media_sources: Vec<ODataId>,
+    #[serde(rename = "MemoryRegionMediaSources")]
+    pub memory_region_media_sources: Vec<ODataId>,
+    #[serde(rename = "Endpoints")]
+    pub endpoints: Vec<ODataId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -216,11 +242,24 @@ pub async fn get_memory(
         spare_part_number: "VBMC-DIMM-SPARE",
         volatile_size_limit_mib: capacity_mib,
         non_volatile_size_limit_mib: 0,
+        volatile_region_number_limit: 0,
+        persistent_region_number_limit: 0,
+        volatile_region_size_max_mib: capacity_mib,
+        persistent_region_size_max_mib: 0,
+        volatile_region_size_limit_mib: capacity_mib,
+        persistent_region_size_limit_mib: 0,
+        allocation_increment_mib: 0,
+        allocation_alignment_mib: 0,
+        poison_list_max_media_error_records: 0,
         links: MemoryLinks {
             chassis: ODataId::new("/redfish/v1/Chassis/1"),
             processors: vec![ODataId::new(format!(
                 "/redfish/v1/Systems/{system_id}/Processors/CPU0"
             ))],
+            batteries: Vec::new(),
+            memory_media_sources: Vec::new(),
+            memory_region_media_sources: Vec::new(),
+            endpoints: Vec::new(),
         },
         location: super::types::RedfishLocation::new("DIMM 0", "DIMM", "DIMM0", "Slot", 0),
         status: Status::enabled_ok(),
