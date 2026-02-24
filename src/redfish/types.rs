@@ -87,6 +87,8 @@ pub struct RedfishLocation {
     pub placement: Placement,
     #[serde(rename = "PostalAddress")]
     pub postal_address: PostalAddress,
+    #[serde(rename = "PhysicalAddress")]
+    pub physical_address: PhysicalAddress,
     #[serde(rename = "PartLocation")]
     pub part_location: PartLocation,
     #[serde(rename = "PartLocationContext")]
@@ -186,6 +188,24 @@ pub struct PostalAddress {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct PhysicalAddress {
+    #[serde(rename = "StreetAddress")]
+    pub street_address: &'static str,
+    #[serde(rename = "City")]
+    pub city: &'static str,
+    #[serde(rename = "StateOrProvince")]
+    pub state_or_province: &'static str,
+    #[serde(rename = "Country")]
+    pub country: &'static str,
+    #[serde(rename = "PostalCode")]
+    pub postal_code: &'static str,
+    #[serde(rename = "ISOCountryCode", skip_serializing_if = "Option::is_none")]
+    pub iso_country_code: Option<&'static str>,
+    #[serde(rename = "ISOSubdivisionCode", skip_serializing_if = "Option::is_none")]
+    pub iso_subdivision_code: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct PartLocation {
     #[serde(rename = "ServiceLabel")]
     pub service_label: String,
@@ -245,6 +265,15 @@ impl RedfishLocation {
                 road_sub_branch: "",
                 road_pre_modifier: "",
                 road_post_modifier: "",
+            },
+            physical_address: PhysicalAddress {
+                street_address: "",
+                city: "",
+                state_or_province: "",
+                country: "",
+                postal_code: "",
+                iso_country_code: None,
+                iso_subdivision_code: None,
             },
             part_location: PartLocation {
                 service_label: service_label.into(),

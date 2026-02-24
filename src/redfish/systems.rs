@@ -164,12 +164,22 @@ pub struct HostSerialConsole {
     pub ipmi: ConsoleProtocol,
     #[serde(rename = "SSH")]
     pub ssh: ConsoleProtocol,
+    #[serde(rename = "Telnet")]
+    pub telnet: ConsoleProtocol,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ConsoleProtocol {
     #[serde(rename = "ServiceEnabled")]
     pub service_enabled: bool,
+    #[serde(rename = "Port")]
+    pub port: u32,
+    #[serde(rename = "ConsoleEntryCommand")]
+    pub console_entry_command: &'static str,
+    #[serde(rename = "HotKeySequenceDisplay")]
+    pub hot_key_sequence_display: &'static str,
+    #[serde(rename = "SharedWithManagerCLI")]
+    pub shared_with_manager_cli: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -535,8 +545,21 @@ pub async fn get_system(
         },
         serial_console: HostSerialConsole {
             max_concurrent_sessions: 0,
-            ipmi: ConsoleProtocol { service_enabled: false },
-            ssh: ConsoleProtocol { service_enabled: false },
+            ipmi: ConsoleProtocol {
+                service_enabled: false, port: 0,
+                console_entry_command: "", hot_key_sequence_display: "",
+                shared_with_manager_cli: false,
+            },
+            ssh: ConsoleProtocol {
+                service_enabled: false, port: 0,
+                console_entry_command: "", hot_key_sequence_display: "",
+                shared_with_manager_cli: false,
+            },
+            telnet: ConsoleProtocol {
+                service_enabled: false, port: 0,
+                console_entry_command: "", hot_key_sequence_display: "",
+                shared_with_manager_cli: false,
+            },
         },
         virtual_media_config: VirtualMediaConfig {
             service_enabled: true,

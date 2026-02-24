@@ -91,6 +91,12 @@ pub struct MemoryResource {
     pub memory_subsystem_controller_product_id: &'static str,
     #[serde(rename = "CacheSizeMiB")]
     pub cache_size_mib: u32,
+    #[serde(rename = "SparePartNumber")]
+    pub spare_part_number: &'static str,
+    #[serde(rename = "VolatileSizeLimitMiB")]
+    pub volatile_size_limit_mib: u64,
+    #[serde(rename = "NonVolatileSizeLimitMiB")]
+    pub non_volatile_size_limit_mib: u64,
     #[serde(rename = "Links")]
     pub links: MemoryLinks,
     #[serde(rename = "Location")]
@@ -103,6 +109,8 @@ pub struct MemoryResource {
 pub struct MemoryLinks {
     #[serde(rename = "Chassis")]
     pub chassis: ODataId,
+    #[serde(rename = "Processors")]
+    pub processors: Vec<ODataId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -205,8 +213,14 @@ pub async fn get_memory(
         memory_subsystem_controller_manufacturer_id: "0x0000",
         memory_subsystem_controller_product_id: "0x0000",
         cache_size_mib: 0,
+        spare_part_number: "VBMC-DIMM-SPARE",
+        volatile_size_limit_mib: capacity_mib,
+        non_volatile_size_limit_mib: 0,
         links: MemoryLinks {
             chassis: ODataId::new("/redfish/v1/Chassis/1"),
+            processors: vec![ODataId::new(format!(
+                "/redfish/v1/Systems/{system_id}/Processors/CPU0"
+            ))],
         },
         location: super::types::RedfishLocation::new("DIMM 0", "DIMM", "DIMM0", "Slot", 0),
         status: Status::enabled_ok(),

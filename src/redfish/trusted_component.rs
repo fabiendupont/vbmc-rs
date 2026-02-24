@@ -52,6 +52,8 @@ pub struct ChassisResource {
     pub part_number: &'static str,
     #[serde(rename = "SKU")]
     pub sku: &'static str,
+    #[serde(rename = "SparePartNumber")]
+    pub spare_part_number: &'static str,
     #[serde(rename = "UUID")]
     pub uuid: String,
     #[serde(rename = "HeightMm")]
@@ -163,6 +165,7 @@ pub async fn get_chassis(
         version: "1.0",
         part_number: "VBMC-CHS",
         sku: "VBMC-VIRTUAL",
+        spare_part_number: "VBMC-CHS-SPARE",
         uuid: state.instance_uuid.clone(),
         height_mm: 44.45,
         width_mm: 482.6,

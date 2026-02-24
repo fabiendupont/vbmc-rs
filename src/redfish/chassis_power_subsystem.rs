@@ -67,10 +67,31 @@ pub struct PowerSupplyResource {
     pub production_date: &'static str,
     #[serde(rename = "LocationIndicatorActive")]
     pub location_indicator_active: bool,
+    #[serde(rename = "SparePartNumber")]
+    pub spare_part_number: &'static str,
+    #[serde(rename = "Version")]
+    pub version: &'static str,
+    #[serde(rename = "EfficiencyRatings")]
+    pub efficiency_ratings: Vec<PsuEfficiencyRating>,
+    #[serde(rename = "Links")]
+    pub psu_links: PsuLinks,
     #[serde(rename = "Status")]
     pub status: Status,
 }
 
+#[derive(Debug, Serialize)]
+pub struct PsuEfficiencyRating {
+    #[serde(rename = "LoadPercent")]
+    pub load_percent: u32,
+    #[serde(rename = "EfficiencyPercent")]
+    pub efficiency_percent: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PsuLinks {
+    #[serde(rename = "Oem")]
+    pub oem: serde_json::Value,
+}
 
 pub async fn get_power_subsystem() -> Json<PowerSubsystemResource> {
     Json(PowerSubsystemResource {
@@ -121,6 +142,15 @@ pub async fn get_power_supply() -> Json<PowerSupplyResource> {
         replaceable: false,
         production_date: "2026-01-01T00:00:00Z",
         location_indicator_active: false,
+        spare_part_number: "VBMC-PSU-SPARE",
+        version: "1.0",
+        efficiency_ratings: vec![
+            PsuEfficiencyRating { load_percent: 50, efficiency_percent: 90 },
+            PsuEfficiencyRating { load_percent: 100, efficiency_percent: 85 },
+        ],
+        psu_links: PsuLinks {
+            oem: serde_json::json!({}),
+        },
         status: Status::enabled_ok(),
     })
 }

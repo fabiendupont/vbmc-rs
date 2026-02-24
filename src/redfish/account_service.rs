@@ -50,6 +50,12 @@ pub struct AccountServiceResource {
     pub supported_account_types: Vec<&'static str>,
     #[serde(rename = "HTTPBasicAuth")]
     pub http_basic_auth: &'static str,
+    #[serde(rename = "PasswordExpirationDays")]
+    pub password_expiration_days: u32,
+    #[serde(rename = "RequireChangePasswordAction")]
+    pub require_change_password_action: bool,
+    #[serde(rename = "RestrictedPrivileges")]
+    pub restricted_privileges: Vec<&'static str>,
     #[serde(rename = "Status")]
     pub status: super::types::Status,
 }
@@ -76,6 +82,9 @@ pub async fn get_account_service(
         auth_failure_logging_threshold: 3,
         supported_account_types: vec!["Redfish"],
         http_basic_auth: "Enabled",
+        password_expiration_days: 0,
+        require_change_password_action: false,
+        restricted_privileges: Vec::new(),
         status: super::types::Status::enabled_ok(),
     })
 }

@@ -45,12 +45,34 @@ pub struct ThermalMetricsResource {
     pub power_watts: MetricReading,
     #[serde(rename = "EnergykWh")]
     pub energy_kwh: MetricReading,
+    #[serde(rename = "DeltaPressurekPa")]
+    pub delta_pressure_kpa: MetricReading,
 }
 
 #[derive(Debug, Serialize)]
 pub struct MetricReading {
     #[serde(rename = "Reading")]
     pub reading: f64,
+    #[serde(rename = "DataSourceUri", skip_serializing_if = "Option::is_none")]
+    pub data_source_uri: Option<&'static str>,
+    #[serde(rename = "DeviceName", skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<&'static str>,
+    #[serde(rename = "ApparentVA", skip_serializing_if = "Option::is_none")]
+    pub apparent_va: Option<f64>,
+    #[serde(rename = "PhaseAngleDegrees", skip_serializing_if = "Option::is_none")]
+    pub phase_angle_degrees: Option<f64>,
+    #[serde(rename = "PowerFactor", skip_serializing_if = "Option::is_none")]
+    pub power_factor: Option<f64>,
+    #[serde(rename = "ReactiveVAR", skip_serializing_if = "Option::is_none")]
+    pub reactive_var: Option<f64>,
+    #[serde(rename = "ApparentkVAh", skip_serializing_if = "Option::is_none")]
+    pub apparent_kvah: Option<f64>,
+    #[serde(rename = "LifetimeReading", skip_serializing_if = "Option::is_none")]
+    pub lifetime_reading: Option<f64>,
+    #[serde(rename = "ReactivekVARh", skip_serializing_if = "Option::is_none")]
+    pub reactive_kvarh: Option<f64>,
+    #[serde(rename = "SensorResetTime", skip_serializing_if = "Option::is_none")]
+    pub sensor_reset_time: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -69,9 +91,9 @@ pub struct TemperatureSummary {
 pub struct SummaryReading {
     #[serde(rename = "Reading")]
     pub reading: f64,
-    #[serde(rename = "DataSourceUri", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "DataSourceUri")]
     pub data_source_uri: Option<&'static str>,
-    #[serde(rename = "DeviceName", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "DeviceName")]
     pub device_name: Option<&'static str>,
 }
 
@@ -185,9 +207,39 @@ pub async fn get_thermal_metrics() -> Json<ThermalMetricsResource> {
                 device_name: Some("Intake"),
             },
         },
-        air_flow_cubic_meters_per_minute: MetricReading { reading: 0.5 },
-        power_watts: MetricReading { reading: 50.0 },
-        energy_kwh: MetricReading { reading: 0.0 },
+        air_flow_cubic_meters_per_minute: MetricReading {
+            reading: 0.5,
+            data_source_uri: None,
+            device_name: Some("Chassis Airflow"),
+            apparent_va: None, phase_angle_degrees: None, power_factor: None,
+            reactive_var: None, apparent_kvah: None, lifetime_reading: None,
+            reactive_kvarh: None, sensor_reset_time: None,
+        },
+        power_watts: MetricReading {
+            reading: 50.0,
+            data_source_uri: None,
+            device_name: Some("Chassis Power"),
+            apparent_va: Some(55.0), phase_angle_degrees: Some(0.0),
+            power_factor: Some(0.9), reactive_var: Some(5.0),
+            apparent_kvah: None, lifetime_reading: None,
+            reactive_kvarh: None, sensor_reset_time: None,
+        },
+        energy_kwh: MetricReading {
+            reading: 0.0,
+            data_source_uri: None,
+            device_name: Some("Chassis Energy"),
+            apparent_va: None, phase_angle_degrees: None, power_factor: None,
+            reactive_var: None, apparent_kvah: Some(0.0),
+            lifetime_reading: Some(0.0), reactive_kvarh: Some(0.0),
+            sensor_reset_time: Some("2026-01-01T00:00:00Z"),
+        },
+        delta_pressure_kpa: MetricReading {
+            reading: 0.0,
+            data_source_uri: None, device_name: None,
+            apparent_va: None, phase_angle_degrees: None, power_factor: None,
+            reactive_var: None, apparent_kvah: None, lifetime_reading: None,
+            reactive_kvarh: None, sensor_reset_time: None,
+        },
     })
 }
 

@@ -101,12 +101,24 @@ pub struct SpeedRange {
     pub allowable_min: u32,
     #[serde(rename = "AllowableMax")]
     pub allowable_max: u32,
+    #[serde(rename = "Reading")]
+    pub reading: u32,
+    #[serde(rename = "ReadingUnits")]
+    pub reading_units: &'static str,
+    #[serde(rename = "ControlMode")]
+    pub control_mode: &'static str,
+    #[serde(rename = "SettingMin")]
+    pub setting_min: u32,
+    #[serde(rename = "SettingMax")]
+    pub setting_max: u32,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ProcessorLinks {
     #[serde(rename = "Chassis")]
     pub chassis: ODataId,
+    #[serde(rename = "Memory")]
+    pub memory: Vec<ODataId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -219,9 +231,17 @@ pub async fn get_processor(
         operating_speed_range_mhz: SpeedRange {
             allowable_min: 800,
             allowable_max: max_speed_mhz,
+            reading: max_speed_mhz,
+            reading_units: "MHz",
+            control_mode: "Automatic",
+            setting_min: 800,
+            setting_max: max_speed_mhz,
         },
         proc_links: ProcessorLinks {
             chassis: ODataId::new("/redfish/v1/Chassis/1"),
+            memory: vec![ODataId::new(format!(
+                "/redfish/v1/Systems/{system_id}/Memory/DIMM0"
+            ))],
         },
         location: super::types::RedfishLocation::new("Socket CPU0", "Socket", "CPU0", "Socket", 0),
         processor_id: ProcessorIdInfo {
