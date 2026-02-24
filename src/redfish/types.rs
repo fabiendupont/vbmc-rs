@@ -111,6 +111,12 @@ pub struct Placement {
     pub rack_offset: u32,
     #[serde(rename = "RackOffsetUnits")]
     pub rack_offset_units: &'static str,
+    #[serde(rename = "Room")]
+    pub room: &'static str,
+    #[serde(rename = "FacilityName")]
+    pub facility_name: &'static str,
+    #[serde(rename = "AdditionalInfo")]
+    pub additional_info: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -125,6 +131,58 @@ pub struct PostalAddress {
     pub street: &'static str,
     #[serde(rename = "HouseNumber")]
     pub house_number: u32,
+    #[serde(rename = "Name")]
+    pub name: &'static str,
+    #[serde(rename = "PostalCode")]
+    pub postal_code: &'static str,
+    #[serde(rename = "Building")]
+    pub building: &'static str,
+    #[serde(rename = "Floor")]
+    pub floor: &'static str,
+    #[serde(rename = "Room")]
+    pub room: &'static str,
+    #[serde(rename = "Unit")]
+    pub unit: &'static str,
+    #[serde(rename = "Seat")]
+    pub seat: &'static str,
+    #[serde(rename = "PlaceType")]
+    pub place_type: &'static str,
+    #[serde(rename = "Community")]
+    pub community: &'static str,
+    #[serde(rename = "District")]
+    pub district: &'static str,
+    #[serde(rename = "Division")]
+    pub division: &'static str,
+    #[serde(rename = "Neighborhood")]
+    pub neighborhood: &'static str,
+    #[serde(rename = "LeadingStreetDirection")]
+    pub leading_street_direction: &'static str,
+    #[serde(rename = "TrailingStreetSuffix")]
+    pub trailing_street_suffix: &'static str,
+    #[serde(rename = "StreetSuffix")]
+    pub street_suffix: &'static str,
+    #[serde(rename = "HouseNumberSuffix")]
+    pub house_number_suffix: &'static str,
+    #[serde(rename = "Landmark")]
+    pub landmark: &'static str,
+    #[serde(rename = "POBox")]
+    pub po_box: &'static str,
+    #[serde(rename = "AdditionalCode")]
+    pub additional_code: &'static str,
+    #[serde(rename = "AdditionalInfo")]
+    pub additional_info: &'static str,
+    #[serde(rename = "Road")]
+    pub road: &'static str,
+    #[serde(rename = "RoadSection")]
+    pub road_section: &'static str,
+    #[serde(rename = "RoadBranch")]
+    pub road_branch: &'static str,
+    #[serde(rename = "RoadSubBranch")]
+    pub road_sub_branch: &'static str,
+    #[serde(rename = "RoadPreModifier")]
+    pub road_pre_modifier: &'static str,
+    #[serde(rename = "RoadPostModifier")]
+    pub road_post_modifier: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -135,6 +193,10 @@ pub struct PartLocation {
     pub location_type: &'static str,
     #[serde(rename = "LocationOrdinalValue")]
     pub location_ordinal_value: u32,
+    #[serde(rename = "Reference")]
+    pub reference: &'static str,
+    #[serde(rename = "Orientation")]
+    pub orientation: &'static str,
 }
 
 impl RedfishLocation {
@@ -147,6 +209,9 @@ impl RedfishLocation {
                 rack: "1",
                 rack_offset: 1,
                 rack_offset_units: "EIA_310",
+                room: "",
+                facility_name: "",
+                additional_info: "",
             },
             postal_address: PostalAddress {
                 country: "",
@@ -154,11 +219,39 @@ impl RedfishLocation {
                 city: "",
                 street: "",
                 house_number: 0,
+                name: "",
+                postal_code: "",
+                building: "",
+                floor: "",
+                room: "",
+                unit: "",
+                seat: "",
+                place_type: "",
+                community: "",
+                district: "",
+                division: "",
+                neighborhood: "",
+                leading_street_direction: "",
+                trailing_street_suffix: "",
+                street_suffix: "",
+                house_number_suffix: "",
+                landmark: "",
+                po_box: "",
+                additional_code: "",
+                additional_info: "",
+                road: "",
+                road_section: "",
+                road_branch: "",
+                road_sub_branch: "",
+                road_pre_modifier: "",
+                road_post_modifier: "",
             },
             part_location: PartLocation {
                 service_label: service_label.into(),
                 location_type,
                 location_ordinal_value: ordinal,
+                reference: "Top",
+                orientation: "FrontToBack",
             },
             part_location_context: String::new(),
             contacts: Vec::new(),
