@@ -254,6 +254,64 @@ fn disk_create_config_to_ch(disk: bt::DiskCreateConfig) -> types::DiskConfig {
     }
 }
 
+fn parse_ch_counters(raw: &serde_json::Value) -> bt::VmCounters {
+    let mut counters = bt::VmCounters::default();
+    let obj = match raw.as_object() {
+        Some(o) => o,
+        None => return counters,
+    };
+
+    for (key, val) in obj {
+        let inner = match val.as_object() {
+            Some(o) => o,
+            None => continue,
+        };
+        if key.starts_with("vcpu") {
+            let idx: usize = match key.strip_prefix("vcpu").and_then(|s| s.parse().ok()) {
+                Some(i) => i,
+                None => continue,
+            };
+            while counters.cpu_cycles.len() <= idx {
+                counters.cpu_cycles.push(0);
+                counters.instructions.push(0);
+            }
+            if let Some(v) = inner.get("cpu_cycles").and_then(|v| v.as_u64()) {
+                counters.cpu_cycles[idx] = v;
+            }
+            if let Some(v) = inner.get("instructions").and_then(|v| v.as_u64()) {
+                counters.instructions[idx] = v;
+            }
+        } else if key.starts_with("block") {
+            if let Some(v) = inner.get("read_bytes").and_then(|v| v.as_u64()) {
+                counters.block_read_bytes += v;
+            }
+            if let Some(v) = inner.get("write_bytes").and_then(|v| v.as_u64()) {
+                counters.block_write_bytes += v;
+            }
+            if let Some(v) = inner.get("read_ops").and_then(|v| v.as_u64()) {
+                counters.block_read_ops += v;
+            }
+            if let Some(v) = inner.get("write_ops").and_then(|v| v.as_u64()) {
+                counters.block_write_ops += v;
+            }
+        } else if key.starts_with("net") {
+            if let Some(v) = inner.get("rx_bytes").and_then(|v| v.as_u64()) {
+                counters.net_rx_bytes += v;
+            }
+            if let Some(v) = inner.get("tx_bytes").and_then(|v| v.as_u64()) {
+                counters.net_tx_bytes += v;
+            }
+            if let Some(v) = inner.get("rx_frames").and_then(|v| v.as_u64()) {
+                counters.net_rx_frames += v;
+            }
+            if let Some(v) = inner.get("tx_frames").and_then(|v| v.as_u64()) {
+                counters.net_tx_frames += v;
+            }
+        }
+    }
+    counters
+}
+
 impl VmmBackend for CloudHypervisorBackend {
     async fn vm_info(&self, system_id: &str) -> Result<bt::VmInfo, BackendError> {
         let client = self.client_for(system_id)?;
@@ -342,10 +400,11 @@ impl VmmBackend for CloudHypervisorBackend {
         })
     }
 
-    async fn vm_counters(&self, system_id: &str) -> Result<serde_json::Value, BackendError> {
+    async fn vm_counters(&self, system_id: &str) -> Result<bt::VmCounters, BackendError> {
         let client = self.client_for(system_id)?;
         let (status, body) = client.get("/api/v1/vm.counters").await?;
-        Self::parse_response(status, &body)
+        let raw: serde_json::Value = Self::parse_response(status, &body)?;
+        Ok(parse_ch_counters(&raw))
     }
 }
 

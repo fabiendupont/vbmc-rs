@@ -7,9 +7,10 @@ pub mod types;
 
 use std::fmt;
 
-use types::{DiskCreateConfig, VmCreateConfig, VmInfo, VmmPingResponse};
+use types::{DiskCreateConfig, VmCounters, VmCreateConfig, VmInfo, VmmPingResponse};
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum BackendError {
     VmmNotRunning,
     VmNotFound,
@@ -110,6 +111,7 @@ pub trait VmmBackend: Send + Sync {
         device_id: &str,
     ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send;
 
+    #[allow(dead_code)]
     fn vmm_ping(
         &self,
         system_id: &str,
@@ -118,7 +120,7 @@ pub trait VmmBackend: Send + Sync {
     fn vm_counters(
         &self,
         system_id: &str,
-    ) -> impl std::future::Future<Output = Result<serde_json::Value, BackendError>> + Send;
+    ) -> impl std::future::Future<Output = Result<VmCounters, BackendError>> + Send;
 }
 
 pub enum Backend {
@@ -223,8 +225,8 @@ pub mod mock {
         async fn vm_counters(
             &self,
             _system_id: &str,
-        ) -> Result<serde_json::Value, BackendError> {
-            Ok(serde_json::json!({}))
+        ) -> Result<bt::VmCounters, BackendError> {
+            Ok(bt::VmCounters::default())
         }
     }
 }
@@ -362,7 +364,7 @@ impl VmmBackend for Backend {
         }
     }
 
-    async fn vm_counters(&self, system_id: &str) -> Result<serde_json::Value, BackendError> {
+    async fn vm_counters(&self, system_id: &str) -> Result<VmCounters, BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_counters(system_id).await,
             #[cfg(feature = "qemu")]

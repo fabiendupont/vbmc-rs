@@ -12,7 +12,7 @@ use tokio_stream::StreamExt;
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
-use crate::events::subscriptions::{Subscription, SubscriptionStore};
+
 
 #[derive(Debug, Serialize)]
 pub struct EventServiceResource {

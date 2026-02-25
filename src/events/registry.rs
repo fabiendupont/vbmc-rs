@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub const MSG_SYSTEM_POWER_ON: &str = "ResourceEvent.1.0.ResourcePowerStateChanged";
 pub const MSG_SYSTEM_POWER_OFF: &str = "ResourceEvent.1.0.ResourcePowerStateChanged";
 pub const MSG_SYSTEM_RESET: &str = "ResourceEvent.1.0.ResourcePowerStateChanged";

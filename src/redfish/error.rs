@@ -30,6 +30,7 @@ pub struct RedfishMessage {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum RedfishApiError {
     NotFound(String),
     BadRequest(String),

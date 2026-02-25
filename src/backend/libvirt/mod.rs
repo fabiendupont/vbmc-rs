@@ -209,7 +209,7 @@ impl VmmBackend for LibvirtBackend {
         Ok(bt::VmmPingResponse { version, pid: None })
     }
 
-    async fn vm_counters(&self, _system_id: &str) -> Result<serde_json::Value, BackendError> {
+    async fn vm_counters(&self, _system_id: &str) -> Result<bt::VmCounters, BackendError> {
         Err(BackendError::NotSupported(
             "vm_counters not supported for libvirt backend".to_string(),
         ))

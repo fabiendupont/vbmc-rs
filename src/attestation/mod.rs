@@ -114,7 +114,7 @@ impl AttestationCoordinator {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("No attestation config for '{system_id}'"))?;
 
-        let agent_id = att_config
+        let _agent_id = att_config
             .agent_id
             .as_deref()
             .unwrap_or(system_id);

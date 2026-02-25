@@ -95,6 +95,8 @@ pub struct Processor {
     pub location_indicator_active: bool,
     #[serde(rename = "OperatingSpeedRangeMHz")]
     pub operating_speed_range_mhz: SpeedRange,
+    #[serde(rename = "Metrics")]
+    pub metrics: ODataId,
     #[serde(rename = "Links")]
     pub proc_links: ProcessorLinks,
     #[serde(rename = "Location")]
@@ -306,6 +308,9 @@ pub async fn get_processor(
             setting_min: 800,
             setting_max: max_speed_mhz,
         },
+        metrics: ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/Processors/CPU0/ProcessorMetrics"
+        )),
         proc_links: ProcessorLinks {
             chassis: ODataId::new("/redfish/v1/Chassis/1"),
             memory: vec![ODataId::new(format!(

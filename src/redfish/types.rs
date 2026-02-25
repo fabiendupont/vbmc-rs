@@ -292,11 +292,13 @@ impl RedfishLocation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct StatusRollup {
     #[serde(rename = "Health")]
     pub health: String,
 }
 
+#[allow(dead_code)]
 impl StatusRollup {
     pub fn from_statuses(statuses: &[&Status]) -> Self {
         let health = if statuses.iter().any(|s| s.health.as_deref() == Some("Critical")) {

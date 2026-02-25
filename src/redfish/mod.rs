@@ -1,5 +1,6 @@
 pub mod account_service;
 pub mod bios;
+pub mod boot_options;
 pub mod certificate_service;
 pub mod chassis_power;
 pub mod chassis_power_subsystem;
@@ -12,15 +13,21 @@ pub mod ethernet;
 pub mod event_service;
 pub mod license_service;
 pub mod log_service;
+pub mod manager_network;
 pub mod managers;
 pub mod memory;
+pub mod memory_metrics;
 pub mod network_adapter;
+pub mod network_interfaces;
 pub mod odata;
 pub mod pcie;
 pub mod power;
+pub mod processor_metrics;
 pub mod processors;
+pub mod registries;
 pub mod secure_boot;
 pub mod security_policy;
+pub mod sensors;
 pub mod service_root;
 pub mod session_service;
 pub mod storage;
@@ -135,6 +142,14 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Volumes/{vol_id}",
             get(storage_controllers::get_volume),
         )
+        .route(
+            "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Controllers",
+            get(storage_controllers::get_controllers),
+        )
+        .route(
+            "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Controllers/{controller_id}",
+            get(storage_controllers::get_controller),
+        )
         // PCIe Devices
         .route(
             "/redfish/v1/Systems/{system_id}/PCIeDevices",
@@ -174,6 +189,34 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/redfish/v1/Systems/{system_id}/LogServices/{log_id}/Entries",
             get(log_service::get_system_log_entries),
         )
+        // Network Interfaces
+        .route(
+            "/redfish/v1/Systems/{system_id}/NetworkInterfaces",
+            get(network_interfaces::get_network_interfaces),
+        )
+        .route(
+            "/redfish/v1/Systems/{system_id}/NetworkInterfaces/{nic_id}",
+            get(network_interfaces::get_network_interface),
+        )
+        // Boot Options
+        .route(
+            "/redfish/v1/Systems/{system_id}/BootOptions",
+            get(boot_options::get_boot_options),
+        )
+        .route(
+            "/redfish/v1/Systems/{system_id}/BootOptions/{option_id}",
+            get(boot_options::get_boot_option),
+        )
+        // Processor Metrics
+        .route(
+            "/redfish/v1/Systems/{system_id}/Processors/{processor_id}/ProcessorMetrics",
+            get(processor_metrics::get_processor_metrics),
+        )
+        // Memory Metrics
+        .route(
+            "/redfish/v1/Systems/{system_id}/Memory/{dimm_id}/MemoryMetrics",
+            get(memory_metrics::get_memory_metrics),
+        )
         // Secure Boot
         .route(
             "/redfish/v1/Systems/{system_id}/SecureBoot",
@@ -184,6 +227,20 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/redfish/v1/Managers/{manager_id}",
             get(managers::get_manager),
+        )
+        // Manager Network Protocol
+        .route(
+            "/redfish/v1/Managers/vbmc/NetworkProtocol",
+            get(manager_network::get_network_protocol),
+        )
+        // Manager Ethernet Interfaces
+        .route(
+            "/redfish/v1/Managers/vbmc/EthernetInterfaces",
+            get(manager_network::get_manager_ethernet_interfaces),
+        )
+        .route(
+            "/redfish/v1/Managers/vbmc/EthernetInterfaces/{nic_id}",
+            get(manager_network::get_manager_ethernet_interface),
         )
         // Manager LogServices
         .route(
@@ -353,6 +410,15 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/redfish/v1/Chassis/1/ThermalSubsystem/Fans/0",
             get(chassis_thermal_subsystem::get_fan),
         )
+        // Sensors
+        .route(
+            "/redfish/v1/Chassis/1/Sensors",
+            get(sensors::get_sensors),
+        )
+        .route(
+            "/redfish/v1/Chassis/1/Sensors/{sensor_id}",
+            get(sensors::get_sensor),
+        )
         .route(
             "/redfish/v1/Chassis/1/NetworkAdapters",
             get(network_adapter::get_network_adapters),
@@ -381,6 +447,15 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/redfish/v1/ComponentIntegrity/{system_id}",
             get(component_integrity::get_component_integrity),
+        )
+        // Registries
+        .route(
+            "/redfish/v1/Registries",
+            get(registries::get_registries),
+        )
+        .route(
+            "/redfish/v1/Registries/{registry_id}",
+            get(registries::get_registry),
         )
         // Telemetry Service
         .route(

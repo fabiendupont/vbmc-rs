@@ -1,11 +1,7 @@
-use std::sync::Arc;
-
-use axum::extract::State;
 use axum::Json;
 use serde::Serialize;
 
 use super::types::{Collection, ODataId, Status};
-use crate::app_state::AppState;
 
 #[derive(Debug, Serialize)]
 pub struct UpdateServiceResource {

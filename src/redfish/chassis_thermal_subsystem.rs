@@ -202,7 +202,7 @@ pub async fn get_thermal_metrics() -> Json<ThermalMetricsResource> {
         name: "Thermal Metrics",
         description: "Thermal metrics for virtual chassis",
         temperature_readings_celsius: vec![TemperatureReading {
-            data_source_uri: "/redfish/v1/Chassis/1/Thermal#/Temperatures/0",
+            data_source_uri: "/redfish/v1/Chassis/1/Sensors/CpuTemp",
             reading: 35,
             device_name: "CPU Temperature",
             physical_context: "CPU",
@@ -211,22 +211,22 @@ pub async fn get_thermal_metrics() -> Json<ThermalMetricsResource> {
         temperature_summary_celsius: TemperatureSummary {
             internal: SummaryReading {
                 reading: 35.0,
-                data_source_uri: None,
+                data_source_uri: Some("/redfish/v1/Chassis/1/Sensors/CpuTemp"),
                 device_name: Some("CPU"),
             },
             ambient: SummaryReading {
                 reading: 22.0,
-                data_source_uri: None,
+                data_source_uri: Some("/redfish/v1/Chassis/1/Sensors/AmbientTemp"),
                 device_name: Some("Ambient"),
             },
             exhaust: SummaryReading {
                 reading: 28.0,
-                data_source_uri: None,
+                data_source_uri: Some("/redfish/v1/Chassis/1/Sensors/ExhaustTemp"),
                 device_name: Some("Exhaust"),
             },
             intake: SummaryReading {
                 reading: 20.0,
-                data_source_uri: None,
+                data_source_uri: Some("/redfish/v1/Chassis/1/Sensors/IntakeTemp"),
                 device_name: Some("Intake"),
             },
         },

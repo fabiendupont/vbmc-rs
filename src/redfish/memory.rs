@@ -123,6 +123,8 @@ pub struct MemoryResource {
     pub regions: Vec<MemRegion>,
     #[serde(rename = "OperatingSpeedRangeMHz")]
     pub operating_speed_range_mhz: MemSpeedRange,
+    #[serde(rename = "Metrics")]
+    pub metrics: ODataId,
     #[serde(rename = "Links")]
     pub links: MemoryLinks,
     #[serde(rename = "Location")]
@@ -319,6 +321,9 @@ pub async fn get_memory(
             allowable_min: 2133,
             allowable_max: 3200,
         },
+        metrics: ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/Memory/DIMM0/MemoryMetrics"
+        )),
         links: MemoryLinks {
             chassis: ODataId::new("/redfish/v1/Chassis/1"),
             processors: vec![ODataId::new(format!(

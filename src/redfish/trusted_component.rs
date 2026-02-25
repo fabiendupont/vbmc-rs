@@ -34,6 +34,8 @@ pub struct ChassisResource {
     pub power_subsystem: ODataId,
     #[serde(rename = "ThermalSubsystem")]
     pub thermal_subsystem: ODataId,
+    #[serde(rename = "Sensors")]
+    pub sensors: ODataId,
     #[serde(rename = "NetworkAdapters")]
     pub network_adapters: ODataId,
     #[serde(rename = "PowerState")]
@@ -160,6 +162,7 @@ pub async fn get_chassis(
         thermal: ODataId::new("/redfish/v1/Chassis/1/Thermal"),
         power_subsystem: ODataId::new("/redfish/v1/Chassis/1/PowerSubsystem"),
         thermal_subsystem: ODataId::new("/redfish/v1/Chassis/1/ThermalSubsystem"),
+        sensors: ODataId::new("/redfish/v1/Chassis/1/Sensors"),
         network_adapters: ODataId::new("/redfish/v1/Chassis/1/NetworkAdapters"),
         power_state: "On",
         manufacturer: "vbmc-rs",

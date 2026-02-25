@@ -52,6 +52,7 @@ pub struct AppConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct ServerConfig {
     #[serde(default = "default_bind_address")]
     pub bind_address: String,
@@ -78,6 +79,7 @@ pub struct AuthConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
+#[allow(dead_code)]
 pub struct DefaultsConfig {
     #[serde(default = "default_firmware_path")]
     pub firmware_path: String,
@@ -132,6 +134,7 @@ pub struct DiskHardwareConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct SystemConfig {
     pub name: Option<String>,
     #[serde(default)]
@@ -152,6 +155,7 @@ pub struct SystemConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct AttestationConfig {
     pub provider: String,
     pub provider_url: String,

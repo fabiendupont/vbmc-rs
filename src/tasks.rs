@@ -5,6 +5,7 @@ use dashmap::DashMap;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[allow(dead_code)]
 pub enum TaskState {
     New,
     Running,
@@ -35,11 +36,13 @@ pub struct Task {
     pub result: Option<serde_json::Value>,
 }
 
+#[allow(dead_code)]
 pub struct TaskManager {
     tasks: DashMap<String, Task>,
     next_id: AtomicU64,
 }
 
+#[allow(dead_code)]
 impl TaskManager {
     pub fn new() -> Self {
         Self {

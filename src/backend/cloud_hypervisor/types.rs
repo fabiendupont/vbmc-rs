@@ -127,6 +127,7 @@ pub struct VmInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct VmmPingResponse {
     pub build_version: Option<String>,
     pub version: Option<String>,

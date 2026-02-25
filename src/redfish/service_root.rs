@@ -47,6 +47,8 @@ pub struct ServiceRoot {
     pub update_service: Option<ODataId>,
     #[serde(rename = "LicenseService", skip_serializing_if = "Option::is_none")]
     pub license_service: Option<ODataId>,
+    #[serde(rename = "Registries", skip_serializing_if = "Option::is_none")]
+    pub registries: Option<ODataId>,
     #[serde(rename = "ServiceIdentification")]
     pub service_identification: String,
     #[serde(rename = "Vendor")]
@@ -134,6 +136,7 @@ pub async fn get_service_root(
         component_integrity: Some(ODataId::new("/redfish/v1/ComponentIntegrity")),
         update_service: Some(ODataId::new("/redfish/v1/UpdateService")),
         license_service: Some(ODataId::new("/redfish/v1/LicenseService")),
+        registries: Some(ODataId::new("/redfish/v1/Registries")),
         service_identification: format!("vbmc-rs-{}", state.instance_uuid.split('-').next().unwrap_or("0000")),
         vendor: "vbmc-rs",
         product: "Virtual BMC",

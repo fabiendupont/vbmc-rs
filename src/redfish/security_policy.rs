@@ -56,6 +56,7 @@ pub async fn get_security_policy(
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct PatchSecurityPolicyRequest {
     #[serde(rename = "SPDM")]
     pub spdm: Option<PatchSpdmPolicy>,
@@ -64,12 +65,14 @@ pub struct PatchSecurityPolicyRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct PatchSpdmPolicy {
     #[serde(rename = "Enabled")]
     pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct PatchTlsPolicy {
     #[serde(rename = "MinimumVersion")]
     pub minimum_version: Option<String>,

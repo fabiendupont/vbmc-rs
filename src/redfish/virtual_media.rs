@@ -155,6 +155,7 @@ pub async fn get_virtual_media(
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct InsertMediaRequest {
     #[serde(rename = "Image")]
     pub image: String,

@@ -12,6 +12,7 @@ use axum::response::{IntoResponse, Response};
 use crate::app_state::AppState;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AuthenticatedUser {
     pub username: String,
     pub role: String,

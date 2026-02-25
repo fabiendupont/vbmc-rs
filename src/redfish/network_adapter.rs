@@ -30,6 +30,7 @@ pub struct NetworkAdapterResource {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct NetworkDeviceFunction {
     #[serde(rename = "@odata.id")]
     pub odata_id: String,
@@ -46,6 +47,7 @@ pub struct NetworkDeviceFunction {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct EthernetProperties {
     #[serde(rename = "MACAddress", skip_serializing_if = "Option::is_none")]
     pub mac_address: Option<String>,

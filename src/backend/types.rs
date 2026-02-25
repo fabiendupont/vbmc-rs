@@ -129,9 +129,24 @@ pub struct PlatformConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct VmmPingResponse {
     pub version: Option<String>,
     pub pid: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VmCounters {
+    pub cpu_cycles: Vec<u64>,
+    pub instructions: Vec<u64>,
+    pub block_read_bytes: u64,
+    pub block_write_bytes: u64,
+    pub block_read_ops: u64,
+    pub block_write_ops: u64,
+    pub net_rx_bytes: u64,
+    pub net_tx_bytes: u64,
+    pub net_rx_frames: u64,
+    pub net_tx_frames: u64,
 }
 
 #[cfg(test)]

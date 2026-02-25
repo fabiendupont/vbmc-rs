@@ -53,6 +53,7 @@ impl AccountStore {
         self.accounts.iter().find(|a| a.username == username)
     }
 
+    #[allow(dead_code)]
     pub fn find_account_mut(&mut self, username: &str) -> Option<&mut Account> {
         self.accounts.iter_mut().find(|a| a.username == username)
     }

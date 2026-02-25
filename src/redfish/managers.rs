@@ -66,6 +66,10 @@ pub struct Manager {
     pub auto_dst_enabled: bool,
     #[serde(rename = "Location")]
     pub location: super::types::RedfishLocation,
+    #[serde(rename = "NetworkProtocol")]
+    pub network_protocol: ODataId,
+    #[serde(rename = "EthernetInterfaces")]
+    pub ethernet_interfaces: ODataId,
     #[serde(rename = "LogServices", skip_serializing_if = "Option::is_none")]
     pub log_services: Option<ODataId>,
     #[serde(rename = "Links")]
@@ -170,6 +174,8 @@ pub async fn get_manager(
         service_identification: format!("vbmc-rs-{}", state.instance_uuid.split('-').next().unwrap_or("0000")),
         auto_dst_enabled: false,
         location: super::types::RedfishLocation::new("Virtual BMC", "Embedded", "BMC", "Embedded", 0),
+        network_protocol: ODataId::new("/redfish/v1/Managers/vbmc/NetworkProtocol"),
+        ethernet_interfaces: ODataId::new("/redfish/v1/Managers/vbmc/EthernetInterfaces"),
         log_services: Some(ODataId::new("/redfish/v1/Managers/vbmc/LogServices")),
         links: ManagerLinks {
             manager_for_servers,

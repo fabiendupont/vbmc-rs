@@ -56,6 +56,8 @@ pub struct ComputerSystem {
     pub memory: ODataId,
     #[serde(rename = "Storage")]
     pub storage: ODataId,
+    #[serde(rename = "NetworkInterfaces")]
+    pub network_interfaces: ODataId,
     #[serde(rename = "PCIeDevices")]
     pub pcie_devices: Vec<ODataId>,
     #[serde(rename = "Bios")]
@@ -248,6 +250,8 @@ pub struct BootOptions {
     pub boot_order_property_selection: &'static str,
     #[serde(rename = "AliasBootOrder")]
     pub alias_boot_order: Vec<&'static str>,
+    #[serde(rename = "BootOptions")]
+    pub boot_options_link: ODataId,
 }
 
 #[derive(Debug, Serialize)]
@@ -441,6 +445,9 @@ pub async fn get_system(
         trusted_module_required_to_boot: "Disabled",
         boot_order_property_selection: "BootOrder",
         alias_boot_order: Vec::new(),
+        boot_options_link: ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/BootOptions"
+        )),
     };
 
     Ok(Json(ComputerSystem {
@@ -504,6 +511,9 @@ pub async fn get_system(
         )),
         storage: ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/Storage"
+        )),
+        network_interfaces: ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/NetworkInterfaces"
         )),
         pcie_devices: Vec::new(),
         bios: ODataId::new(format!(

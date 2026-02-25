@@ -51,6 +51,7 @@ pub async fn get_telemetry_service() -> Json<TelemetryServiceResource> {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct MetricDefinition {
     #[serde(rename = "@odata.id")]
     pub odata_id: String,

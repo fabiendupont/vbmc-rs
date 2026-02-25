@@ -25,6 +25,8 @@ pub struct StorageResource {
     pub description: &'static str,
     #[serde(rename = "StorageControllers")]
     pub storage_controllers: Vec<StorageControllerEntry>,
+    #[serde(rename = "Controllers")]
+    pub controllers: ODataId,
     #[serde(rename = "Drives")]
     pub drives: Vec<ODataId>,
     #[serde(rename = "Volumes")]
@@ -355,6 +357,9 @@ pub async fn get_storage(
             },
             status: Status::enabled_ok(),
         }],
+        controllers: ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Controllers"
+        )),
         drives,
         volumes: ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Volumes"
@@ -484,6 +489,92 @@ pub async fn get_volume(
         name: disk.id.clone(),
         description: "Storage volume",
         capacity_bytes: disk.capacity_bytes,
+        status: Status::enabled_ok(),
+    }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct StorageControllerResource {
+    #[serde(rename = "@odata.id")]
+    pub odata_id: String,
+    #[serde(rename = "@odata.type")]
+    pub odata_type: &'static str,
+    #[serde(rename = "Id")]
+    pub id: String,
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
+    #[serde(rename = "SupportedDeviceProtocols")]
+    pub supported_device_protocols: Vec<String>,
+    #[serde(rename = "SupportedControllerProtocols")]
+    pub supported_controller_protocols: Vec<&'static str>,
+    #[serde(rename = "FirmwareVersion")]
+    pub firmware_version: &'static str,
+    #[serde(rename = "Manufacturer")]
+    pub manufacturer: &'static str,
+    #[serde(rename = "Model")]
+    pub model: String,
+    #[serde(rename = "SerialNumber")]
+    pub serial_number: String,
+    #[serde(rename = "SpeedGbps")]
+    pub speed_gbps: f64,
+    #[serde(rename = "Status")]
+    pub status: Status,
+}
+
+pub async fn get_controllers(
+    State(state): State<Arc<AppState>>,
+    Path((system_id, ctrl_id)): Path<(String, String)>,
+) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
+    if !state.config.systems.contains_key(&system_id) {
+        return Err(RedfishApiError::NotFound(format!(
+            "System '{system_id}' not found"
+        )));
+    }
+
+    let members = vec![ODataId::new(format!(
+        "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Controllers/0"
+    ))];
+
+    Ok(Json(Collection::new(
+        format!("/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Controllers"),
+        "#StorageControllerCollection.StorageControllerCollection",
+        "Storage Controller Collection",
+        members,
+    )))
+}
+
+pub async fn get_controller(
+    State(state): State<Arc<AppState>>,
+    Path((system_id, ctrl_id, controller_id)): Path<(String, String, String)>,
+) -> Result<Json<StorageControllerResource>, RedfishApiError> {
+    if !state.config.systems.contains_key(&system_id) {
+        return Err(RedfishApiError::NotFound(format!(
+            "System '{system_id}' not found"
+        )));
+    }
+    if controller_id != "0" {
+        return Err(RedfishApiError::NotFound(format!(
+            "Controller '{controller_id}' not found"
+        )));
+    }
+
+    Ok(Json(StorageControllerResource {
+        odata_id: format!(
+            "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Controllers/{controller_id}"
+        ),
+        odata_type: "#StorageController.v1_7_0.StorageController",
+        id: controller_id,
+        name: format!("{ctrl_id} Controller"),
+        description: "Storage controller",
+        supported_device_protocols: vec![protocol_to_redfish_standard(&ctrl_id)],
+        supported_controller_protocols: vec!["PCIe"],
+        firmware_version: "1.0",
+        manufacturer: "vbmc-rs",
+        model: format!("Virtual {ctrl_id} Controller"),
+        serial_number: format!("VBMC-STOR-{ctrl_id}"),
+        speed_gbps: 16.0,
         status: Status::enabled_ok(),
     }))
 }
