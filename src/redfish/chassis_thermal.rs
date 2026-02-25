@@ -19,6 +19,8 @@ pub struct ThermalResource {
     pub temperatures: Vec<Temperature>,
     #[serde(rename = "Fans")]
     pub fans: Vec<Fan>,
+    #[serde(rename = "Status")]
+    pub status: Status,
 }
 
 #[derive(Debug, Serialize)]
@@ -190,5 +192,6 @@ pub async fn get_thermal() -> Json<ThermalResource> {
             redundancy: Vec::new(),
             status: Status::enabled_ok(),
         }],
+        status: Status::enabled_ok(),
     })
 }

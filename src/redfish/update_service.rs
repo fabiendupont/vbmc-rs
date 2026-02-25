@@ -69,8 +69,20 @@ pub struct SoftwareInventoryResource {
     pub write_protected: bool,
     #[serde(rename = "RelatedItem")]
     pub related_item: Vec<ODataId>,
+    #[serde(rename = "AssociatedPhysicalContext")]
+    pub associated_physical_context: &'static str,
+    #[serde(rename = "AdditionalVersions")]
+    pub additional_versions: FwAdditionalVersions,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FwAdditionalVersions {
+    #[serde(rename = "Bootloader")]
+    pub bootloader: &'static str,
+    #[serde(rename = "Microcode")]
+    pub microcode: &'static str,
 }
 
 pub async fn get_update_service() -> Json<UpdateServiceResource> {
@@ -124,6 +136,11 @@ pub async fn get_firmware_inventory_item(
             release_type: "Production",
             write_protected: true,
             related_item: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
+            associated_physical_context: "Chassis",
+            additional_versions: FwAdditionalVersions {
+                bootloader: "",
+                microcode: "",
+            },
             status: Status::enabled_ok(),
         }));
     }

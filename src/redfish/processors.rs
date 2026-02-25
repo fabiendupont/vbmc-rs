@@ -133,6 +133,14 @@ pub struct AdditionalFirmwareVersions {
     pub bootloader: &'static str,
     #[serde(rename = "Microcode")]
     pub microcode: &'static str,
+    #[serde(rename = "OSDistribution")]
+    pub os_distribution: &'static str,
+    #[serde(rename = "Kernel")]
+    pub kernel: &'static str,
+    #[serde(rename = "FactoryConfiguration")]
+    pub factory_configuration: &'static str,
+    #[serde(rename = "BootParameters")]
+    pub boot_parameters: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -273,6 +281,10 @@ pub async fn get_processor(
         additional_firmware_versions: AdditionalFirmwareVersions {
             bootloader: "",
             microcode: "0x00000000",
+            os_distribution: "",
+            kernel: "",
+            factory_configuration: "",
+            boot_parameters: "",
         },
         proc_memory_summary: ProcMemorySummary {
             total_cache_size_mib: 0,

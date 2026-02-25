@@ -115,6 +115,14 @@ pub struct MemoryResource {
     pub allocation_alignment_mib: u64,
     #[serde(rename = "PoisonListMaxMediaErrorRecords")]
     pub poison_list_max_media_error_records: u32,
+    #[serde(rename = "SecurityCapabilities")]
+    pub security_capabilities: MemSecurityCapabilities,
+    #[serde(rename = "PowerManagementPolicy")]
+    pub power_management_policy: MemPowerPolicy,
+    #[serde(rename = "Regions")]
+    pub regions: Vec<MemRegion>,
+    #[serde(rename = "OperatingSpeedRangeMHz")]
+    pub operating_speed_range_mhz: MemSpeedRange,
     #[serde(rename = "Links")]
     pub links: MemoryLinks,
     #[serde(rename = "Location")]
@@ -149,6 +157,46 @@ pub struct MemoryLocation {
     pub channel: u32,
     #[serde(rename = "Slot")]
     pub slot: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MemSecurityCapabilities {
+    #[serde(rename = "MaxPassphraseCount")]
+    pub max_passphrase_count: u32,
+    #[serde(rename = "PassphraseCapable")]
+    pub passphrase_capable: bool,
+    #[serde(rename = "SecurityStates")]
+    pub security_states: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MemPowerPolicy {
+    #[serde(rename = "PolicyEnabled")]
+    pub policy_enabled: bool,
+    #[serde(rename = "MaxTDPMilliWatts")]
+    pub max_tdp_milliwatts: u32,
+    #[serde(rename = "AveragePowerBudgetMilliWatts")]
+    pub average_power_budget_milliwatts: u32,
+    #[serde(rename = "PeakPowerBudgetMilliWatts")]
+    pub peak_power_budget_milliwatts: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MemRegion {
+    #[serde(rename = "RegionId")]
+    pub region_id: &'static str,
+    #[serde(rename = "MemoryClassification")]
+    pub memory_classification: &'static str,
+    #[serde(rename = "SizeMiB")]
+    pub size_mib: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MemSpeedRange {
+    #[serde(rename = "AllowableMin")]
+    pub allowable_min: u32,
+    #[serde(rename = "AllowableMax")]
+    pub allowable_max: u32,
 }
 
 pub async fn get_memory_collection(
@@ -251,6 +299,26 @@ pub async fn get_memory(
         allocation_increment_mib: 0,
         allocation_alignment_mib: 0,
         poison_list_max_media_error_records: 0,
+        security_capabilities: MemSecurityCapabilities {
+            max_passphrase_count: 0,
+            passphrase_capable: false,
+            security_states: vec!["Enabled"],
+        },
+        power_management_policy: MemPowerPolicy {
+            policy_enabled: false,
+            max_tdp_milliwatts: 12000,
+            average_power_budget_milliwatts: 10000,
+            peak_power_budget_milliwatts: 12000,
+        },
+        regions: vec![MemRegion {
+            region_id: "0",
+            memory_classification: "Volatile",
+            size_mib: capacity_mib,
+        }],
+        operating_speed_range_mhz: MemSpeedRange {
+            allowable_min: 2133,
+            allowable_max: 3200,
+        },
         links: MemoryLinks {
             chassis: ODataId::new("/redfish/v1/Chassis/1"),
             processors: vec![ODataId::new(format!(

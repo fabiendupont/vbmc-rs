@@ -258,7 +258,7 @@ pub async fn get_thermal_metrics() -> Json<ThermalMetricsResource> {
         },
         delta_pressure_kpa: MetricReading {
             reading: 0.0,
-            data_source_uri: None, device_name: None,
+            data_source_uri: None, device_name: Some("Differential Pressure"),
             apparent_va: None, phase_angle_degrees: None, power_factor: None,
             reactive_var: None, apparent_kvah: None, lifetime_reading: None,
             reactive_kvarh: None, sensor_reset_time: None,

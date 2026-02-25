@@ -169,6 +169,10 @@ pub struct LegacyInputRange {
     pub minimum_voltage: u32,
     #[serde(rename = "MaximumVoltage")]
     pub maximum_voltage: u32,
+    #[serde(rename = "MinimumFrequencyHz")]
+    pub minimum_frequency_hz: u32,
+    #[serde(rename = "MaximumFrequencyHz")]
+    pub maximum_frequency_hz: u32,
     #[serde(rename = "OutputWattage")]
     pub output_wattage: u32,
 }
@@ -226,6 +230,8 @@ pub async fn get_power() -> Json<PowerResource> {
                 input_type: "AC",
                 minimum_voltage: 200,
                 maximum_voltage: 240,
+                minimum_frequency_hz: 50,
+                maximum_frequency_hz: 60,
                 output_wattage: 500,
             }],
             location: super::types::RedfishLocation::new("Bay 1", "Bay", "PSU 0", "Bay", 0),

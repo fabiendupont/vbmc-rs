@@ -82,6 +82,10 @@ pub struct ChassisResource {
     pub thermal_managed_by_parent: bool,
     #[serde(rename = "PoweredByParent")]
     pub powered_by_parent: bool,
+    #[serde(rename = "ElectricalSourceManagerURIs")]
+    pub electrical_source_manager_uris: Vec<&'static str>,
+    #[serde(rename = "ElectricalSourceNames")]
+    pub electrical_source_names: Vec<&'static str>,
     #[serde(rename = "Location")]
     pub location: super::types::RedfishLocation,
     #[serde(rename = "PhysicalSecurity")]
@@ -180,6 +184,8 @@ pub async fn get_chassis(
         thermal_direction: "FrontToBack",
         thermal_managed_by_parent: false,
         powered_by_parent: false,
+        electrical_source_manager_uris: Vec::new(),
+        electrical_source_names: Vec::new(),
         location: super::types::RedfishLocation::new("Rack 1, Unit 1", "Rack:RackUnit", "Chassis 1", "Bay", 0),
         physical_security: PhysicalSecurity {
             intrusion_sensor_number: 1,
