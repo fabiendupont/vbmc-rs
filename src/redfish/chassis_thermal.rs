@@ -57,6 +57,10 @@ pub struct Temperature {
     pub adjusted_min_allowable_operating_value: i32,
     #[serde(rename = "DeltaReadingCelsius")]
     pub delta_reading_celsius: i32,
+    #[serde(rename = "UpperThresholdUser")]
+    pub upper_threshold_user: u32,
+    #[serde(rename = "LowerThresholdUser")]
+    pub lower_threshold_user: i32,
     #[serde(rename = "DeltaPhysicalContext")]
     pub delta_physical_context: &'static str,
     #[serde(rename = "PhysicalContext")]
@@ -149,6 +153,8 @@ pub async fn get_thermal() -> Json<ThermalResource> {
             min_allowable_operating_value: 0,
             adjusted_max_allowable_operating_value: 85,
             adjusted_min_allowable_operating_value: 0,
+            upper_threshold_user: 85,
+            lower_threshold_user: 0,
             delta_reading_celsius: 0,
             delta_physical_context: "Exhaust",
             physical_context: "CPU",

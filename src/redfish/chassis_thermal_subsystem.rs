@@ -19,6 +19,8 @@ pub struct ThermalSubsystemResource {
     pub status: Status,
     #[serde(rename = "ThermalMetrics")]
     pub thermal_metrics: ODataId,
+    #[serde(rename = "FanRedundancy")]
+    pub fan_redundancy: Vec<serde_json::Value>,
     #[serde(rename = "Fans")]
     pub fans: ODataId,
 }
@@ -159,6 +161,10 @@ pub struct FanResource {
     pub location_indicator_active: bool,
     #[serde(rename = "SparePartNumber")]
     pub spare_part_number: &'static str,
+    #[serde(rename = "SecondarySpeedPercent")]
+    pub secondary_speed_percent: SensorExcerpt,
+    #[serde(rename = "PowerWatts")]
+    pub power_watts_fan: SensorExcerpt,
     #[serde(rename = "Links")]
     pub fan_links: FanLinks,
     #[serde(rename = "Location")]
@@ -183,6 +189,7 @@ pub async fn get_thermal_subsystem() -> Json<ThermalSubsystemResource> {
         thermal_metrics: ODataId::new(
             "/redfish/v1/Chassis/1/ThermalSubsystem/ThermalMetrics",
         ),
+        fan_redundancy: Vec::new(),
         fans: ODataId::new("/redfish/v1/Chassis/1/ThermalSubsystem/Fans"),
     })
 }
@@ -293,6 +300,18 @@ pub async fn get_fan() -> Json<FanResource> {
         fan_diameter_mm: 120,
         location_indicator_active: false,
         spare_part_number: "VBMC-FAN-SPARE",
+        secondary_speed_percent: SensorExcerpt {
+            reading: 50.0,
+            speed_rpm: None,
+            device_name: Some("System Fan Secondary"),
+            data_source_uri: None,
+        },
+        power_watts_fan: SensorExcerpt {
+            reading: 5.0,
+            speed_rpm: None,
+            device_name: Some("Fan Power"),
+            data_source_uri: None,
+        },
         fan_links: FanLinks {
             cooling_chassis: vec![super::types::ODataId::new("/redfish/v1/Chassis/1")],
         },

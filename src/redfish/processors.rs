@@ -75,6 +75,14 @@ pub struct Processor {
     pub min_speed_mhz: u32,
     #[serde(rename = "SparePartNumber")]
     pub spare_part_number: &'static str,
+    #[serde(rename = "BaseSpeedPriorityState")]
+    pub base_speed_priority_state: &'static str,
+    #[serde(rename = "HighSpeedCoreIDs")]
+    pub high_speed_core_ids: Vec<u32>,
+    #[serde(rename = "AdditionalFirmwareVersions")]
+    pub additional_firmware_versions: AdditionalFirmwareVersions,
+    #[serde(rename = "MemorySummary")]
+    pub proc_memory_summary: ProcMemorySummary,
     #[serde(rename = "Replaceable")]
     pub replaceable: bool,
     #[serde(rename = "SpeedLimitMHz")]
@@ -103,16 +111,36 @@ pub struct SpeedRange {
     pub allowable_min: u32,
     #[serde(rename = "AllowableMax")]
     pub allowable_max: u32,
+    #[serde(rename = "AllowableNumericValues")]
+    pub allowable_numeric_values: Vec<u32>,
     #[serde(rename = "Reading")]
     pub reading: u32,
     #[serde(rename = "ReadingUnits")]
     pub reading_units: &'static str,
     #[serde(rename = "ControlMode")]
     pub control_mode: &'static str,
+    #[serde(rename = "DataSourceUri", skip_serializing_if = "Option::is_none")]
+    pub data_source_uri: Option<&'static str>,
     #[serde(rename = "SettingMin")]
     pub setting_min: u32,
     #[serde(rename = "SettingMax")]
     pub setting_max: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AdditionalFirmwareVersions {
+    #[serde(rename = "Bootloader")]
+    pub bootloader: &'static str,
+    #[serde(rename = "Microcode")]
+    pub microcode: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProcMemorySummary {
+    #[serde(rename = "TotalCacheSizeMiB")]
+    pub total_cache_size_mib: u32,
+    #[serde(rename = "TotalMemorySizeMiB")]
+    pub total_memory_size_mib: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -240,6 +268,16 @@ pub async fn get_processor(
         processor_index: 0,
         min_speed_mhz: 800,
         spare_part_number: "VBMC-CPU-SPARE",
+        base_speed_priority_state: "Disabled",
+        high_speed_core_ids: Vec::new(),
+        additional_firmware_versions: AdditionalFirmwareVersions {
+            bootloader: "",
+            microcode: "0x00000000",
+        },
+        proc_memory_summary: ProcMemorySummary {
+            total_cache_size_mib: 0,
+            total_memory_size_mib: 0,
+        },
         replaceable: false,
         speed_limit_mhz: max_speed_mhz,
         speed_locked: false,
@@ -248,9 +286,11 @@ pub async fn get_processor(
         operating_speed_range_mhz: SpeedRange {
             allowable_min: 800,
             allowable_max: max_speed_mhz,
+            allowable_numeric_values: Vec::new(),
             reading: max_speed_mhz,
             reading_units: "MHz",
             control_mode: "Automatic",
+            data_source_uri: None,
             setting_min: 800,
             setting_max: max_speed_mhz,
         },

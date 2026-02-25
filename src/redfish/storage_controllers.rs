@@ -33,6 +33,12 @@ pub struct StorageResource {
     pub identifiers: Vec<StorageIdentifier>,
     #[serde(rename = "EncryptionMode")]
     pub encryption_mode: &'static str,
+    #[serde(rename = "AutoVolumeCreate")]
+    pub auto_volume_create: &'static str,
+    #[serde(rename = "HotspareActivationPolicy")]
+    pub hotspare_activation_policy: &'static str,
+    #[serde(rename = "LocalEncryptionKeyIdentifier")]
+    pub local_encryption_key_identifier: &'static str,
     #[serde(rename = "Links")]
     pub links: StorageLinks,
     #[serde(rename = "Status")]
@@ -111,6 +117,8 @@ pub struct StorageControllerEntry {
 pub struct CtrlCacheSummary {
     #[serde(rename = "TotalCacheSizeMiB")]
     pub total_cache_size_mib: u32,
+    #[serde(rename = "PersistentCacheSizeMiB")]
+    pub persistent_cache_size_mib: u32,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -121,6 +129,8 @@ pub struct CtrlRates {
     pub consistency_check_rate_percent: u32,
     #[serde(rename = "RebuildRatePercent")]
     pub rebuild_rate_percent: u32,
+    #[serde(rename = "TransformationRatePercent")]
+    pub transformation_rate_percent: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -129,12 +139,18 @@ pub struct CtrlPcieInterface {
     pub max_pcie_type: &'static str,
     #[serde(rename = "MaxLanes")]
     pub max_lanes: u32,
+    #[serde(rename = "PCIeType")]
+    pub pcie_type: &'static str,
+    #[serde(rename = "LanesInUse")]
+    pub lanes_in_use: u32,
 }
 
 #[derive(Debug, Serialize)]
 pub struct CtrlLinks {
     #[serde(rename = "Endpoints")]
     pub endpoints: Vec<ODataId>,
+    #[serde(rename = "PCIeFunctions")]
+    pub pcie_functions: Vec<ODataId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -315,15 +331,19 @@ pub async fn get_storage(
             }],
             cache_summary: CtrlCacheSummary {
                 total_cache_size_mib: 0,
+                persistent_cache_size_mib: 0,
                 status: Status::enabled_ok(),
             },
             controller_rates: CtrlRates {
                 consistency_check_rate_percent: 0,
                 rebuild_rate_percent: 0,
+                transformation_rate_percent: 0,
             },
             pcie_interface: CtrlPcieInterface {
                 max_pcie_type: "Gen4",
                 max_lanes: 4,
+                pcie_type: "Gen4",
+                lanes_in_use: 4,
             },
             location: super::types::RedfishLocation::new(
                 format!("Controller {ctrl_id}"), "Embedded",
@@ -331,6 +351,7 @@ pub async fn get_storage(
             ),
             ctrl_links: CtrlLinks {
                 endpoints: Vec::new(),
+                pcie_functions: Vec::new(),
             },
             status: Status::enabled_ok(),
         }],
@@ -348,6 +369,9 @@ pub async fn get_storage(
             durable_name_format: "NAA",
         }],
         encryption_mode: "Disabled",
+        auto_volume_create: "Disabled",
+        hotspare_activation_policy: "OEM",
+        local_encryption_key_identifier: "",
         links: StorageLinks {
             enclosures: vec![ODataId::new("/redfish/v1/Chassis/1")],
             simple_storage: ODataId::new(format!(

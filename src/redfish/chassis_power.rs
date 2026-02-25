@@ -147,6 +147,8 @@ pub struct PowerSupply {
     pub efficiency_percent: u32,
     #[serde(rename = "SparePartNumber")]
     pub spare_part_number: &'static str,
+    #[serde(rename = "InputRanges")]
+    pub input_ranges: Vec<LegacyInputRange>,
     #[serde(rename = "Location")]
     pub location: super::types::RedfishLocation,
     #[serde(rename = "HotPluggable")]
@@ -157,6 +159,18 @@ pub struct PowerSupply {
     pub related_item: Vec<ODataId>,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LegacyInputRange {
+    #[serde(rename = "InputType")]
+    pub input_type: &'static str,
+    #[serde(rename = "MinimumVoltage")]
+    pub minimum_voltage: u32,
+    #[serde(rename = "MaximumVoltage")]
+    pub maximum_voltage: u32,
+    #[serde(rename = "OutputWattage")]
+    pub output_wattage: u32,
 }
 
 pub async fn get_power() -> Json<PowerResource> {
@@ -208,6 +222,12 @@ pub async fn get_power() -> Json<PowerResource> {
             power_output_watts: 50,
             efficiency_percent: 90,
             spare_part_number: "VBMC-PSU-SPARE",
+            input_ranges: vec![LegacyInputRange {
+                input_type: "AC",
+                minimum_voltage: 200,
+                maximum_voltage: 240,
+                output_wattage: 500,
+            }],
             location: super::types::RedfishLocation::new("Bay 1", "Bay", "PSU 0", "Bay", 0),
             hot_pluggable: false,
             indicator_led: "Off",

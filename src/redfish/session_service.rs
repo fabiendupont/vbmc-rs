@@ -31,6 +31,8 @@ pub struct SessionServiceResource {
     pub session_timeout: u64,
     #[serde(rename = "Sessions")]
     pub sessions: ODataId,
+    #[serde(rename = "Status")]
+    pub status: super::types::Status,
 }
 
 pub async fn get_session_service(
@@ -45,6 +47,7 @@ pub async fn get_session_service(
         service_enabled: true,
         session_timeout: state.config.auth.session_timeout_seconds,
         sessions: ODataId::new("/redfish/v1/SessionService/Sessions"),
+        status: super::types::Status::enabled_ok(),
     })
 }
 

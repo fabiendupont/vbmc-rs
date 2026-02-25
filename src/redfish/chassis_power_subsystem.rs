@@ -19,8 +19,20 @@ pub struct PowerSubsystemResource {
     pub status: Status,
     #[serde(rename = "CapacityWatts")]
     pub capacity_watts: u32,
+    #[serde(rename = "Allocation")]
+    pub allocation: PowerAllocation,
+    #[serde(rename = "PowerSupplyRedundancy")]
+    pub power_supply_redundancy: Vec<serde_json::Value>,
     #[serde(rename = "PowerSupplies")]
     pub power_supplies: ODataId,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PowerAllocation {
+    #[serde(rename = "RequestedWatts")]
+    pub requested_watts: u32,
+    #[serde(rename = "AllocatedWatts")]
+    pub allocated_watts: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -71,6 +83,8 @@ pub struct PowerSupplyResource {
     pub spare_part_number: &'static str,
     #[serde(rename = "Version")]
     pub version: &'static str,
+    #[serde(rename = "InputRanges")]
+    pub input_ranges: Vec<PsuInputRange>,
     #[serde(rename = "EfficiencyRatings")]
     pub efficiency_ratings: Vec<PsuEfficiencyRating>,
     #[serde(rename = "Links")]
@@ -88,9 +102,19 @@ pub struct PsuEfficiencyRating {
 }
 
 #[derive(Debug, Serialize)]
+pub struct PsuInputRange {
+    #[serde(rename = "NominalVoltageType")]
+    pub nominal_voltage_type: &'static str,
+    #[serde(rename = "CapacityWatts")]
+    pub capacity_watts: u32,
+}
+
+#[derive(Debug, Serialize)]
 pub struct PsuLinks {
-    #[serde(rename = "Oem")]
-    pub oem: serde_json::Value,
+    #[serde(rename = "PoweringChassis")]
+    pub powering_chassis: Vec<ODataId>,
+    #[serde(rename = "PowerOutlets")]
+    pub power_outlets: Vec<ODataId>,
 }
 
 pub async fn get_power_subsystem() -> Json<PowerSubsystemResource> {
@@ -102,6 +126,11 @@ pub async fn get_power_subsystem() -> Json<PowerSubsystemResource> {
         description: "Power subsystem for virtual chassis",
         status: Status::enabled_ok(),
         capacity_watts: 1000,
+        allocation: PowerAllocation {
+            requested_watts: 50,
+            allocated_watts: 500,
+        },
+        power_supply_redundancy: Vec::new(),
         power_supplies: ODataId::new("/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies"),
     })
 }
@@ -144,12 +173,17 @@ pub async fn get_power_supply() -> Json<PowerSupplyResource> {
         location_indicator_active: false,
         spare_part_number: "VBMC-PSU-SPARE",
         version: "1.0",
+        input_ranges: vec![PsuInputRange {
+            nominal_voltage_type: "AC240V",
+            capacity_watts: 500,
+        }],
         efficiency_ratings: vec![
             PsuEfficiencyRating { load_percent: 50, efficiency_percent: 90 },
             PsuEfficiencyRating { load_percent: 100, efficiency_percent: 85 },
         ],
         psu_links: PsuLinks {
-            oem: serde_json::json!({}),
+            powering_chassis: vec![ODataId::new("/redfish/v1/Chassis/1")],
+            power_outlets: Vec::new(),
         },
         status: Status::enabled_ok(),
     })
