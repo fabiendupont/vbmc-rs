@@ -5,7 +5,7 @@ use axum::Json;
 use serde::Serialize;
 
 use super::error::RedfishApiError;
-use super::types::{Collection, ODataId, Status};
+use super::types::{Collection, ODataId};
 use crate::app_state::AppState;
 
 #[derive(Debug, Serialize)]
@@ -28,8 +28,6 @@ pub struct BootOptionResource {
     pub boot_option_enabled: bool,
     #[serde(rename = "Alias")]
     pub alias: String,
-    #[serde(rename = "Status")]
-    pub status: Status,
 }
 
 struct BootOptionDef {
@@ -117,6 +115,5 @@ pub async fn get_boot_option(
         display_name: def.display_name.to_string(),
         boot_option_enabled: true,
         alias: def.alias.to_string(),
-        status: Status::enabled_ok(),
     }))
 }

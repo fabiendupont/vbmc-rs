@@ -55,7 +55,7 @@ pub async fn get_registry(
 
     Ok(Json(MessageRegistryFileResource {
         odata_id: "/redfish/v1/Registries/Base".to_string(),
-        odata_type: "#MessageRegistryFile.v1_4_0.MessageRegistryFile",
+        odata_type: "#MessageRegistryFile.v1_1_0.MessageRegistryFile",
         id: "Base",
         name: "Base Message Registry File",
         description: "Base Message Registry File Location",

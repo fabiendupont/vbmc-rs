@@ -56,18 +56,58 @@ pub struct EthernetInterfaceResource {
     pub description: &'static str,
     #[serde(rename = "MACAddress")]
     pub mac_address: &'static str,
+    #[serde(rename = "PermanentMACAddress")]
+    pub permanent_mac_address: &'static str,
     #[serde(rename = "SpeedMbps")]
     pub speed_mbps: u32,
     #[serde(rename = "FullDuplex")]
     pub full_duplex: bool,
+    #[serde(rename = "MTUSize")]
+    pub mtu_size: u32,
     #[serde(rename = "InterfaceEnabled")]
     pub interface_enabled: bool,
     #[serde(rename = "LinkStatus")]
     pub link_status: &'static str,
     #[serde(rename = "AutoNeg")]
     pub auto_neg: bool,
+    #[serde(rename = "EthernetInterfaceType")]
+    pub ethernet_interface_type: &'static str,
+    #[serde(rename = "HostName")]
+    pub host_name: String,
+    #[serde(rename = "FQDN")]
+    pub fqdn: String,
+    #[serde(rename = "NameServers")]
+    pub name_servers: Vec<&'static str>,
+    #[serde(rename = "StaticNameServers")]
+    pub static_name_servers: Vec<&'static str>,
+    #[serde(rename = "MaxIPv6StaticAddresses")]
+    pub max_ipv6_static_addresses: u32,
     #[serde(rename = "IPv4Addresses")]
     pub ipv4_addresses: Vec<Ipv4Address>,
+    #[serde(rename = "IPv4StaticAddresses")]
+    pub ipv4_static_addresses: Vec<Ipv4Address>,
+    #[serde(rename = "IPv6Enabled")]
+    pub ipv6_enabled: bool,
+    #[serde(rename = "IPv6Addresses")]
+    pub ipv6_addresses: Vec<serde_json::Value>,
+    #[serde(rename = "IPv6StaticAddresses")]
+    pub ipv6_static_addresses: Vec<serde_json::Value>,
+    #[serde(rename = "IPv6DefaultGateway")]
+    pub ipv6_default_gateway: &'static str,
+    #[serde(rename = "IPv6StaticDefaultGateways")]
+    pub ipv6_static_default_gateways: Vec<serde_json::Value>,
+    #[serde(rename = "IPv6AddressPolicyTable")]
+    pub ipv6_address_policy_table: Vec<serde_json::Value>,
+    #[serde(rename = "DHCPv4")]
+    pub dhcpv4: DhcpV4Config,
+    #[serde(rename = "DHCPv6")]
+    pub dhcpv6: DhcpV6Config,
+    #[serde(rename = "StatelessAddressAutoConfig")]
+    pub stateless_address_auto_config: StatelessConfig,
+    #[serde(rename = "VLAN")]
+    pub vlan: VlanConfig,
+    #[serde(rename = "Links")]
+    pub links: EthernetLinks,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -82,6 +122,62 @@ pub struct Ipv4Address {
     pub address_origin: &'static str,
     #[serde(rename = "Gateway")]
     pub gateway: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DhcpV4Config {
+    #[serde(rename = "DHCPEnabled")]
+    pub dhcp_enabled: bool,
+    #[serde(rename = "UseDNSServers")]
+    pub use_dns_servers: bool,
+    #[serde(rename = "UseGateway")]
+    pub use_gateway: bool,
+    #[serde(rename = "UseNTPServers")]
+    pub use_ntp_servers: bool,
+    #[serde(rename = "UseDomainName")]
+    pub use_domain_name: bool,
+    #[serde(rename = "UseStaticRoutes")]
+    pub use_static_routes: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DhcpV6Config {
+    #[serde(rename = "OperatingMode")]
+    pub operating_mode: &'static str,
+    #[serde(rename = "UseDNSServers")]
+    pub use_dns_servers: bool,
+    #[serde(rename = "UseNTPServers")]
+    pub use_ntp_servers: bool,
+    #[serde(rename = "UseDomainName")]
+    pub use_domain_name: bool,
+    #[serde(rename = "UseRapidCommit")]
+    pub use_rapid_commit: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StatelessConfig {
+    #[serde(rename = "IPv4AutoConfigEnabled")]
+    pub ipv4_auto_config_enabled: bool,
+    #[serde(rename = "IPv6AutoConfigEnabled")]
+    pub ipv6_auto_config_enabled: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VlanConfig {
+    #[serde(rename = "VLANEnable")]
+    pub vlan_enable: bool,
+    #[serde(rename = "VLANId")]
+    pub vlan_id: u32,
+    #[serde(rename = "VLANPriority")]
+    pub vlan_priority: u32,
+    #[serde(rename = "Tagged")]
+    pub tagged: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EthernetLinks {
+    #[serde(rename = "Chassis")]
+    pub chassis: ODataId,
 }
 
 pub async fn get_network_protocol(
@@ -146,6 +242,17 @@ pub async fn get_manager_ethernet_interface(
         bind_address
     };
 
+    let hostname = std::fs::read_to_string("/etc/hostname")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|_| "vbmc".to_string());
+
+    let ipv4 = Ipv4Address {
+        address: addr,
+        subnet_mask: "255.255.255.0",
+        address_origin: "Static",
+        gateway: "0.0.0.0",
+    };
+
     Ok(Json(EthernetInterfaceResource {
         odata_id: format!("/redfish/v1/Managers/vbmc/EthernetInterfaces/{nic_id}"),
         odata_type: "#EthernetInterface.v1_12_0.EthernetInterface",
@@ -153,17 +260,60 @@ pub async fn get_manager_ethernet_interface(
         name: "Manager Ethernet Interface",
         description: "Management network interface",
         mac_address: "02:42:AC:11:00:02",
+        permanent_mac_address: "02:42:AC:11:00:02",
         speed_mbps: 1000,
         full_duplex: true,
+        mtu_size: 1500,
         interface_enabled: true,
         link_status: "LinkUp",
         auto_neg: true,
-        ipv4_addresses: vec![Ipv4Address {
-            address: addr,
+        ethernet_interface_type: "Virtual",
+        host_name: hostname.clone(),
+        fqdn: hostname,
+        name_servers: Vec::new(),
+        static_name_servers: Vec::new(),
+        max_ipv6_static_addresses: 1,
+        ipv4_static_addresses: vec![Ipv4Address {
+            address: ipv4.address.clone(),
             subnet_mask: "255.255.255.0",
             address_origin: "Static",
             gateway: "0.0.0.0",
         }],
+        ipv4_addresses: vec![ipv4],
+        ipv6_enabled: false,
+        ipv6_addresses: Vec::new(),
+        ipv6_static_addresses: Vec::new(),
+        ipv6_default_gateway: "",
+        ipv6_static_default_gateways: Vec::new(),
+        ipv6_address_policy_table: Vec::new(),
+        dhcpv4: DhcpV4Config {
+            dhcp_enabled: false,
+            use_dns_servers: false,
+            use_gateway: false,
+            use_ntp_servers: false,
+            use_domain_name: false,
+            use_static_routes: false,
+        },
+        dhcpv6: DhcpV6Config {
+            operating_mode: "Disabled",
+            use_dns_servers: false,
+            use_ntp_servers: false,
+            use_domain_name: false,
+            use_rapid_commit: false,
+        },
+        stateless_address_auto_config: StatelessConfig {
+            ipv4_auto_config_enabled: false,
+            ipv6_auto_config_enabled: false,
+        },
+        vlan: VlanConfig {
+            vlan_enable: false,
+            vlan_id: 0,
+            vlan_priority: 0,
+            tagged: false,
+        },
+        links: EthernetLinks {
+            chassis: ODataId::new("/redfish/v1/Chassis/1"),
+        },
         status: Status::enabled_ok(),
     }))
 }

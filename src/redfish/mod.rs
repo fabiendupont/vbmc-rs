@@ -432,6 +432,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(network_adapter::get_network_device_functions),
         )
         .route(
+            "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions/{func_id}",
+            get(network_adapter::get_network_device_function),
+        )
+        .route(
             "/redfish/v1/Chassis/1/TrustedComponents",
             get(trusted_component::get_trusted_components),
         )

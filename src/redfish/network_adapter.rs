@@ -140,3 +140,48 @@ pub async fn get_network_device_functions(
         members,
     )))
 }
+
+pub async fn get_network_device_function(
+    State(state): State<Arc<AppState>>,
+    Path((adapter_id, func_id)): Path<(String, String)>,
+) -> Result<Json<NetworkDeviceFunction>, RedfishApiError> {
+    let (system_id, nic_suffix) = adapter_id
+        .rsplit_once('_')
+        .ok_or_else(|| RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found")))?;
+
+    let idx: usize = nic_suffix
+        .strip_prefix("NIC")
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found")))?;
+
+    if !state.config.systems.contains_key(system_id) {
+        return Err(RedfishApiError::NotFound(format!(
+            "NetworkAdapter '{adapter_id}' not found"
+        )));
+    }
+    if func_id != "0" {
+        return Err(RedfishApiError::NotFound(format!(
+            "NetworkDeviceFunction '{func_id}' not found"
+        )));
+    }
+
+    let mac = state
+        .backend
+        .vm_info(system_id)
+        .await
+        .ok()
+        .and_then(|info| info.nics.get(idx).and_then(|n| n.mac_address.clone()));
+
+    Ok(Json(NetworkDeviceFunction {
+        odata_id: format!(
+            "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions/{func_id}"
+        ),
+        odata_type: "#NetworkDeviceFunction.v1_9_0.NetworkDeviceFunction",
+        id: func_id,
+        name: format!("Network Device Function {adapter_id}"),
+        ethernet: EthernetProperties {
+            mac_address: mac,
+        },
+        status: Status::enabled_ok(),
+    }))
+}

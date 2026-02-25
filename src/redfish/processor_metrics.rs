@@ -22,8 +22,40 @@ pub struct ProcessorMetricsResource {
     pub description: &'static str,
     #[serde(rename = "BandwidthPercent")]
     pub bandwidth_percent: f64,
+    #[serde(rename = "OperatingSpeedMHz")]
+    pub operating_speed_mhz: u32,
+    #[serde(rename = "ThrottlingCelsius")]
+    pub throttling_celsius: u32,
+    #[serde(rename = "FrequencyRatio")]
+    pub frequency_ratio: f64,
+    #[serde(rename = "KernelPercent")]
+    pub kernel_percent: f64,
+    #[serde(rename = "UserPercent")]
+    pub user_percent: f64,
+    #[serde(rename = "LocalMemoryBandwidthBytes")]
+    pub local_memory_bandwidth_bytes: u64,
+    #[serde(rename = "RemoteMemoryBandwidthBytes")]
+    pub remote_memory_bandwidth_bytes: u64,
+    #[serde(rename = "CoreVoltage")]
+    pub core_voltage: CoreVoltage,
+    #[serde(rename = "CorrectableCoreErrorCount")]
+    pub correctable_core_error_count: u64,
+    #[serde(rename = "UncorrectableCoreErrorCount")]
+    pub uncorrectable_core_error_count: u64,
+    #[serde(rename = "CorrectableOtherErrorCount")]
+    pub correctable_other_error_count: u64,
+    #[serde(rename = "UncorrectableOtherErrorCount")]
+    pub uncorrectable_other_error_count: u64,
     #[serde(rename = "CoreMetrics")]
     pub core_metrics: Vec<CoreMetric>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CoreVoltage {
+    #[serde(rename = "Reading")]
+    pub reading: f64,
+    #[serde(rename = "DataSourceUri", skip_serializing_if = "Option::is_none")]
+    pub data_source_uri: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -34,6 +66,18 @@ pub struct CoreMetric {
     pub instructions_per_cycle: Option<f64>,
     #[serde(rename = "UnhaltedCycles")]
     pub unhalted_cycles: u64,
+    #[serde(rename = "CorrectableCoreErrorCount")]
+    pub correctable_core_error_count: u64,
+    #[serde(rename = "UncorrectableCoreErrorCount")]
+    pub uncorrectable_core_error_count: u64,
+    #[serde(rename = "CorrectableOtherErrorCount")]
+    pub correctable_other_error_count: u64,
+    #[serde(rename = "UncorrectableOtherErrorCount")]
+    pub uncorrectable_other_error_count: u64,
+    #[serde(rename = "MemoryStallCount")]
+    pub memory_stall_count: u64,
+    #[serde(rename = "IOStallCount")]
+    pub io_stall_count: u64,
 }
 
 pub async fn get_processor_metrics(
@@ -69,6 +113,12 @@ pub async fn get_processor_metrics(
                     core_id: format!("core{i}"),
                     instructions_per_cycle: ipc,
                     unhalted_cycles: cycles,
+                    correctable_core_error_count: 0,
+                    uncorrectable_core_error_count: 0,
+                    correctable_other_error_count: 0,
+                    uncorrectable_other_error_count: 0,
+                    memory_stall_count: 0,
+                    io_stall_count: 0,
                 }
             })
             .collect(),
@@ -84,10 +134,18 @@ pub async fn get_processor_metrics(
                     core_id: format!("core{i}"),
                     instructions_per_cycle: None,
                     unhalted_cycles: 0,
+                    correctable_core_error_count: 0,
+                    uncorrectable_core_error_count: 0,
+                    correctable_other_error_count: 0,
+                    uncorrectable_other_error_count: 0,
+                    memory_stall_count: 0,
+                    io_stall_count: 0,
                 })
                 .collect()
         }
     };
+
+    let speed_mhz = get_host_cpu_mhz();
 
     Ok(Json(ProcessorMetricsResource {
         odata_id: format!(
@@ -98,6 +156,38 @@ pub async fn get_processor_metrics(
         name: "Processor Metrics",
         description: "Processor performance metrics",
         bandwidth_percent: 0.0,
+        operating_speed_mhz: speed_mhz,
+        throttling_celsius: 100,
+        frequency_ratio: 1.0,
+        kernel_percent: 0.0,
+        user_percent: 0.0,
+        local_memory_bandwidth_bytes: 0,
+        remote_memory_bandwidth_bytes: 0,
+        core_voltage: CoreVoltage {
+            reading: 1.0,
+            data_source_uri: None,
+        },
+        correctable_core_error_count: 0,
+        uncorrectable_core_error_count: 0,
+        correctable_other_error_count: 0,
+        uncorrectable_other_error_count: 0,
         core_metrics,
     }))
+}
+
+fn get_host_cpu_mhz() -> u32 {
+    std::fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|content| {
+            content
+                .lines()
+                .find(|l| l.starts_with("cpu MHz"))
+                .and_then(|l| {
+                    l.split(':')
+                        .nth(1)
+                        .and_then(|v| v.trim().parse::<f64>().ok())
+                        .map(|v| v as u32)
+                })
+        })
+        .unwrap_or(0)
 }
