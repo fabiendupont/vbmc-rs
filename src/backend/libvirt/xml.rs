@@ -113,7 +113,7 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
                             info.nics.push(bt::NicInfo {
                                 id: format!("NIC{nic_idx}"),
                                 mac_address: builder.mac,
-                                tap: None,
+                                tap: builder.target_dev,
                                 speed_mbps: 25000,
                             });
                             nic_idx += 1;
@@ -233,6 +233,15 @@ fn handle_open_tag(
                 }
             }
         }
+        "target" if current_nic.is_some() => {
+            if let Some(nic) = current_nic {
+                for attr in e.attributes().flatten() {
+                    if attr.key.as_ref() == b"dev" {
+                        nic.target_dev = Some(String::from_utf8_lossy(&attr.value).to_string());
+                    }
+                }
+            }
+        }
         "model" if current_nic.is_some() => {
             if let Some(nic) = current_nic {
                 for attr in e.attributes().flatten() {
@@ -290,6 +299,7 @@ struct DiskBuilder {
 struct NicBuilder {
     mac: Option<String>,
     model: Option<String>,
+    target_dev: Option<String>,
 }
 
 #[derive(Debug, Default)]

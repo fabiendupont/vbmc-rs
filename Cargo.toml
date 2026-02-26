@@ -13,7 +13,7 @@ path = "src/main.rs"
 default = ["cloud-hypervisor"]
 cloud-hypervisor = []
 qemu = []
-libvirt = ["dep:quick-xml"]
+libvirt = ["dep:quick-xml", "dep:virt"]
 keylime = []
 trustee = []
 nvidia-cc = []
@@ -43,6 +43,7 @@ bytes = "1"
 anyhow = "1"
 tokio-stream = { version = "0.1", features = ["sync"] }
 quick-xml = { version = "0.37", optional = true }
+virt = { version = "0.4", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

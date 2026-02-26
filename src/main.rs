@@ -72,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
         }
         #[cfg(feature = "libvirt")]
         config::BackendType::Libvirt => {
-            backend::libvirt::build_backend(&config)
+            backend::libvirt::build_backend(&config)?
         }
     };
 
