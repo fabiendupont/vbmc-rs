@@ -63,18 +63,38 @@ pub struct NetworkDeviceFunction {
 
 #[derive(Debug, Serialize)]
 pub struct EthernetProperties {
-    #[serde(rename = "MACAddress", skip_serializing_if = "Option::is_none")]
-    pub mac_address: Option<String>,
-    #[serde(rename = "PermanentMACAddress", skip_serializing_if = "Option::is_none")]
-    pub permanent_mac_address: Option<String>,
+    #[serde(rename = "MACAddress")]
+    pub mac_address: String,
+    #[serde(rename = "PermanentMACAddress")]
+    pub permanent_mac_address: String,
     #[serde(rename = "MTUSize")]
     pub mtu_size: u32,
+    #[serde(rename = "MTUSizeMaximum")]
+    pub mtu_size_maximum: u32,
+    #[serde(rename = "VLAN")]
+    pub vlan: NdfVlan,
+    #[serde(rename = "EthernetInterfaces")]
+    pub ethernet_interfaces: ODataId,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NdfVlan {
+    #[serde(rename = "VLANEnable")]
+    pub vlan_enable: bool,
+    #[serde(rename = "VLANId")]
+    pub vlan_id: u32,
 }
 
 #[derive(Debug, Serialize)]
 pub struct NdfLinks {
+    #[serde(rename = "Endpoints")]
+    pub endpoints: Vec<ODataId>,
+    #[serde(rename = "PCIeFunction", skip_serializing_if = "Option::is_none")]
+    pub pcie_function: Option<ODataId>,
     #[serde(rename = "PhysicalNetworkPortAssignment", skip_serializing_if = "Option::is_none")]
     pub physical_network_port_assignment: Option<ODataId>,
+    #[serde(rename = "EthernetInterfaces")]
+    pub ethernet_interfaces: Vec<ODataId>,
 }
 
 pub async fn get_network_adapters(
@@ -194,7 +214,8 @@ pub async fn get_network_device_function(
         .vm_info(system_id)
         .await
         .ok()
-        .and_then(|info| info.nics.get(idx).and_then(|n| n.mac_address.clone()));
+        .and_then(|info| info.nics.get(idx).and_then(|n| n.mac_address.clone()))
+        .unwrap_or_else(|| "00:00:00:00:00:00".to_string());
 
     Ok(Json(NetworkDeviceFunction {
         odata_id: format!(
@@ -214,9 +235,20 @@ pub async fn get_network_device_function(
             permanent_mac_address: mac.clone(),
             mac_address: mac,
             mtu_size: 1500,
+            mtu_size_maximum: 9000,
+            vlan: NdfVlan {
+                vlan_enable: false,
+                vlan_id: 0,
+            },
+            ethernet_interfaces: ODataId::new(format!(
+                "/redfish/v1/Systems/{system_id}/EthernetInterfaces"
+            )),
         },
         ndf_links: NdfLinks {
+            endpoints: Vec::new(),
+            pcie_function: None,
             physical_network_port_assignment: None,
+            ethernet_interfaces: Vec::new(),
         },
         status: Status::enabled_ok(),
     }))

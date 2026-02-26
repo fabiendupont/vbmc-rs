@@ -22,8 +22,46 @@ pub struct MemoryMetricsResource {
     pub description: &'static str,
     #[serde(rename = "OperatingSpeedMHz")]
     pub operating_speed_mhz: u32,
+    #[serde(rename = "BandwidthPercent")]
+    pub bandwidth_percent: f64,
+    #[serde(rename = "BlockSizeBytes")]
+    pub block_size_bytes: u64,
+    #[serde(rename = "CapacityUtilizationPercent")]
+    pub capacity_utilization_percent: f64,
+    #[serde(rename = "CorrectedVolatileErrorCount")]
+    pub corrected_volatile_error_count: u64,
+    #[serde(rename = "CorrectedPersistentErrorCount")]
+    pub corrected_persistent_error_count: u64,
+    #[serde(rename = "DirtyShutdownCount")]
+    pub dirty_shutdown_count: u64,
+    #[serde(rename = "HealthData")]
+    pub health_data: HealthData,
+    #[serde(rename = "LifeTime")]
+    pub life_time: LifeTime,
     #[serde(rename = "CurrentPeriod")]
     pub current_period: CurrentPeriod,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HealthData {
+    #[serde(rename = "RemainingSpareBlockPercentage")]
+    pub remaining_spare_block_percentage: f64,
+    #[serde(rename = "LastShutdownSuccess")]
+    pub last_shutdown_success: bool,
+    #[serde(rename = "DataLossDetected")]
+    pub data_loss_detected: bool,
+    #[serde(rename = "PerformanceDegraded")]
+    pub performance_degraded: bool,
+    #[serde(rename = "PredictedMediaLifeLeftPercent")]
+    pub predicted_media_life_left_percent: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LifeTime {
+    #[serde(rename = "BlocksRead")]
+    pub blocks_read: u64,
+    #[serde(rename = "BlocksWritten")]
+    pub blocks_written: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -64,6 +102,23 @@ pub async fn get_memory_metrics(
         name: "Memory Metrics",
         description: "Memory performance metrics",
         operating_speed_mhz: 3200,
+        bandwidth_percent: 0.0,
+        block_size_bytes: 64,
+        capacity_utilization_percent: 0.0,
+        corrected_volatile_error_count: 0,
+        corrected_persistent_error_count: 0,
+        dirty_shutdown_count: 0,
+        health_data: HealthData {
+            remaining_spare_block_percentage: 100.0,
+            last_shutdown_success: true,
+            data_loss_detected: false,
+            performance_degraded: false,
+            predicted_media_life_left_percent: 100.0,
+        },
+        life_time: LifeTime {
+            blocks_read,
+            blocks_written,
+        },
         current_period: CurrentPeriod {
             blocks_read,
             blocks_written,

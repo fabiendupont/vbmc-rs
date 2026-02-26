@@ -30,8 +30,60 @@ pub struct NetworkProtocolResource {
     pub ssh: ProtocolEntry,
     #[serde(rename = "IPMI")]
     pub ipmi: ProtocolEntry,
+    #[serde(rename = "NTP")]
+    pub ntp: ProtocolEntry,
+    #[serde(rename = "DHCP")]
+    pub dhcp: ProtocolEntry,
+    #[serde(rename = "DHCPv6")]
+    pub dhcpv6_proto: ProtocolEntry,
+    #[serde(rename = "SNMP")]
+    pub snmp: ProtocolEntry,
+    #[serde(rename = "HTTP")]
+    pub http: ProtocolEntry,
+    #[serde(rename = "Telnet")]
+    pub telnet: ProtocolEntry,
+    #[serde(rename = "SSDP")]
+    pub ssdp: SsdpProtocol,
+    #[serde(rename = "VirtualMedia")]
+    pub virtual_media_proto: ProtocolEntry,
+    #[serde(rename = "KVMIP")]
+    pub kvmip: ProtocolEntry,
+    #[serde(rename = "RDP")]
+    pub rdp: ProtocolEntry,
+    #[serde(rename = "RFB")]
+    pub rfb: ProtocolEntry,
+    #[serde(rename = "FTP")]
+    pub ftp: ProtocolEntry,
+    #[serde(rename = "SFTP")]
+    pub sftp: ProtocolEntry,
+    #[serde(rename = "FTPS")]
+    pub ftps: ProtocolEntry,
+    #[serde(rename = "Proxy")]
+    pub proxy: ProxyConfig,
     #[serde(rename = "Status")]
     pub status: Status,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SsdpProtocol {
+    #[serde(rename = "ProtocolEnabled")]
+    pub protocol_enabled: bool,
+    #[serde(rename = "Port")]
+    pub port: u16,
+    #[serde(rename = "NotifyMulticastIntervalSeconds")]
+    pub notify_multicast_interval_seconds: u32,
+    #[serde(rename = "NotifyTTL")]
+    pub notify_ttl: u32,
+    #[serde(rename = "NotifyIPv6Scope")]
+    pub notify_ipv6_scope: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProxyConfig {
+    #[serde(rename = "Enabled")]
+    pub enabled: bool,
+    #[serde(rename = "ProxyAutoConfigURI")]
+    pub proxy_auto_config_uri: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -207,6 +259,30 @@ pub async fn get_network_protocol(
         ipmi: ProtocolEntry {
             protocol_enabled: false,
             port: 623,
+        },
+        ntp: ProtocolEntry { protocol_enabled: false, port: 123 },
+        dhcp: ProtocolEntry { protocol_enabled: false, port: 67 },
+        dhcpv6_proto: ProtocolEntry { protocol_enabled: false, port: 547 },
+        snmp: ProtocolEntry { protocol_enabled: false, port: 161 },
+        http: ProtocolEntry { protocol_enabled: false, port: 80 },
+        telnet: ProtocolEntry { protocol_enabled: false, port: 23 },
+        ssdp: SsdpProtocol {
+            protocol_enabled: false,
+            port: 1900,
+            notify_multicast_interval_seconds: 600,
+            notify_ttl: 2,
+            notify_ipv6_scope: "Site",
+        },
+        virtual_media_proto: ProtocolEntry { protocol_enabled: false, port: 0 },
+        kvmip: ProtocolEntry { protocol_enabled: false, port: 0 },
+        rdp: ProtocolEntry { protocol_enabled: false, port: 3389 },
+        rfb: ProtocolEntry { protocol_enabled: false, port: 5900 },
+        ftp: ProtocolEntry { protocol_enabled: false, port: 21 },
+        sftp: ProtocolEntry { protocol_enabled: false, port: 22 },
+        ftps: ProtocolEntry { protocol_enabled: false, port: 990 },
+        proxy: ProxyConfig {
+            enabled: false,
+            proxy_auto_config_uri: "",
         },
         status: Status::enabled_ok(),
     })
