@@ -10,7 +10,7 @@ One vbmc-rs instance manages multiple VMs using a blade chassis model — all sy
 |---------|-------------|------------|-------|
 | **Cloud-Hypervisor** | `cloud-hypervisor` (default) | HTTP over Unix socket | Full lifecycle: create, boot, shutdown, delete, hot-plug |
 | **QEMU** | `qemu` | QMP over Unix socket | Manage-only: controls pre-existing QEMU processes |
-| **Libvirt** | `libvirt` | `virsh` CLI (no C FFI) | Uses `virsh` commands, parses domain XML with `quick-xml` |
+| **Libvirt** | `libvirt` | `virt` crate (libvirt C API) | Native bindings via `virt` crate, parses domain XML with `quick-xml`. Requires `libvirt-dev`/`libvirt-devel` at build time |
 
 ## Building
 
@@ -200,6 +200,16 @@ vbmc-rs implements the following Redfish resources:
 | Telemetry Service | `GET /redfish/v1/TelemetryService` |
 | Component Integrity | `GET /redfish/v1/ComponentIntegrity` |
 | Security Policy | `GET/PATCH /redfish/v1/SecurityPolicy` |
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Internal structure and design decisions for contributors |
+| [docs/conformance.md](docs/conformance.md) | Redfish conformance profile: which properties are live, persisted, or static; backend capability matrix |
+| [docs/deployment.md](docs/deployment.md) | Auth setup, TLS, state directory, systemd, containers, logging |
+| [docs/observability.md](docs/observability.md) | Events, audit log, webhooks, SSE, Prometheus metrics |
+| [docs/attestation.md](docs/attestation.md) | Keylime and Trustee integration for remote attestation |
 
 ## Testing
 

@@ -31,11 +31,11 @@ vbmc-rs is a Redfish virtual BMC — it presents a standard Redfish REST API tha
 │           VmmBackend trait                    │
 │  ┌──────────┬──────────┬──────────┐         │
 │  │   Cloud  │   QEMU   │ Libvirt  │         │
-│  │Hypervisor│  (QMP)   │ (virsh)  │         │
+│  │Hypervisor│  (QMP)   │(libvirt) │         │
 │  └────┬─────┴────┬─────┴────┬─────┘         │
 └───────┼──────────┼──────────┼───────────────┘
         │          │          │
-   Unix socket  Unix socket  virsh CLI
+   Unix socket  Unix socket  virt crate (C API)
         │          │          │
    ┌────▼───┐ ┌───▼────┐ ┌───▼────┐
    │  CH    │ │  QEMU  │ │libvirtd│
@@ -68,7 +68,7 @@ src/
 │   │   ├── client.rs        QMP JSON protocol over Unix socket
 │   │   └── types.rs         QMP response structs
 │   └── libvirt/
-│       ├── mod.rs           LibvirtBackend (virsh CLI)
+│       ├── mod.rs           LibvirtBackend (virt crate, native C API)
 │       └── xml.rs           Domain XML parser (quick-xml)
 │
 ├── redfish/
@@ -149,7 +149,7 @@ Each backend is behind a compile-time feature flag:
 
 - `cloud-hypervisor` (default) — always available
 - `qemu` — QMP client compiled in
-- `libvirt` — adds `quick-xml` dependency
+- `libvirt` — adds `virt` (libvirt C bindings) and `quick-xml` dependencies; requires `libvirt-dev`/`libvirt-devel` at build time
 
 The `Backend` enum variants and their match arms use `#[cfg(feature = "...")]`.
 
