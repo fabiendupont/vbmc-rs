@@ -30,7 +30,6 @@ pub struct NetworkAdapterResource {
 }
 
 #[derive(Debug, Serialize)]
-#[allow(dead_code)]
 pub struct NetworkDeviceFunction {
     #[serde(rename = "@odata.id")]
     pub odata_id: String,
@@ -40,17 +39,42 @@ pub struct NetworkDeviceFunction {
     pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: &'static str,
+    #[serde(rename = "NetDevFuncType")]
+    pub net_dev_func_type: &'static str,
+    #[serde(rename = "NetDevFuncCapabilities")]
+    pub net_dev_func_capabilities: Vec<&'static str>,
+    #[serde(rename = "DeviceEnabled")]
+    pub device_enabled: bool,
+    #[serde(rename = "BootMode")]
+    pub boot_mode: &'static str,
+    #[serde(rename = "VirtualFunctionsEnabled")]
+    pub virtual_functions_enabled: bool,
+    #[serde(rename = "MaxVirtualFunctions")]
+    pub max_virtual_functions: u32,
     #[serde(rename = "Ethernet")]
     pub ethernet: EthernetProperties,
+    #[serde(rename = "Links")]
+    pub ndf_links: NdfLinks,
     #[serde(rename = "Status")]
     pub status: Status,
 }
 
 #[derive(Debug, Serialize)]
-#[allow(dead_code)]
 pub struct EthernetProperties {
     #[serde(rename = "MACAddress", skip_serializing_if = "Option::is_none")]
     pub mac_address: Option<String>,
+    #[serde(rename = "PermanentMACAddress", skip_serializing_if = "Option::is_none")]
+    pub permanent_mac_address: Option<String>,
+    #[serde(rename = "MTUSize")]
+    pub mtu_size: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NdfLinks {
+    #[serde(rename = "PhysicalNetworkPortAssignment", skip_serializing_if = "Option::is_none")]
+    pub physical_network_port_assignment: Option<ODataId>,
 }
 
 pub async fn get_network_adapters(
@@ -179,8 +203,20 @@ pub async fn get_network_device_function(
         odata_type: "#NetworkDeviceFunction.v1_9_0.NetworkDeviceFunction",
         id: func_id,
         name: format!("Network Device Function {adapter_id}"),
+        description: "Virtual network device function",
+        net_dev_func_type: "Ethernet",
+        net_dev_func_capabilities: vec!["Ethernet"],
+        device_enabled: true,
+        boot_mode: "Disabled",
+        virtual_functions_enabled: false,
+        max_virtual_functions: 0,
         ethernet: EthernetProperties {
+            permanent_mac_address: mac.clone(),
             mac_address: mac,
+            mtu_size: 1500,
+        },
+        ndf_links: NdfLinks {
+            physical_network_port_assignment: None,
         },
         status: Status::enabled_ok(),
     }))

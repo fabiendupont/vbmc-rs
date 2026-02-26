@@ -61,12 +61,38 @@ pub struct SensorResource {
     pub sensor_reset_time: String,
     #[serde(rename = "Thresholds")]
     pub thresholds: SensorThresholds,
+    #[serde(rename = "MaxAllowableOperatingValue")]
+    pub max_allowable_operating_value: f64,
+    #[serde(rename = "MinAllowableOperatingValue")]
+    pub min_allowable_operating_value: f64,
+    #[serde(rename = "AdjustedMaxAllowableOperatingValue")]
+    pub adjusted_max_allowable_operating_value: f64,
+    #[serde(rename = "AdjustedMinAllowableOperatingValue")]
+    pub adjusted_min_allowable_operating_value: f64,
+    #[serde(rename = "LifetimeReading")]
+    pub lifetime_reading: f64,
     #[serde(rename = "ElectricalContext", skip_serializing_if = "Option::is_none")]
     pub electrical_context: Option<&'static str>,
     #[serde(rename = "VoltageType", skip_serializing_if = "Option::is_none")]
     pub voltage_type: Option<&'static str>,
     #[serde(rename = "SpeedRPM", skip_serializing_if = "Option::is_none")]
     pub speed_rpm: Option<f64>,
+    #[serde(rename = "CrestFactor", skip_serializing_if = "Option::is_none")]
+    pub crest_factor: Option<f64>,
+    #[serde(rename = "THDPercent", skip_serializing_if = "Option::is_none")]
+    pub thd_percent: Option<f64>,
+    #[serde(rename = "ApparentkVAh", skip_serializing_if = "Option::is_none")]
+    pub apparent_kvah: Option<f64>,
+    #[serde(rename = "ReactivekVARh", skip_serializing_if = "Option::is_none")]
+    pub reactive_kvarh: Option<f64>,
+    #[serde(rename = "PhaseAngleDegrees", skip_serializing_if = "Option::is_none")]
+    pub phase_angle_degrees: Option<f64>,
+    #[serde(rename = "ApparentVA", skip_serializing_if = "Option::is_none")]
+    pub apparent_va: Option<f64>,
+    #[serde(rename = "ReactiveVAR", skip_serializing_if = "Option::is_none")]
+    pub reactive_var: Option<f64>,
+    #[serde(rename = "PowerFactor", skip_serializing_if = "Option::is_none")]
+    pub power_factor: Option<f64>,
     #[serde(rename = "Manufacturer")]
     pub manufacturer: &'static str,
     #[serde(rename = "Model")]
@@ -81,8 +107,14 @@ pub struct SensorResource {
     pub spare_part_number: &'static str,
     #[serde(rename = "UserLabel")]
     pub user_label: String,
+    #[serde(rename = "Calibration")]
+    pub calibration: f64,
+    #[serde(rename = "CalibrationTime")]
+    pub calibration_time: &'static str,
     #[serde(rename = "LifetimeStartDateTime")]
     pub lifetime_start_date_time: &'static str,
+    #[serde(rename = "RelatedItem")]
+    pub related_item: Vec<ODataId>,
     #[serde(rename = "Location")]
     pub location: super::types::RedfishLocation,
     #[serde(rename = "Status")]
@@ -99,6 +131,18 @@ pub struct SensorThresholds {
     pub lower_caution: ThresholdValue,
     #[serde(rename = "LowerCritical")]
     pub lower_critical: ThresholdValue,
+    #[serde(rename = "UpperCautionUser")]
+    pub upper_caution_user: ThresholdValue,
+    #[serde(rename = "UpperCriticalUser")]
+    pub upper_critical_user: ThresholdValue,
+    #[serde(rename = "LowerCautionUser")]
+    pub lower_caution_user: ThresholdValue,
+    #[serde(rename = "LowerCriticalUser")]
+    pub lower_critical_user: ThresholdValue,
+    #[serde(rename = "UpperFatal")]
+    pub upper_fatal: ThresholdValue,
+    #[serde(rename = "LowerFatal")]
+    pub lower_fatal: ThresholdValue,
 }
 
 #[derive(Debug, Serialize)]
@@ -107,6 +151,12 @@ pub struct ThresholdValue {
     pub reading: f64,
     #[serde(rename = "Activation")]
     pub activation: &'static str,
+    #[serde(rename = "HysteresisReading")]
+    pub hysteresis_reading: f64,
+    #[serde(rename = "HysteresisDuration")]
+    pub hysteresis_duration: &'static str,
+    #[serde(rename = "DwellTime")]
+    pub dwell_time: &'static str,
 }
 
 struct SensorDef {
@@ -126,6 +176,7 @@ struct SensorDef {
     electrical_context: Option<&'static str>,
     voltage_type: Option<&'static str>,
     speed_rpm: Option<f64>,
+    is_electrical: bool,
 }
 
 const SENSORS: &[SensorDef] = &[
@@ -146,6 +197,7 @@ const SENSORS: &[SensorDef] = &[
         electrical_context: None,
         voltage_type: None,
         speed_rpm: None,
+        is_electrical: false,
     },
     SensorDef {
         id: "AmbientTemp",
@@ -164,6 +216,7 @@ const SENSORS: &[SensorDef] = &[
         electrical_context: None,
         voltage_type: None,
         speed_rpm: None,
+        is_electrical: false,
     },
     SensorDef {
         id: "ExhaustTemp",
@@ -182,6 +235,7 @@ const SENSORS: &[SensorDef] = &[
         electrical_context: None,
         voltage_type: None,
         speed_rpm: None,
+        is_electrical: false,
     },
     SensorDef {
         id: "IntakeTemp",
@@ -200,6 +254,7 @@ const SENSORS: &[SensorDef] = &[
         electrical_context: None,
         voltage_type: None,
         speed_rpm: None,
+        is_electrical: false,
     },
     SensorDef {
         id: "SystemFanSpeed",
@@ -218,6 +273,7 @@ const SENSORS: &[SensorDef] = &[
         electrical_context: None,
         voltage_type: None,
         speed_rpm: Some(3000.0),
+        is_electrical: false,
     },
     SensorDef {
         id: "ChassisPower",
@@ -236,6 +292,7 @@ const SENSORS: &[SensorDef] = &[
         electrical_context: Some("Line1"),
         voltage_type: None,
         speed_rpm: None,
+        is_electrical: true,
     },
     SensorDef {
         id: "Voltage12V",
@@ -254,6 +311,7 @@ const SENSORS: &[SensorDef] = &[
         electrical_context: Some("Line1"),
         voltage_type: Some("DC"),
         speed_rpm: None,
+        is_electrical: true,
     },
 ];
 
@@ -271,6 +329,16 @@ pub async fn get_sensors() -> Json<Collection<ODataId>> {
     ))
 }
 
+fn make_threshold(reading: f64, activation: &'static str) -> ThresholdValue {
+    ThresholdValue {
+        reading,
+        activation,
+        hysteresis_reading: 0.0,
+        hysteresis_duration: "PT0S",
+        dwell_time: "PT0S",
+    }
+}
+
 pub async fn get_sensor(
     Path(sensor_id): Path<String>,
 ) -> Result<Json<SensorResource>, RedfishApiError> {
@@ -280,6 +348,9 @@ pub async fn get_sensor(
         .ok_or_else(|| RedfishApiError::NotFound(format!("Sensor '{sensor_id}' not found")))?;
 
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
+    let is_power = def.is_electrical && def.reading_type == "Power";
+    let is_electrical = def.is_electrical;
 
     Ok(Json(SensorResource {
         odata_id: format!("/redfish/v1/Chassis/1/Sensors/{}", def.id),
@@ -309,26 +380,33 @@ pub async fn get_sensor(
         averaging_interval_achieved: true,
         sensor_reset_time: "2026-01-01T00:00:00Z".to_string(),
         thresholds: SensorThresholds {
-            upper_critical: ThresholdValue {
-                reading: def.upper_critical,
-                activation: "Increasing",
-            },
-            upper_caution: ThresholdValue {
-                reading: def.upper_caution,
-                activation: "Increasing",
-            },
-            lower_caution: ThresholdValue {
-                reading: def.lower_caution,
-                activation: "Decreasing",
-            },
-            lower_critical: ThresholdValue {
-                reading: def.lower_critical,
-                activation: "Decreasing",
-            },
+            upper_critical: make_threshold(def.upper_critical, "Increasing"),
+            upper_caution: make_threshold(def.upper_caution, "Increasing"),
+            lower_caution: make_threshold(def.lower_caution, "Decreasing"),
+            lower_critical: make_threshold(def.lower_critical, "Decreasing"),
+            upper_caution_user: make_threshold(def.upper_caution, "Increasing"),
+            upper_critical_user: make_threshold(def.upper_critical, "Increasing"),
+            lower_caution_user: make_threshold(def.lower_caution, "Decreasing"),
+            lower_critical_user: make_threshold(def.lower_critical, "Decreasing"),
+            upper_fatal: make_threshold(def.upper_critical + 5.0, "Increasing"),
+            lower_fatal: make_threshold(def.lower_critical - 5.0, "Decreasing"),
         },
+        max_allowable_operating_value: def.range_max,
+        min_allowable_operating_value: def.range_min,
+        adjusted_max_allowable_operating_value: def.range_max,
+        adjusted_min_allowable_operating_value: def.range_min,
+        lifetime_reading: 0.0,
         electrical_context: def.electrical_context,
         voltage_type: def.voltage_type,
         speed_rpm: def.speed_rpm,
+        crest_factor: if is_electrical { Some(1.414) } else { None },
+        thd_percent: if is_electrical { Some(0.0) } else { None },
+        apparent_kvah: if is_power { Some(0.0) } else { None },
+        reactive_kvarh: if is_power { Some(0.0) } else { None },
+        phase_angle_degrees: if is_power { Some(0.0) } else { None },
+        apparent_va: if is_power { Some(0.0) } else { None },
+        reactive_var: if is_power { Some(0.0) } else { None },
+        power_factor: if is_power { Some(1.0) } else { None },
         manufacturer: "vbmc-rs",
         model: "Virtual Sensor",
         serial_number: format!("VBMC-SENS-{}", def.id),
@@ -336,7 +414,10 @@ pub async fn get_sensor(
         sku: "VBMC-VIRTUAL",
         spare_part_number: "VBMC-SENS-SPARE",
         user_label: def.name.to_string(),
+        calibration: 0.0,
+        calibration_time: "2026-01-01T00:00:00Z",
         lifetime_start_date_time: "2026-01-01T00:00:00Z",
+        related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
         location: super::types::RedfishLocation::new(
             def.name, "Embedded", def.id, "Embedded", 0,
         ),

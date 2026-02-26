@@ -24,6 +24,8 @@ pub struct Collection<T: Serialize> {
     pub odata_context: Option<String>,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Description")]
+    pub description: String,
     #[serde(rename = "Members")]
     pub members: Vec<T>,
     #[serde(rename = "Members@odata.count")]
@@ -34,15 +36,18 @@ impl<T: Serialize> Collection<T> {
     pub fn new(odata_id: impl Into<String>, odata_type: impl Into<String>, name: impl Into<String>, members: Vec<T>) -> Self {
         let count = members.len();
         let odata_type = odata_type.into();
+        let name = name.into();
         // Derive @odata.context from @odata.type: "#Foo.Foo" → "/redfish/v1/$metadata#Foo.Foo"
         let odata_context = odata_type
             .strip_prefix('#')
             .map(|t| format!("/redfish/v1/$metadata#{t}"));
+        let description = name.clone();
         Self {
             odata_id: odata_id.into(),
             odata_type,
             odata_context,
-            name: name.into(),
+            name,
+            description,
             members,
             members_count: count,
         }
