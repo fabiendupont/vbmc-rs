@@ -18,8 +18,8 @@ vbmc-rs emits Redfish events on state changes. Events are delivered through thre
 | `ResourceEvent.1.0.ResourceChanged` | Virtual media insert/eject, boot override change | OK |
 | `Security.1.0.SessionCreated` | User session created | OK |
 | `Security.1.0.SessionTerminated` | User session ended | OK |
-| `Security.1.0.AuthenticationFailure` | Failed login attempt | Warning |
-| `Security.1.0.AccountLocked` | Account locked after repeated failures | Warning |
+| `Security.1.0.AuthenticationFailure` | Failed login attempt (session creation or Basic auth) | Warning |
+| `Security.1.0.AccountLocked` | Account locked after reaching `lockout_threshold` consecutive failures | Warning |
 | `ComponentIntegrity.1.0.SPDMVerificationStatusChanged` | Attestation status change | OK or Warning |
 | `Security.1.0.CertificateReplaced` | Certificate replacement | OK |
 

@@ -10,49 +10,66 @@ vbmc-rs is a Redfish virtual BMC — it presents a standard Redfish REST API tha
 ┌─────────────────────────────────────────────┐
 │                HTTP Clients                  │
 │          (curl, Redfish tools, BMaaS)        │
-└──────────────────┬──────────────────────────┘
-                   │ Redfish REST API
-┌──────────────────▼──────────────────────────┐
-│              axum Router                     │
-│  ┌─────────────────────────────────────┐    │
-│  │   OData Compliance Layer (Tower)     │    │
-│  │   • OData-Version header             │    │
-│  │   • Link header                      │    │
-│  │   • HEAD → GET + strip body          │    │
-│  └─────────────────────────────────────┘    │
-│  ┌─────────────────────────────────────┐    │
-│  │   Redfish Handlers (~30 modules)     │    │
-│  │   systems, power, storage, memory,   │    │
-│  │   ethernet, bios, managers, ...      │    │
-│  └─────────────┬───────────────────────┘    │
-└────────────────┼────────────────────────────┘
-                 │ backend-agnostic types
-┌────────────────▼────────────────────────────┐
-│           VmmBackend trait                    │
-│  ┌──────────┬──────────┬──────────┐         │
-│  │   Cloud  │   QEMU   │ Libvirt  │         │
-│  │Hypervisor│  (QMP)   │(libvirt) │         │
-│  └────┬─────┴────┬─────┴────┬─────┘         │
-└───────┼──────────┼──────────┼───────────────┘
-        │          │          │
-   Unix socket  Unix socket  virt crate (C API)
-        │          │          │
-   ┌────▼───┐ ┌───▼────┐ ┌───▼────┐
-   │  CH    │ │  QEMU  │ │libvirtd│
-   │process │ │process │ │        │
-   └────────┘ └────────┘ └────────┘
+└──────────┬──────────────────┬───────────────┘
+           │                  │
+           │ direct           │ aggregated
+           │                  ▼
+           │     ┌────────────────────────┐
+           │     │  vbmc-rs-aggregator    │
+           │     │  (discovers sidecars,  │
+           │     │   proxies requests,    │
+           │     │   mTLS)               │
+           │     └──────────┬─────────────┘
+           │                │
+           ▼                ▼
+┌──────────────────────────────────────────────┐
+│              axum Router                      │
+│  ┌──────────────────────────────────────┐    │
+│  │   RBAC Enforcement (AuthenticatedUser)│    │
+│  │   TLS/mTLS (rustls + axum-server)    │    │
+│  └──────────────────────────────────────┘    │
+│  ┌──────────────────────────────────────┐    │
+│  │   OData Compliance Layer (Tower)      │    │
+│  │   • OData-Version header              │    │
+│  │   • Link header                       │    │
+│  │   • HEAD → GET + strip body           │    │
+│  └──────────────────────────────────────┘    │
+│  ┌──────────────────────────────────────┐    │
+│  │   Redfish Handlers (~30 modules)      │    │
+│  │   systems, power, storage, memory,    │    │
+│  │   ethernet, bios, managers, ...       │    │
+│  └──────────────┬───────────────────────┘    │
+└─────────────────┼────────────────────────────┘
+                  │ backend-agnostic types
+┌─────────────────▼────────────────────────────┐
+│           VmmBackend trait                     │
+│  ┌──────────┬──────────┬──────────┬────────┐ │
+│  │   Cloud  │   QEMU   │ Libvirt  │KubeVirt│ │
+│  │Hypervisor│  (QMP)   │(libvirt) │ (kube) │ │
+│  └────┬─────┴────┬─────┴────┬─────┴───┬────┘ │
+└───────┼──────────┼──────────┼─────────┼──────┘
+        │          │          │         │
+   Unix socket  Unix socket  virt   Kubernetes
+                             crate     API
+        │          │          │         │
+   ┌────▼───┐ ┌───▼────┐ ┌───▼────┐ ┌──▼──────┐
+   │  CH    │ │  QEMU  │ │libvirtd│ │KubeVirt │
+   │process │ │process │ │        │ │  VMs    │
+   └────────┘ └────────┘ └────────┘ └─────────┘
 ```
 
 ## Directory structure
 
 ```
 src/
+├── lib.rs                   Shared library crate (used by both binaries)
 ├── main.rs                  Entry point, CLI, backend dispatch
 ├── app_state.rs             Shared application state (Arc<AppState>)
 ├── config.rs                TOML configuration types and loading
 ├── state.rs                 Persistent per-VM state (JSON files)
 ├── tasks.rs                 Async task tracking
 ├── media.rs                 Virtual media image downloads
+├── tls.rs                   TLS/mTLS setup (rustls + axum-server)
 ├── prometheus.rs            Prometheus metrics server
 ├── telemetry.rs             Request metrics middleware
 │
@@ -67,9 +84,12 @@ src/
 │   │   ├── mod.rs           QemuBackend (manage-only)
 │   │   ├── client.rs        QMP JSON protocol over Unix socket
 │   │   └── types.rs         QMP response structs
-│   └── libvirt/
-│       ├── mod.rs           LibvirtBackend (virt crate, native C API)
-│       └── xml.rs           Domain XML parser (quick-xml)
+│   ├── libvirt/
+│   │   ├── mod.rs           LibvirtBackend (virt crate, native C API)
+│   │   └── xml.rs           Domain XML parser (quick-xml)
+│   └── kubevirt/
+│       ├── mod.rs           KubeVirtBackend (manage-only, kube crate)
+│       └── types.rs         KubeVirt API types
 │
 ├── redfish/
 │   ├── mod.rs               Router with ~60 routes + compliance layer
@@ -124,6 +144,15 @@ src/
 │   ├── keylime.rs           Keylime agent client
 │   └── trustee.rs           Trustee attestation client
 │
+├── aggregator/
+│   ├── mod.rs               Aggregator module root
+│   ├── main.rs              vbmc-rs-aggregator binary entry point
+│   ├── config.rs            Aggregator-specific configuration
+│   ├── discovery.rs         Sidecar discovery (static + Kubernetes pod watcher)
+│   ├── proxy.rs             Request proxying to sidecar instances
+│   ├── router.rs            Aggregated Redfish Systems router
+│   └── state.rs             Aggregator state management
+│
 ├── integration_tests.rs     HTTP-level tests with MockBackend
 │
 data/
@@ -132,16 +161,18 @@ data/
 examples/
 ├── config.toml              Cloud-Hypervisor example config
 ├── config-qemu.toml         QEMU example config
-└── config-libvirt.toml      Libvirt example config
+├── config-libvirt.toml      Libvirt example config
+├── config-kubevirt.toml     KubeVirt example config
+└── config-aggregator.toml   Aggregator example config
 ```
 
 ## Key design decisions
 
 ### Backend abstraction
 
-The `VmmBackend` trait defines 11 async methods (`vm_info`, `vm_create`, `vm_boot`, etc.) that all return backend-agnostic types from `backend::types`. The `Backend` enum dispatches to concrete implementations at zero overhead (no `dyn` / vtable).
+The `VmmBackend` trait defines 12 async methods (`vm_info`, `vm_create`, `vm_boot`, `vm_shutdown`, `vm_delete`, `vm_power_button`, `vm_reboot`, `vm_add_disk`, `vm_remove_device`, `vmm_ping`, `vm_counters`, `vm_set_secure_boot`) that all return backend-agnostic types from `backend::types`. The `Backend` enum dispatches to four concrete implementations at zero overhead (no `dyn` / vtable): Cloud-Hypervisor, QEMU, libvirt, and KubeVirt.
 
-Backend-specific wire types (CH `VmConfig`, QMP `QmpStatus`, libvirt domain XML) are converted to `backend::types::VmInfo` inside each backend module. Redfish handlers never touch backend-specific types.
+Backend-specific wire types (CH `VmConfig`, QMP `QmpStatus`, libvirt domain XML, KubeVirt subresource APIs) are converted to `backend::types::VmInfo` inside each backend module. Redfish handlers never touch backend-specific types. KubeVirt is manage-only: `vm_create` returns `NotSupported` since VMs are created through Kubernetes.
 
 ### Feature gating
 
@@ -150,12 +181,15 @@ Each backend is behind a compile-time feature flag:
 - `cloud-hypervisor` (default) — always available
 - `qemu` — QMP client compiled in
 - `libvirt` — adds `virt` (libvirt C bindings) and `quick-xml` dependencies; requires `libvirt-dev`/`libvirt-devel` at build time
+- `kubevirt` — adds `kube` and `k8s-openapi` dependencies for Kubernetes API access
+- `aggregator` — builds the `vbmc-rs-aggregator` binary (separate from the main `vbmc-rs` binary)
+- `test-support` — exposes `MockBackend` for use in external test harnesses
 
-The `Backend` enum variants and their match arms use `#[cfg(feature = "...")]`.
+The `Backend` enum variants and their match arms use `#[cfg(feature = "...")]`. The crate is structured as `lib.rs` + two binaries (`main.rs` for vbmc-rs, `aggregator/main.rs` for vbmc-rs-aggregator).
 
 ### Multi-system model
 
-Configuration maps system IDs to backend connection details. For Cloud-Hypervisor and QEMU this is a Unix socket path per VM. For libvirt it's a connection URI + domain name.
+Configuration maps system IDs to backend connection details. For Cloud-Hypervisor and QEMU this is a Unix socket path per VM. For libvirt it's a connection URI + domain name. For KubeVirt it's a namespace + VM name.
 
 `AppState` holds a `DashMap<String, VmState>` for concurrent per-system state access with per-system locks for atomic power operations.
 
@@ -172,7 +206,11 @@ A Tower middleware layer (`ODataComplianceLayer`) wraps the entire router:
 
 The `$metadata` endpoint serves a static CSDL XML document (`data/metadata.xml`) referencing all implemented Redfish schema namespaces.
 
-### Authentication
+### TLS/mTLS
+
+Server TLS is configured via `tls_cert` and `tls_key` in the `[server]` section. Mutual TLS (mTLS) is enabled by additionally setting `tls_client_ca` to a CA certificate path. Implementation uses `rustls` with `axum-server` for async TLS termination. The `[security_policy]` section's `tls_minimum_version` field constrains the minimum TLS protocol version accepted by rustls.
+
+### Authentication and RBAC
 
 When `auth.enabled = true`:
 
@@ -180,8 +218,48 @@ When `auth.enabled = true`:
 - Subsequent requests authenticated via `X-Auth-Token` header or HTTP Basic
 - Passwords hashed with argon2
 - Role-based access control: Administrator, Operator, ReadOnly
-- Account lockout after configurable failed attempts
+- `AuthenticatedUser` extractor enforces RBAC on all endpoints
+- Privilege checks per resource type:
+  - `ConfigureComponents` — power actions, BIOS, SecureBoot, VirtualMedia
+  - `ConfigureManager` — SecurityPolicy, Events, Certificates, Licenses
+  - `ConfigureUsers` — account management
+  - Self-service — own password change, own session deletion
+- Account lockout after configurable failed attempts; auto-unlocks after `lockout_duration_seconds`; emits `AccountLocked` event
 - Background sweeper removes expired sessions
+
+### Certificate service
+
+The CertificateService exposes two actions:
+
+- `GenerateCSR` — generates a certificate signing request using `rcgen`
+- `ReplaceCertificate` — replaces the server TLS certificate and triggers a hot-reload via `axum-server`'s `RustlsConfig`
+
+Both actions require the `ConfigureManager` privilege.
+
+### SecurityPolicy enforcement
+
+The `SecurityPolicy` resource (`GET/PATCH /redfish/v1/SecurityPolicy`) controls:
+
+- `tls_minimum_version` — constrains the rustls protocol version at runtime
+- `spdm_enabled` — gates the attestation coordinator startup
+
+### Aggregation layer
+
+The `vbmc-rs-aggregator` is a separate binary (behind the `aggregator` feature flag) that presents a unified Redfish Systems collection by discovering and proxying to individual vbmc-rs sidecar instances. Discovery modes:
+
+- **Static** — explicit list of sidecar URLs in the aggregator config
+- **Kubernetes** — watches for pods with a specific label, dynamically tracking sidecar endpoints
+
+Communication between aggregator and sidecars uses mTLS. The aggregator does not implement backends directly; it forwards Redfish requests to the appropriate sidecar based on system ID.
+
+### SecureBoot wiring
+
+SecureBoot support is backend-specific:
+
+- **Cloud-Hypervisor** — selects secure boot firmware (`secure_boot_firmware_path`) at VM creation time
+- **Libvirt** — redefines domain XML with Q35 machine type, SMM enabled, and pflash configuration (validated before apply)
+- **QEMU** — reports SecureBoot state via `qom-get` (read-only)
+- **KubeVirt** — reflects VM's SecureBoot configuration from the Kubernetes API
 
 ### Event system
 
@@ -201,7 +279,7 @@ Tests are organized in three layers:
 
 3. **Integration tests** (`src/integration_tests.rs`) — full HTTP request/response testing via `axum::Router::oneshot()` with a `MockBackend`. Tests OData headers, resource JSON structure, PATCH state mutations, error responses, and routing.
 
-The `MockBackend` (compiled only in test builds via `#[cfg(test)]`) implements `VmmBackend` with configurable per-system `VmInfo` responses and no-op mutation methods.
+The `MockBackend` (compiled via `#[cfg(test)]` or the `test-support` feature flag) implements `VmmBackend` with configurable per-system `VmInfo` responses and no-op mutation methods.
 
 ## Adding a new Redfish resource
 

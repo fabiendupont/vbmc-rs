@@ -11,6 +11,7 @@ One vbmc-rs instance manages multiple VMs using a blade chassis model — all sy
 | **Cloud-Hypervisor** | `cloud-hypervisor` (default) | HTTP over Unix socket | Full lifecycle: create, boot, shutdown, delete, hot-plug |
 | **QEMU** | `qemu` | QMP over Unix socket | Manage-only: controls pre-existing QEMU processes |
 | **Libvirt** | `libvirt` | `virt` crate (libvirt C API) | Native bindings via `virt` crate, parses domain XML with `quick-xml`. Requires `libvirt-dev`/`libvirt-devel` at build time |
+| **KubeVirt** | `kubevirt` | Kubernetes API (`kube` crate) | Manage-only; uses KubeVirt subresource APIs (start/stop/restart/softreboot/addvolume/removevolume) |
 
 ## Building
 
@@ -24,7 +25,13 @@ cargo build --release --all-features
 # Specific backend
 cargo build --release --features qemu
 cargo build --release --features libvirt
+cargo build --release --features kubevirt
+
+# Aggregator binary
+cargo build --release --features aggregator
 ```
+
+`--all-features` pulls in all backends plus the aggregator.
 
 ## Configuration
 
@@ -90,21 +97,67 @@ connection_uri = "qemu:///system"
 domain_name = "my-domain"
 ```
 
+### Minimal KubeVirt config
+
+```toml
+backend = "kube_virt"
+
+[server]
+bind_address = "0.0.0.0"
+port = 8000
+
+[systems.vm1]
+name = "KubeVirt VM 1"
+namespace = "default"
+vm_name = "my-test-vm"
+
+[systems.vm1.hardware]
+cpu_count = 2
+memory_mib = 2048
+```
+
+KubeVirt VMs must already exist in the cluster. The backend uses in-cluster or kubeconfig credentials automatically.
+
+### Minimal aggregator config
+
+The aggregator is a separate binary (`vbmc-rs-aggregator`) that discovers vbmc-rs sidecar instances and presents a unified Redfish Systems collection.
+
+```toml
+[server]
+bind_address = "0.0.0.0"
+port = 8443
+
+[discovery]
+mode = "static"
+
+[[discovery.endpoints]]
+system_id = "vm1"
+url = "http://localhost:8001"
+
+[[discovery.endpoints]]
+system_id = "vm2"
+url = "http://localhost:8002"
+```
+
+Discovery modes: `static` (explicit endpoint list) or `kubernetes` (watches for vbmc-rs sidecar pods). mTLS between aggregator and sidecars is configured via the server TLS fields.
+
 See `examples/` for complete annotated configuration files for each backend.
 
 ### Configuration reference
 
 | Section | Field | Default | Description |
 |---------|-------|---------|-------------|
-| (top) | `backend` | `cloud_hypervisor` | Backend type: `cloud_hypervisor`, `qemu`, `libvirt` |
+| (top) | `backend` | `cloud_hypervisor` | Backend type: `cloud_hypervisor`, `qemu`, `libvirt`, `kube_virt` |
 | `[server]` | `bind_address` | `0.0.0.0` | Listen address |
 | `[server]` | `port` | `8000` | Listen port |
 | `[server]` | `tls_cert` | — | TLS certificate path |
 | `[server]` | `tls_key` | — | TLS private key path |
+| `[server]` | `tls_client_ca` | — | Client CA certificate path (enables mTLS) |
 | `[auth]` | `enabled` | `false` | Enable session-based authentication |
 | `[auth]` | `session_timeout_seconds` | `3600` | Session lifetime |
 | `[auth]` | `max_sessions` | `64` | Maximum concurrent sessions |
 | `[auth]` | `lockout_threshold` | `5` | Failed logins before lockout |
+| `[auth]` | `lockout_duration_seconds` | `300` | Auto-unlock duration after lockout |
 | `[auth]` | `accounts_file` | — | Path to accounts JSON file |
 | `[defaults]` | `firmware_path` | `/usr/share/OVMF/OVMF_CODE.fd` | Default UEFI firmware |
 | `[defaults]` | `boot_source` | `Hdd` | Default boot device |
@@ -116,13 +169,18 @@ See `examples/` for complete annotated configuration files for each backend.
 | `[systems.<id>]` | `socket_path` | — | Unix socket (CH/QEMU) |
 | `[systems.<id>]` | `connection_uri` | — | Libvirt connection URI |
 | `[systems.<id>]` | `domain_name` | — | Libvirt domain name |
+| `[systems.<id>]` | `namespace` | — | Kubernetes namespace (KubeVirt) |
+| `[systems.<id>]` | `vm_name` | — | KubeVirt VirtualMachine name |
 | `[systems.<id>]` | `firmware_path` | — | Per-system firmware override |
+| `[systems.<id>]` | `secure_boot_firmware_path` | — | UEFI firmware for Secure Boot |
 | `[systems.<id>.hardware]` | `cpu_count` | `2` | vCPU count |
 | `[systems.<id>.hardware]` | `max_cpu_count` | — | Max vCPU (for hotplug) |
 | `[systems.<id>.hardware]` | `memory_mib` | `1024` | Memory in MiB |
 | `[[systems.<id>.hardware.disks]]` | `path` | — | Disk image path |
 | `[[systems.<id>.hardware.disks]]` | `id` | — | Disk identifier |
 | `[[systems.<id>.hardware.disks]]` | `readonly` | `false` | Read-only flag |
+| `[security_policy]` | `tls_minimum_version` | — | Minimum TLS version (`tls12` or `tls13`); constrains rustls protocol |
+| `[security_policy]` | `spdm_enabled` | `false` | Enable SPDM attestation coordinator |
 
 ## Usage
 
@@ -197,6 +255,8 @@ vbmc-rs implements the following Redfish resources:
 | Update Service | `GET /redfish/v1/UpdateService` |
 | License Service | `GET/POST /redfish/v1/LicenseService/Licenses` |
 | Certificate Service | `GET /redfish/v1/CertificateService` |
+| GenerateCSR | `POST /redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR` |
+| ReplaceCertificate | `POST /redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate` |
 | Telemetry Service | `GET /redfish/v1/TelemetryService` |
 | Component Integrity | `GET /redfish/v1/ComponentIntegrity` |
 | Security Policy | `GET/PATCH /redfish/v1/SecurityPolicy` |

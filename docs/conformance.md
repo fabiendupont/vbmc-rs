@@ -123,11 +123,25 @@ Side effects: clears one-time boot override after reset, emits power state chang
 
 | Property | Source | Notes |
 |----------|--------|-------|
-| SecureBootEnable | Persisted | `vm_state.secure_boot_enabled` |
+| SecureBootEnable | Backend + Persisted | Read from backend if available (KubeVirt EFI spec, Libvirt domain XML), persisted state as fallback. CH: firmware binary swap. QEMU: read-only via qom-get |
 | SecureBootCurrentBoot | Static | Derived from enable flag |
 | SecureBootMode | Static | "UserMode" |
 
-**Writable:** `PATCH /Systems/{id}/SecureBoot` accepts `SecureBootEnable`.
+**Writable:** `PATCH /Systems/{id}/SecureBoot` accepts `SecureBootEnable`. Backend-specific behavior:
+
+| Backend | SecureBoot write | Mechanism |
+|---------|-----------------|-----------|
+| Cloud-Hypervisor | Yes | Swaps firmware binary (`firmware_path` vs `secure_boot_firmware_path`) |
+| QEMU | No (read-only) | Reads current state via `qom-get`; cannot modify running firmware |
+| Libvirt | Yes | Rewrites domain XML: Q35 machine type, SMM enabled, pflash loader |
+| KubeVirt | Yes | Patches VM spec: `domain.firmware.bootloader.efi.secureBoot` |
+
+Configure the SecureBoot firmware path (Cloud-Hypervisor):
+
+```toml
+[defaults]
+secure_boot_firmware_path = "/usr/share/OVMF/OVMF_CODE.secboot.fd"
+```
 
 ### VirtualMedia (`/redfish/v1/Systems/{id}/VirtualMedia/Cd`)
 
@@ -167,20 +181,48 @@ Side effects: clears one-time boot override after reset, emits power state chang
 
 These implement standard Redfish session/account/event management. Data comes from in-memory stores (sessions, accounts, subscriptions) backed by configuration. See [deployment.md](deployment.md) for auth setup and [observability.md](observability.md) for event details.
 
+### CertificateService (`/redfish/v1/CertificateService`)
+
+| Property | Source | Notes |
+|----------|--------|-------|
+| CertificateLocations | Static | Links collection (currently empty) |
+| Actions | Static | GenerateCSR and ReplaceCertificate targets |
+
+**Actions:**
+
+| Action | Privilege | Description |
+|--------|-----------|-------------|
+| `GenerateCSR` | ConfigureManager | Generates an RSA/EC key pair and returns a PEM-encoded CSR. Accepts CommonName, Organization, AlternativeNames, etc. |
+| `ReplaceCertificate` | ConfigureManager | Accepts a PEM certificate string. Writes to the configured `tls_cert` path and hot-reloads the TLS configuration. Only `"PEM"` CertificateType is supported. |
+
+Requires TLS to be configured (`tls_cert` and `tls_key` in `[server]`). A `CertificateReplaced` event is emitted on successful replacement.
+
+### SecurityPolicy (`/redfish/v1/SecurityPolicy`)
+
+| Property | Source | Notes |
+|----------|--------|-------|
+| SPDM.Enabled | Persisted | `security_policy.spdm_enabled` — gates attestation features |
+| TLS.MinimumVersion | Persisted | `security_policy.tls_minimum_version` — enforced in rustls config |
+
+**Writable:** `PATCH /SecurityPolicy` accepts `SPDM.Enabled` (bool) and `TLS.MinimumVersion` (string: `"1.2"` or `"1.3"`). Requires `ConfigureManager` privilege.
+
+The TLS minimum version is enforced at the rustls protocol level. Changing it takes effect on new connections (existing connections are not terminated).
+
 ## Backend capability matrix
 
-| Capability | Cloud-Hypervisor | QEMU | Libvirt |
-|-----------|-----------------|------|---------|
-| vm_info | Yes | Yes | Yes |
-| vm_create | Yes | No (manage-only) | No (use `virsh define`) |
-| vm_boot | Yes | Yes | Yes |
-| vm_shutdown | Yes | Yes | Yes |
-| vm_delete | Yes | Yes (forced) | Yes |
-| vm_power_button | Yes | Yes (QMP `system_powerdown`) | Yes |
-| vm_reboot | Yes | Yes (QMP `system_reset`) | Yes |
-| vm_add_disk | Yes (hot-plug) | No | Yes (`attach-device`) |
-| vm_remove_device | Yes (hot-unplug) | No | Yes (`detach-device`) |
-| vm_counters | Yes | No | Yes (block/interface stats) |
-| vmm_ping | Yes | Yes | Yes (libvirt version) |
+| Capability | Cloud-Hypervisor | QEMU | Libvirt | KubeVirt |
+|-----------|-----------------|------|---------|----------|
+| vm_info | Yes | Yes | Yes | Yes (VM/VMI spec) |
+| vm_create | Yes | No (manage-only) | No (use `virsh define`) | No (manage-only) |
+| vm_boot | Yes | Yes | Yes | Yes (start subresource) |
+| vm_shutdown | Yes | Yes | Yes | Yes (stop subresource) |
+| vm_delete | Yes | Yes (forced) | Yes | Yes (deletes VM object) |
+| vm_power_button | Yes | Yes (QMP `system_powerdown`) | Yes | Yes (softreboot subresource) |
+| vm_reboot | Yes | Yes (QMP `system_reset`) | Yes | Yes (restart subresource) |
+| vm_add_disk | Yes (hot-plug) | No | Yes (`attach-device`) | Yes (addvolume subresource) |
+| vm_remove_device | Yes (hot-unplug) | No | Yes (`detach-device`) | Yes (removevolume subresource) |
+| vm_counters | Yes | No | Yes (block/interface stats) | No |
+| vmm_ping | Yes | Yes | Yes (libvirt version) | Yes (KubeVirt API version) |
+| vm_set_secure_boot | Yes (firmware swap) | No (read-only) | Yes (domain XML rewrite) | Yes (VM spec patch) |
 
-**Cloud-Hypervisor** is the only backend that supports full VM lifecycle (create through delete). QEMU and Libvirt expect VMs to be created and configured externally.
+**Cloud-Hypervisor** is the only backend that supports full VM lifecycle (create through delete). QEMU, Libvirt, and KubeVirt expect VMs to be created and configured externally. KubeVirt requires the `kubevirt` feature flag.
