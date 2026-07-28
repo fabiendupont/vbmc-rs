@@ -42,8 +42,8 @@ pub mod virtual_media;
 
 use std::sync::Arc;
 
-use axum::routing::{delete, get, post};
 use axum::Router;
+use axum::routing::{delete, get, post};
 
 use crate::app_state::AppState;
 use compliance::ODataComplianceLayer;
@@ -296,7 +296,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/redfish/v1/AccountService/Accounts/{account_id}",
-            get(account_service::get_account),
+            get(account_service::get_account).patch(account_service::patch_account),
         )
         .route(
             "/redfish/v1/AccountService/Roles",
@@ -474,6 +474,11 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/redfish/v1/TelemetryService/MetricReports",
             get(telemetry::get_metric_reports),
         )
+        .route(
+            "/redfish/v1/TelemetryService/MetricDefinitions/{def_id}",
+            get(telemetry::get_metric_definition),
+        )
         .layer(ODataComplianceLayer)
+        .layer(axum::middleware::from_fn(crate::telemetry::metrics_middleware))
         .with_state(state)
 }

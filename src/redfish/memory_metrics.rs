@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -87,16 +87,13 @@ pub async fn get_memory_metrics(
         )));
     }
 
-    let (blocks_read, blocks_written) =
-        match state.backend.vm_counters(&system_id).await {
-            Ok(c) => (c.block_read_ops, c.block_write_ops),
-            Err(_) => (0, 0),
-        };
+    let (blocks_read, blocks_written) = match state.backend.vm_counters(&system_id).await {
+        Ok(c) => (c.block_read_ops, c.block_write_ops),
+        Err(_) => (0, 0),
+    };
 
     Ok(Json(MemoryMetricsResource {
-        odata_id: format!(
-            "/redfish/v1/Systems/{system_id}/Memory/{dimm_id}/MemoryMetrics"
-        ),
+        odata_id: format!("/redfish/v1/Systems/{system_id}/Memory/{dimm_id}/MemoryMetrics"),
         odata_type: "#MemoryMetrics.v1_7_0.MemoryMetrics",
         id: "MemoryMetrics",
         name: "Memory Metrics",

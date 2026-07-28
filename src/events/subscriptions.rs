@@ -26,12 +26,7 @@ impl SubscriptionStore {
         }
     }
 
-    pub fn add(
-        &self,
-        destination: &str,
-        protocol: &str,
-        event_types: Vec<String>,
-    ) -> Subscription {
+    pub fn add(&self, destination: &str, protocol: &str, event_types: Vec<String>) -> Subscription {
         let id = self
             .next_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -162,9 +157,7 @@ pub fn start_webhook_delivery(
                 Ok(event) => {
                     // Filter by event type if specified
                     if !subscription.event_types.is_empty()
-                        && !subscription
-                            .event_types
-                            .contains(&event.event_type)
+                        && !subscription.event_types.contains(&event.event_type)
                     {
                         continue;
                     }

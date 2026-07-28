@@ -14,16 +14,6 @@ impl KeylimeClient {
         }
     }
 
-    pub async fn get_agent_status(
-        &self,
-        agent_id: &str,
-    ) -> anyhow::Result<VerificationStatus> {
-        let evidence = self.get_agent_attestation(agent_id).await?;
-        Ok(evidence
-            .responder_verification
-            .unwrap_or(VerificationStatus::Unknown))
-    }
-
     pub async fn get_agent_attestation(
         &self,
         agent_id: &str,
@@ -113,8 +103,8 @@ fn parse_pcr_quote(
                         Some(s) => s,
                         None => continue,
                     };
-                    let encoded = base64::engine::general_purpose::STANDARD
-                        .encode(hex_to_bytes(digest));
+                    let encoded =
+                        base64::engine::general_purpose::STANDARD.encode(hex_to_bytes(digest));
                     measurements.push(MeasurementEntry {
                         index,
                         measurement_type: pcr_measurement_type(index).to_string(),
@@ -162,8 +152,7 @@ fn parse_ima_measurements(
             continue;
         }
         let digest = parts[1];
-        let encoded =
-            base64::engine::general_purpose::STANDARD.encode(hex_to_bytes(digest));
+        let encoded = base64::engine::general_purpose::STANDARD.encode(hex_to_bytes(digest));
         measurements.push(MeasurementEntry {
             index: base_index + count,
             measurement_type: "MutableFirmware".to_string(),
@@ -179,7 +168,7 @@ fn parse_ima_measurements(
 fn hex_to_bytes(hex: &str) -> Vec<u8> {
     // Best-effort hex decode; return raw bytes on success, empty on failure
     let hex = hex.trim();
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return hex.as_bytes().to_vec();
     }
     let mut bytes = Vec::with_capacity(hex.len() / 2);

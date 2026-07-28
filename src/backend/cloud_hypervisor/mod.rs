@@ -37,9 +37,7 @@ impl CloudHypervisorBackend {
                 .map_err(|e| BackendError::ApiError(format!("Failed to parse response: {e}")))
         } else {
             let msg = String::from_utf8_lossy(body);
-            Err(BackendError::ApiError(format!(
-                "HTTP {status}: {msg}"
-            )))
+            Err(BackendError::ApiError(format!("HTTP {status}: {msg}")))
         }
     }
 
@@ -48,9 +46,7 @@ impl CloudHypervisorBackend {
             Ok(())
         } else {
             let msg = String::from_utf8_lossy(body);
-            Err(BackendError::ApiError(format!(
-                "HTTP {status}: {msg}"
-            )))
+            Err(BackendError::ApiError(format!("HTTP {status}: {msg}")))
         }
     }
 }
@@ -90,12 +86,7 @@ fn ch_vm_info_to_vm_info(ch_info: types::VmInfo) -> bt::VmInfo {
         })
     });
 
-    let memory_bytes = ch_info
-        .config
-        .memory
-        .as_ref()
-        .map(|m| m.size)
-        .unwrap_or(0);
+    let memory_bytes = ch_info.config.memory.as_ref().map(|m| m.size).unwrap_or(0);
 
     let disks = ch_info
         .config
@@ -113,9 +104,10 @@ fn ch_vm_info_to_vm_info(ch_info: types::VmInfo) -> bt::VmInfo {
                     bt::DiskInfo {
                         id: d.id.clone().unwrap_or_else(|| format!("disk{i}")),
                         path: d.path.clone(),
-                        capacity_bytes: d.path.as_ref().and_then(|p| {
-                            std::fs::metadata(p).ok().map(|m| m.len())
-                        }),
+                        capacity_bytes: d
+                            .path
+                            .as_ref()
+                            .and_then(|p| std::fs::metadata(p).ok().map(|m| m.len())),
                         readonly: d.readonly,
                         protocol,
                         media_type: bt::DiskMediaType::Virtual,
@@ -327,8 +319,8 @@ impl VmmBackend for CloudHypervisorBackend {
     ) -> Result<(), BackendError> {
         let client = self.client_for(system_id)?;
         let ch_config = vm_create_config_to_ch(config);
-        let payload = serde_json::to_vec(&ch_config)
-            .map_err(|e| BackendError::ApiError(e.to_string()))?;
+        let payload =
+            serde_json::to_vec(&ch_config).map_err(|e| BackendError::ApiError(e.to_string()))?;
         let (status, body) = client.put("/api/v1/vm.create", &payload).await?;
         Self::check_success(status, &body)
     }
@@ -370,17 +362,13 @@ impl VmmBackend for CloudHypervisorBackend {
     ) -> Result<(), BackendError> {
         let client = self.client_for(system_id)?;
         let ch_disk = disk_create_config_to_ch(disk);
-        let payload = serde_json::to_vec(&ch_disk)
-            .map_err(|e| BackendError::ApiError(e.to_string()))?;
+        let payload =
+            serde_json::to_vec(&ch_disk).map_err(|e| BackendError::ApiError(e.to_string()))?;
         let (status, body) = client.put("/api/v1/vm.add-disk", &payload).await?;
         Self::check_success(status, &body)
     }
 
-    async fn vm_remove_device(
-        &self,
-        system_id: &str,
-        device_id: &str,
-    ) -> Result<(), BackendError> {
+    async fn vm_remove_device(&self, system_id: &str, device_id: &str) -> Result<(), BackendError> {
         let client = self.client_for(system_id)?;
         let payload = serde_json::to_vec(&VmRemoveDevice {
             id: device_id.to_string(),
@@ -418,7 +406,10 @@ mod tests {
         assert_eq!(ch_state_to_power_state("Shutdown"), bt::VmPowerState::Off);
         assert_eq!(ch_state_to_power_state("Created"), bt::VmPowerState::Off);
         assert_eq!(ch_state_to_power_state("Paused"), bt::VmPowerState::Paused);
-        assert_eq!(ch_state_to_power_state("SomethingElse"), bt::VmPowerState::Unknown);
+        assert_eq!(
+            ch_state_to_power_state("SomethingElse"),
+            bt::VmPowerState::Unknown
+        );
         assert_eq!(ch_state_to_power_state(""), bt::VmPowerState::Unknown);
     }
 
@@ -499,7 +490,10 @@ mod tests {
         // NICs
         assert_eq!(info.nics.len(), 1);
         assert_eq!(info.nics[0].id, "eth0");
-        assert_eq!(info.nics[0].mac_address.as_deref(), Some("52:54:00:ab:cd:ef"));
+        assert_eq!(
+            info.nics[0].mac_address.as_deref(),
+            Some("52:54:00:ab:cd:ef")
+        );
         assert_eq!(info.nics[0].tap.as_deref(), Some("tap0"));
         assert_eq!(info.nics[0].speed_mbps, 25000);
 
@@ -560,7 +554,10 @@ mod tests {
         let ch = vm_create_config_to_ch(config);
 
         let payload = ch.payload.unwrap();
-        assert_eq!(payload.firmware.as_deref(), Some("/usr/share/OVMF/OVMF_CODE.fd"));
+        assert_eq!(
+            payload.firmware.as_deref(),
+            Some("/usr/share/OVMF/OVMF_CODE.fd")
+        );
         assert_eq!(payload.kernel.as_deref(), Some("/boot/vmlinuz"));
         assert_eq!(payload.cmdline.as_deref(), Some("console=ttyS0"));
         assert!(payload.initramfs.is_none());

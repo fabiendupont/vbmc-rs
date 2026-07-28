@@ -1,8 +1,8 @@
 pub mod cloud_hypervisor;
-#[cfg(feature = "qemu")]
-pub mod qemu;
 #[cfg(feature = "libvirt")]
 pub mod libvirt;
+#[cfg(feature = "qemu")]
+pub mod qemu;
 pub mod types;
 
 use std::fmt;
@@ -41,7 +41,10 @@ mod tests {
 
     #[test]
     fn test_backend_error_display() {
-        assert_eq!(BackendError::VmmNotRunning.to_string(), "VMM process is not running");
+        assert_eq!(
+            BackendError::VmmNotRunning.to_string(),
+            "VMM process is not running"
+        );
         assert_eq!(BackendError::VmNotFound.to_string(), "VM not found");
         assert_eq!(
             BackendError::InvalidState("bad".into()).to_string(),
@@ -212,20 +215,14 @@ pub mod mock {
             Ok(())
         }
 
-        async fn vmm_ping(
-            &self,
-            _system_id: &str,
-        ) -> Result<bt::VmmPingResponse, BackendError> {
+        async fn vmm_ping(&self, _system_id: &str) -> Result<bt::VmmPingResponse, BackendError> {
             Ok(bt::VmmPingResponse {
                 version: Some("mock-1.0".to_string()),
                 pid: Some(12345),
             })
         }
 
-        async fn vm_counters(
-            &self,
-            _system_id: &str,
-        ) -> Result<bt::VmCounters, BackendError> {
+        async fn vm_counters(&self, _system_id: &str) -> Result<bt::VmCounters, BackendError> {
             Ok(bt::VmCounters::default())
         }
     }
@@ -244,11 +241,7 @@ impl VmmBackend for Backend {
         }
     }
 
-    async fn vm_create(
-        &self,
-        system_id: &str,
-        config: VmCreateConfig,
-    ) -> Result<(), BackendError> {
+    async fn vm_create(&self, system_id: &str, config: VmCreateConfig) -> Result<(), BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_create(system_id, config).await,
             #[cfg(feature = "qemu")]
@@ -336,11 +329,7 @@ impl VmmBackend for Backend {
         }
     }
 
-    async fn vm_remove_device(
-        &self,
-        system_id: &str,
-        device_id: &str,
-    ) -> Result<(), BackendError> {
+    async fn vm_remove_device(&self, system_id: &str, device_id: &str) -> Result<(), BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_remove_device(system_id, device_id).await,
             #[cfg(feature = "qemu")]

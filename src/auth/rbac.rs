@@ -41,7 +41,10 @@ mod tests {
         assert!(has_privilege("Administrator", Privilege::Login));
         assert!(has_privilege("Administrator", Privilege::ConfigureManager));
         assert!(has_privilege("Administrator", Privilege::ConfigureUsers));
-        assert!(has_privilege("Administrator", Privilege::ConfigureComponents));
+        assert!(has_privilege(
+            "Administrator",
+            Privilege::ConfigureComponents
+        ));
         assert!(has_privilege("Administrator", Privilege::ConfigureSelf));
     }
 

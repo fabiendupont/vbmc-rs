@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::{Deserialize, Serialize};
 
 use super::error::RedfishApiError;
-use super::types::{Collection, ODataId, Status};
+use super::types::{Collection, ODataId, Status, StatusRollup};
 use crate::app_state::AppState;
-use crate::backend::types::VmPowerState;
 use crate::backend::VmmBackend;
+use crate::backend::types::VmPowerState;
 
 #[derive(Debug, Serialize)]
 pub struct ComputerSystem {
@@ -323,25 +323,36 @@ fn power_state_to_redfish(ps: VmPowerState) -> String {
 }
 
 fn power_state_to_status(ps: VmPowerState) -> Status {
-    match ps {
-        VmPowerState::On => Status::enabled_ok(),
+    let base = match ps {
+        VmPowerState::On => Status {
+            state: Some("Enabled".to_string()),
+            health: Some("OK".to_string()),
+            health_rollup: None,
+        },
         VmPowerState::Off => Status {
             state: Some("Disabled".to_string()),
             health: Some("OK".to_string()),
-            health_rollup: Some("OK".to_string()),
+            health_rollup: None,
         },
         VmPowerState::Paused => Status {
             state: Some("Quiesced".to_string()),
             health: Some("OK".to_string()),
-            health_rollup: Some("OK".to_string()),
+            health_rollup: None,
         },
-        VmPowerState::Unknown => Status::unavailable_critical(),
+        VmPowerState::Unknown => Status {
+            state: Some("UnavailableOffline".to_string()),
+            health: Some("Critical".to_string()),
+            health_rollup: None,
+        },
+    };
+    let rollup = StatusRollup::from_statuses(&[&base]);
+    Status {
+        health_rollup: Some(rollup.health),
+        ..base
     }
 }
 
-pub async fn get_systems(
-    State(state): State<Arc<AppState>>,
-) -> Json<Collection<ODataId>> {
+pub async fn get_systems(State(state): State<Arc<AppState>>) -> Json<Collection<ODataId>> {
     let members: Vec<ODataId> = state
         .config
         .systems
@@ -367,10 +378,7 @@ pub async fn get_system(
         .get(&system_id)
         .ok_or_else(|| RedfishApiError::NotFound(format!("System '{system_id}' not found")))?;
 
-    let name = sys_config
-        .name
-        .clone()
-        .unwrap_or_else(|| system_id.clone());
+    let name = sys_config.name.clone().unwrap_or_else(|| system_id.clone());
 
     let vm_state = state.get_vm_state(&system_id);
 
@@ -430,11 +438,7 @@ pub async fn get_system(
             "Cd".to_string(),
             "Hdd".to_string(),
         ],
-        boot_order: vec![
-            "Hdd".to_string(),
-            "Pxe".to_string(),
-            "Cd".to_string(),
-        ],
+        boot_order: vec!["Hdd".to_string(), "Pxe".to_string(), "Cd".to_string()],
         stop_boot_on_fault: "Never",
         automatic_retry_config: "Disabled",
         automatic_retry_attempts: 0,
@@ -445,9 +449,7 @@ pub async fn get_system(
         trusted_module_required_to_boot: "Disabled",
         boot_order_property_selection: "BootOrder",
         alias_boot_order: Vec::new(),
-        boot_options_link: ODataId::new(format!(
-            "/redfish/v1/Systems/{system_id}/BootOptions"
-        )),
+        boot_options_link: ODataId::new(format!("/redfish/v1/Systems/{system_id}/BootOptions")),
     };
 
     Ok(Json(ComputerSystem {
@@ -479,9 +481,7 @@ pub async fn get_system(
         },
         actions: SystemActions {
             reset: ResetAction {
-                target: format!(
-                    "/redfish/v1/Systems/{system_id}/Actions/ComputerSystem.Reset"
-                ),
+                target: format!("/redfish/v1/Systems/{system_id}/Actions/ComputerSystem.Reset"),
                 allowable_values: vec![
                     "On".to_string(),
                     "ForceOff".to_string(),
@@ -497,31 +497,17 @@ pub async fn get_system(
             "/redfish/v1/Systems/{system_id}/EthernetInterfaces"
         )),
         processors: ODataId::new(format!("/redfish/v1/Systems/{system_id}/Processors")),
-        simple_storage: ODataId::new(format!(
-            "/redfish/v1/Systems/{system_id}/SimpleStorage"
-        )),
-        virtual_media: ODataId::new(format!(
-            "/redfish/v1/Systems/{system_id}/VirtualMedia"
-        )),
-        secure_boot: ODataId::new(format!(
-            "/redfish/v1/Systems/{system_id}/SecureBoot"
-        )),
-        memory: ODataId::new(format!(
-            "/redfish/v1/Systems/{system_id}/Memory"
-        )),
-        storage: ODataId::new(format!(
-            "/redfish/v1/Systems/{system_id}/Storage"
-        )),
+        simple_storage: ODataId::new(format!("/redfish/v1/Systems/{system_id}/SimpleStorage")),
+        virtual_media: ODataId::new(format!("/redfish/v1/Systems/{system_id}/VirtualMedia")),
+        secure_boot: ODataId::new(format!("/redfish/v1/Systems/{system_id}/SecureBoot")),
+        memory: ODataId::new(format!("/redfish/v1/Systems/{system_id}/Memory")),
+        storage: ODataId::new(format!("/redfish/v1/Systems/{system_id}/Storage")),
         network_interfaces: ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/NetworkInterfaces"
         )),
         pcie_devices: Vec::new(),
-        bios: ODataId::new(format!(
-            "/redfish/v1/Systems/{system_id}/Bios"
-        )),
-        log_services: ODataId::new(format!(
-            "/redfish/v1/Systems/{system_id}/LogServices"
-        )),
+        bios: ODataId::new(format!("/redfish/v1/Systems/{system_id}/Bios")),
+        log_services: ODataId::new(format!("/redfish/v1/Systems/{system_id}/LogServices")),
         bios_version: "vbmc-rs",
         serial_number,
         host_name,
@@ -545,14 +531,10 @@ pub async fn get_system(
         power_mode: "MaximumPerformance",
         boot_progress: BootProgress {
             last_state: boot_progress_state,
-            last_state_time: chrono::Utc::now()
-                .format("%Y-%m-%dT%H:%M:%SZ")
-                .to_string(),
+            last_state_time: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             last_boot_time_seconds: 0,
         },
-        last_reset_time: chrono::Utc::now()
-            .format("%Y-%m-%dT%H:%M:%SZ")
-            .to_string(),
+        last_reset_time: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
         host_watchdog_timer: HostWatchdogTimer {
             function_enabled: false,
             timeout_action: "None",
@@ -568,18 +550,24 @@ pub async fn get_system(
         serial_console: HostSerialConsole {
             max_concurrent_sessions: 0,
             ipmi: ConsoleProtocol {
-                service_enabled: false, port: 0,
-                console_entry_command: "", hot_key_sequence_display: "",
+                service_enabled: false,
+                port: 0,
+                console_entry_command: "",
+                hot_key_sequence_display: "",
                 shared_with_manager_cli: false,
             },
             ssh: ConsoleProtocol {
-                service_enabled: false, port: 0,
-                console_entry_command: "", hot_key_sequence_display: "",
+                service_enabled: false,
+                port: 0,
+                console_entry_command: "",
+                hot_key_sequence_display: "",
                 shared_with_manager_cli: false,
             },
             telnet: ConsoleProtocol {
-                service_enabled: false, port: 0,
-                console_entry_command: "", hot_key_sequence_display: "",
+                service_enabled: false,
+                port: 0,
+                console_entry_command: "",
+                hot_key_sequence_display: "",
                 shared_with_manager_cli: false,
             },
         },

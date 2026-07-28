@@ -24,8 +24,8 @@ use tracing::info;
 
 use app_state::AppState;
 use auth::accounts::AccountStore;
-use backend::cloud_hypervisor::CloudHypervisorBackend;
 use backend::Backend;
+use backend::cloud_hypervisor::CloudHypervisorBackend;
 
 #[derive(Parser, Debug)]
 #[command(name = "vbmc-rs", version, about = "Redfish-compliant virtual BMC")]
@@ -49,10 +49,7 @@ async fn main() -> anyhow::Result<()> {
     let config = config::AppConfig::load(&cli.config)?;
     info!("Loaded configuration from {}", cli.config.display());
 
-    let addr = SocketAddr::new(
-        config.server.bind_address.parse()?,
-        config.server.port,
-    );
+    let addr = SocketAddr::new(config.server.bind_address.parse()?, config.server.port);
 
     // Build backend based on config
     let backend = match config.backend {
@@ -60,20 +57,14 @@ async fn main() -> anyhow::Result<()> {
             let sockets = config
                 .systems
                 .iter()
-                .filter_map(|(id, sys)| {
-                    sys.socket_path.clone().map(|p| (id.clone(), p))
-                })
+                .filter_map(|(id, sys)| sys.socket_path.clone().map(|p| (id.clone(), p)))
                 .collect();
             Backend::CloudHypervisor(CloudHypervisorBackend::new(sockets))
         }
         #[cfg(feature = "qemu")]
-        config::BackendType::Qemu => {
-            backend::qemu::build_backend(&config)
-        }
+        config::BackendType::Qemu => backend::qemu::build_backend(&config),
         #[cfg(feature = "libvirt")]
-        config::BackendType::Libvirt => {
-            backend::libvirt::build_backend(&config)?
-        }
+        config::BackendType::Libvirt => backend::libvirt::build_backend(&config)?,
     };
 
     // Load accounts

@@ -1,8 +1,8 @@
 #[cfg(feature = "keylime")]
 pub mod keylime;
+pub mod trust_chain;
 #[cfg(feature = "trustee")]
 pub mod trustee;
-pub mod trust_chain;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,18 +12,14 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::app_state::AppState;
-use crate::events::registry::*;
 use crate::events::RedfishEvent;
+use crate::events::registry::*;
 use trust_chain::AttestationEvidence;
 
 pub struct AttestationCoordinator;
 
 impl AttestationCoordinator {
-    pub fn start_polling(
-        state: Arc<AppState>,
-        interval: Duration,
-        cancel: CancellationToken,
-    ) {
+    pub fn start_polling(state: Arc<AppState>, interval: Duration, cancel: CancellationToken) {
         tokio::spawn(async move {
             info!("Attestation coordinator started (interval: {:?})", interval);
             loop {
@@ -114,10 +110,7 @@ impl AttestationCoordinator {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("No attestation config for '{system_id}'"))?;
 
-        let _agent_id = att_config
-            .agent_id
-            .as_deref()
-            .unwrap_or(system_id);
+        let agent_id = att_config.agent_id.as_deref().unwrap_or(system_id);
 
         match att_config.provider.as_str() {
             #[cfg(feature = "keylime")]

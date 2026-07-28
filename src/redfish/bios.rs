@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::{Deserialize, Serialize};
 
 use super::error::RedfishApiError;
@@ -62,10 +62,7 @@ pub async fn get_bios(
     }
 
     let vm_state = state.get_vm_state(&system_id);
-    let attrs = vm_state
-        .bios_settings
-        .clone()
-        .unwrap_or_default();
+    let attrs = vm_state.bios_settings.clone().unwrap_or_default();
 
     Ok(Json(BiosResource {
         odata_id: format!("/redfish/v1/Systems/{system_id}/Bios"),
@@ -100,10 +97,7 @@ pub async fn get_bios_settings(
     }
 
     let vm_state = state.get_vm_state(&system_id);
-    let attrs = vm_state
-        .bios_settings
-        .clone()
-        .unwrap_or_default();
+    let attrs = vm_state.bios_settings.clone().unwrap_or_default();
 
     Ok(Json(serde_json::json!({
         "@odata.id": format!("/redfish/v1/Systems/{system_id}/Bios/Settings"),
@@ -151,5 +145,7 @@ pub async fn patch_bios_settings(
         state.save_vm_state(&system_id, &vm_state);
     }
 
-    Ok(Json(serde_json::json!({"message": "BIOS settings updated"})))
+    Ok(Json(
+        serde_json::json!({"message": "BIOS settings updated"}),
+    ))
 }

@@ -33,7 +33,12 @@ pub struct Collection<T: Serialize> {
 }
 
 impl<T: Serialize> Collection<T> {
-    pub fn new(odata_id: impl Into<String>, odata_type: impl Into<String>, name: impl Into<String>, members: Vec<T>) -> Self {
+    pub fn new(
+        odata_id: impl Into<String>,
+        odata_type: impl Into<String>,
+        name: impl Into<String>,
+        members: Vec<T>,
+    ) -> Self {
         let count = members.len();
         let odata_type = odata_type.into();
         let name = name.into();
@@ -225,7 +230,13 @@ pub struct PartLocation {
 }
 
 impl RedfishLocation {
-    pub fn new(info: impl Into<String>, info_format: &'static str, service_label: impl Into<String>, location_type: &'static str, ordinal: u32) -> Self {
+    pub fn new(
+        info: impl Into<String>,
+        info_format: &'static str,
+        service_label: impl Into<String>,
+        location_type: &'static str,
+        ordinal: u32,
+    ) -> Self {
         Self {
             info: info.into(),
             info_format,
@@ -297,18 +308,22 @@ impl RedfishLocation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct StatusRollup {
     #[serde(rename = "Health")]
     pub health: String,
 }
 
-#[allow(dead_code)]
 impl StatusRollup {
     pub fn from_statuses(statuses: &[&Status]) -> Self {
-        let health = if statuses.iter().any(|s| s.health.as_deref() == Some("Critical")) {
+        let health = if statuses
+            .iter()
+            .any(|s| s.health.as_deref() == Some("Critical"))
+        {
             "Critical"
-        } else if statuses.iter().any(|s| s.health.as_deref() == Some("Warning")) {
+        } else if statuses
+            .iter()
+            .any(|s| s.health.as_deref() == Some("Warning"))
+        {
             "Warning"
         } else {
             "OK"
@@ -360,12 +375,8 @@ mod tests {
 
     #[test]
     fn test_collection_empty() {
-        let coll: Collection<ODataId> = Collection::new(
-            "/redfish/v1/Empty",
-            "#EmptyCollection",
-            "Empty",
-            vec![],
-        );
+        let coll: Collection<ODataId> =
+            Collection::new("/redfish/v1/Empty", "#EmptyCollection", "Empty", vec![]);
         assert_eq!(coll.members_count, 0);
         assert!(coll.members.is_empty());
     }
@@ -380,8 +391,14 @@ mod tests {
         );
         let json = serde_json::to_value(&coll).unwrap();
         assert_eq!(json["@odata.id"], "/redfish/v1/Systems");
-        assert_eq!(json["@odata.type"], "#ComputerSystemCollection.ComputerSystemCollection");
-        assert_eq!(json["@odata.context"], "/redfish/v1/$metadata#ComputerSystemCollection.ComputerSystemCollection");
+        assert_eq!(
+            json["@odata.type"],
+            "#ComputerSystemCollection.ComputerSystemCollection"
+        );
+        assert_eq!(
+            json["@odata.context"],
+            "/redfish/v1/$metadata#ComputerSystemCollection.ComputerSystemCollection"
+        );
         assert_eq!(json["Name"], "Systems");
         assert_eq!(json["Members@odata.count"], 1);
         assert_eq!(json["Members"][0]["@odata.id"], "/redfish/v1/Systems/vm1");

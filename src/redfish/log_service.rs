@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -161,9 +161,7 @@ pub async fn get_system_log_entries(
 
 // Manager LogServices collection
 pub async fn get_manager_log_services() -> Json<Collection<ODataId>> {
-    let members = vec![ODataId::new(
-        "/redfish/v1/Managers/vbmc/LogServices/Audit",
-    )];
+    let members = vec![ODataId::new("/redfish/v1/Managers/vbmc/LogServices/Audit")];
 
     Json(Collection::new(
         "/redfish/v1/Managers/vbmc/LogServices",
@@ -227,9 +225,7 @@ pub async fn get_manager_log_entries(
         for (i, line) in content.lines().rev().take(50).enumerate() {
             if let Ok(event) = serde_json::from_str::<serde_json::Value>(line) {
                 entries.push(LogEntryResource {
-                    odata_id: format!(
-                        "/redfish/v1/Managers/vbmc/LogServices/Audit/Entries/{i}"
-                    ),
+                    odata_id: format!("/redfish/v1/Managers/vbmc/LogServices/Audit/Entries/{i}"),
                     odata_type: "#LogEntry.v1_16_0.LogEntry",
                     id: i.to_string(),
                     name: format!("Audit Entry {i}"),

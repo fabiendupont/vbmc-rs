@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::State;
 use axum::Json;
+use axum::extract::State;
 use serde::Serialize;
 
 use super::types::ODataId;
@@ -113,9 +113,7 @@ pub struct ServiceRootLinks {
     pub manager_providing_service: ODataId,
 }
 
-pub async fn get_service_root(
-    State(state): State<Arc<AppState>>,
-) -> Json<ServiceRoot> {
+pub async fn get_service_root(State(state): State<Arc<AppState>>) -> Json<ServiceRoot> {
     Json(ServiceRoot {
         odata_id: "/redfish/v1",
         odata_type: "#ServiceRoot.v1_17_0.ServiceRoot",
@@ -137,7 +135,10 @@ pub async fn get_service_root(
         update_service: Some(ODataId::new("/redfish/v1/UpdateService")),
         license_service: Some(ODataId::new("/redfish/v1/LicenseService")),
         registries: Some(ODataId::new("/redfish/v1/Registries")),
-        service_identification: format!("vbmc-rs-{}", state.instance_uuid.split('-').next().unwrap_or("0000")),
+        service_identification: format!(
+            "vbmc-rs-{}",
+            state.instance_uuid.split('-').next().unwrap_or("0000")
+        ),
         vendor: "vbmc-rs",
         product: "Virtual BMC",
         protocol_features_supported: ProtocolFeatures {

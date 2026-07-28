@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
-use crate::backend::types::{DiskInfo, DiskMediaType, DiskProtocol};
 use crate::backend::VmmBackend;
+use crate::backend::types::{DiskInfo, DiskMediaType, DiskProtocol};
 
 #[derive(Debug, Serialize)]
 pub struct StorageResource {
@@ -199,7 +199,7 @@ fn protocol_to_string(p: DiskProtocol) -> String {
     match p {
         DiskProtocol::Virtio => "Virtio".to_string(),
         DiskProtocol::NVMe => "NVMe".to_string(),
-        DiskProtocol::SATA => "SATA".to_string(),
+        DiskProtocol::Sata => "SATA".to_string(),
         DiskProtocol::VhostUser => "VhostUser".to_string(),
         DiskProtocol::Unknown => "Unknown".to_string(),
     }
@@ -207,8 +207,8 @@ fn protocol_to_string(p: DiskProtocol) -> String {
 
 fn media_type_to_string(m: DiskMediaType) -> String {
     match m {
-        DiskMediaType::SSD => "SSD".to_string(),
-        DiskMediaType::HDD => "HDD".to_string(),
+        DiskMediaType::Ssd => "SSD".to_string(),
+        DiskMediaType::Hdd => "HDD".to_string(),
         DiskMediaType::Virtual => "Virtual".to_string(),
         DiskMediaType::Unknown => "Unknown".to_string(),
     }
@@ -228,7 +228,7 @@ fn controller_id_for_protocol(p: DiskProtocol) -> String {
     match p {
         DiskProtocol::Virtio => "Virtio".to_string(),
         DiskProtocol::NVMe => "NVMe".to_string(),
-        DiskProtocol::SATA => "SATA".to_string(),
+        DiskProtocol::Sata => "SATA".to_string(),
         DiskProtocol::VhostUser => "VhostUser".to_string(),
         DiskProtocol::Unknown => "Unknown".to_string(),
     }
@@ -348,8 +348,11 @@ pub async fn get_storage(
                 lanes_in_use: 4,
             },
             location: super::types::RedfishLocation::new(
-                format!("Controller {ctrl_id}"), "Embedded",
-                format!("Storage {ctrl_id}"), "Embedded", 0,
+                format!("Controller {ctrl_id}"),
+                "Embedded",
+                format!("Storage {ctrl_id}"),
+                "Embedded",
+                0,
             ),
             ctrl_links: CtrlLinks {
                 endpoints: Vec::new(),
@@ -413,9 +416,7 @@ pub async fn get_drive(
         .ok_or_else(|| RedfishApiError::NotFound(format!("Drive '{drive_id}' not found")))?;
 
     Ok(Json(DriveResource {
-        odata_id: format!(
-            "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Drives/{drive_id}"
-        ),
+        odata_id: format!("/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Drives/{drive_id}"),
         odata_type: "#Drive.v1_18_0.Drive",
         id: drive_id,
         name: disk.id.clone(),
@@ -481,9 +482,7 @@ pub async fn get_volume(
         .ok_or_else(|| RedfishApiError::NotFound(format!("Volume '{vol_id}' not found")))?;
 
     Ok(Json(VolumeResource {
-        odata_id: format!(
-            "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Volumes/{vol_id}"
-        ),
+        odata_id: format!("/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Volumes/{vol_id}"),
         odata_type: "#Volume.v1_10_0.Volume",
         id: vol_id,
         name: disk.id.clone(),
@@ -634,8 +633,11 @@ pub async fn get_controller(
             lanes_in_use: 4,
         },
         sc_location: super::types::RedfishLocation::new(
-            format!("Controller {ctrl_id}"), "Embedded",
-            format!("Storage {ctrl_id}"), "Embedded", 0,
+            format!("Controller {ctrl_id}"),
+            "Embedded",
+            format!("Storage {ctrl_id}"),
+            "Embedded",
+            0,
         ),
         sc_links: ScLinks {
             endpoints: Vec::new(),
@@ -654,15 +656,15 @@ mod tests {
     fn test_protocol_to_string() {
         assert_eq!(protocol_to_string(DiskProtocol::Virtio), "Virtio");
         assert_eq!(protocol_to_string(DiskProtocol::NVMe), "NVMe");
-        assert_eq!(protocol_to_string(DiskProtocol::SATA), "SATA");
+        assert_eq!(protocol_to_string(DiskProtocol::Sata), "SATA");
         assert_eq!(protocol_to_string(DiskProtocol::VhostUser), "VhostUser");
         assert_eq!(protocol_to_string(DiskProtocol::Unknown), "Unknown");
     }
 
     #[test]
     fn test_media_type_to_string() {
-        assert_eq!(media_type_to_string(DiskMediaType::SSD), "SSD");
-        assert_eq!(media_type_to_string(DiskMediaType::HDD), "HDD");
+        assert_eq!(media_type_to_string(DiskMediaType::Ssd), "SSD");
+        assert_eq!(media_type_to_string(DiskMediaType::Hdd), "HDD");
         assert_eq!(media_type_to_string(DiskMediaType::Virtual), "Virtual");
         assert_eq!(media_type_to_string(DiskMediaType::Unknown), "Unknown");
     }
@@ -701,7 +703,7 @@ mod tests {
             make_disk("vda", DiskProtocol::Virtio),
             make_disk("nvme0", DiskProtocol::NVMe),
             make_disk("vdb", DiskProtocol::Virtio),
-            make_disk("sda", DiskProtocol::SATA),
+            make_disk("sda", DiskProtocol::Sata),
         ];
         let grouped = group_disks_by_protocol(&disks);
         assert_eq!(grouped.len(), 3);

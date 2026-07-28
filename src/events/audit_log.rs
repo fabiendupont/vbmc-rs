@@ -9,11 +9,11 @@ use super::RedfishEvent;
 pub async fn audit_log_writer(mut rx: broadcast::Receiver<RedfishEvent>, path: PathBuf) {
     info!("Audit log writer started: {}", path.display());
 
-    if let Some(parent) = path.parent() {
-        if let Err(e) = tokio::fs::create_dir_all(parent).await {
-            error!("Failed to create audit log directory: {e}");
-            return;
-        }
+    if let Some(parent) = path.parent()
+        && let Err(e) = tokio::fs::create_dir_all(parent).await
+    {
+        error!("Failed to create audit log directory: {e}");
+        return;
     }
 
     let mut file = match tokio::fs::OpenOptions::new()

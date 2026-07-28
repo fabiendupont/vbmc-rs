@@ -34,10 +34,10 @@ impl LibvirtBackend {
 
     fn map_domain_state(state: u32) -> bt::VmPowerState {
         match state {
-            1 => bt::VmPowerState::On,      // VIR_DOMAIN_RUNNING
-            3 => bt::VmPowerState::Paused,   // VIR_DOMAIN_PAUSED
-            5 => bt::VmPowerState::Off,      // VIR_DOMAIN_SHUTOFF
-            6 => bt::VmPowerState::Off,      // VIR_DOMAIN_CRASHED
+            1 => bt::VmPowerState::On,     // VIR_DOMAIN_RUNNING
+            3 => bt::VmPowerState::Paused, // VIR_DOMAIN_PAUSED
+            5 => bt::VmPowerState::Off,    // VIR_DOMAIN_SHUTOFF
+            6 => bt::VmPowerState::Off,    // VIR_DOMAIN_CRASHED
             _ => bt::VmPowerState::Unknown,
         }
     }
@@ -52,15 +52,15 @@ impl VmmBackend for LibvirtBackend {
         let domain = self.domain_for(system_id)?;
 
         let info = domain.get_info().map_err(map_virt_error)?;
-        let power_state = Self::map_domain_state(info.state as u32);
+        let power_state = Self::map_domain_state(info.state);
 
         let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
         let parsed = xml::parse_domain_xml(&domain_xml);
 
         Ok(bt::VmInfo {
             power_state,
-            cpu_count: info.nr_virt_cpu as u32,
-            max_cpu_count: info.nr_virt_cpu as u32,
+            cpu_count: info.nr_virt_cpu,
+            max_cpu_count: info.nr_virt_cpu,
             cpu_topology: None,
             memory_bytes: parsed.memory_bytes,
             memory_actual_bytes: Some(info.memory * 1024), // memory is in KiB
@@ -137,11 +137,7 @@ impl VmmBackend for LibvirtBackend {
         Ok(())
     }
 
-    async fn vm_remove_device(
-        &self,
-        system_id: &str,
-        device_id: &str,
-    ) -> Result<(), BackendError> {
+    async fn vm_remove_device(&self, system_id: &str, device_id: &str) -> Result<(), BackendError> {
         let domain = self.domain_for(system_id)?;
 
         let xml = format!(
@@ -176,22 +172,19 @@ impl VmmBackend for LibvirtBackend {
 
         // Sum block stats across all disks
         for disk in &parsed.disks {
-            match domain.get_block_stats(&disk.id) {
-                Ok(stats) => {
-                    if stats.rd_bytes >= 0 {
-                        counters.block_read_bytes += stats.rd_bytes as u64;
-                    }
-                    if stats.wr_bytes >= 0 {
-                        counters.block_write_bytes += stats.wr_bytes as u64;
-                    }
-                    if stats.rd_req >= 0 {
-                        counters.block_read_ops += stats.rd_req as u64;
-                    }
-                    if stats.wr_req >= 0 {
-                        counters.block_write_ops += stats.wr_req as u64;
-                    }
+            if let Ok(stats) = domain.get_block_stats(&disk.id) {
+                if stats.rd_bytes >= 0 {
+                    counters.block_read_bytes += stats.rd_bytes as u64;
                 }
-                Err(_) => {} // Skip disks that don't report stats
+                if stats.wr_bytes >= 0 {
+                    counters.block_write_bytes += stats.wr_bytes as u64;
+                }
+                if stats.rd_req >= 0 {
+                    counters.block_read_ops += stats.rd_req as u64;
+                }
+                if stats.wr_req >= 0 {
+                    counters.block_write_ops += stats.wr_req as u64;
+                }
             }
         }
 
@@ -203,22 +196,19 @@ impl VmmBackend for LibvirtBackend {
                 Some(dev) => dev.as_str(),
                 None => continue,
             };
-            match domain.interface_stats(iface) {
-                Ok(stats) => {
-                    if stats.rx_bytes >= 0 {
-                        counters.net_rx_bytes += stats.rx_bytes as u64;
-                    }
-                    if stats.tx_bytes >= 0 {
-                        counters.net_tx_bytes += stats.tx_bytes as u64;
-                    }
-                    if stats.rx_packets >= 0 {
-                        counters.net_rx_frames += stats.rx_packets as u64;
-                    }
-                    if stats.tx_packets >= 0 {
-                        counters.net_tx_frames += stats.tx_packets as u64;
-                    }
+            if let Ok(stats) = domain.interface_stats(iface) {
+                if stats.rx_bytes >= 0 {
+                    counters.net_rx_bytes += stats.rx_bytes as u64;
                 }
-                Err(_) => {} // Skip NICs that don't report stats
+                if stats.tx_bytes >= 0 {
+                    counters.net_tx_bytes += stats.tx_bytes as u64;
+                }
+                if stats.rx_packets >= 0 {
+                    counters.net_rx_frames += stats.rx_packets as u64;
+                }
+                if stats.tx_packets >= 0 {
+                    counters.net_tx_frames += stats.tx_packets as u64;
+                }
             }
         }
 
@@ -255,10 +245,19 @@ mod tests {
     #[test]
     fn test_map_domain_state() {
         assert_eq!(LibvirtBackend::map_domain_state(1), bt::VmPowerState::On);
-        assert_eq!(LibvirtBackend::map_domain_state(3), bt::VmPowerState::Paused);
+        assert_eq!(
+            LibvirtBackend::map_domain_state(3),
+            bt::VmPowerState::Paused
+        );
         assert_eq!(LibvirtBackend::map_domain_state(5), bt::VmPowerState::Off);
         assert_eq!(LibvirtBackend::map_domain_state(6), bt::VmPowerState::Off);
-        assert_eq!(LibvirtBackend::map_domain_state(0), bt::VmPowerState::Unknown);
-        assert_eq!(LibvirtBackend::map_domain_state(99), bt::VmPowerState::Unknown);
+        assert_eq!(
+            LibvirtBackend::map_domain_state(0),
+            bt::VmPowerState::Unknown
+        );
+        assert_eq!(
+            LibvirtBackend::map_domain_state(99),
+            bt::VmPowerState::Unknown
+        );
     }
 }

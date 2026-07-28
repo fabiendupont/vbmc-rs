@@ -27,6 +27,8 @@ impl QemuBackend {
     }
 }
 
+const PCI_CLASS_ETHERNET: u32 = 0x020000;
+
 fn qemu_status_to_power_state(status: &str) -> bt::VmPowerState {
     match status {
         "running" => bt::VmPowerState::On,
@@ -39,28 +41,17 @@ impl VmmBackend for QemuBackend {
     async fn vm_info(&self, system_id: &str) -> Result<bt::VmInfo, BackendError> {
         let client = self.client_for(system_id)?;
 
-        // Query status
-        let status_val = client.execute("query-status", None).await?;
-        let status: types::QmpStatus = serde_json::from_value(status_val)
-            .map_err(|e| BackendError::ApiError(format!("Failed to parse status: {e}")))?;
-
+        let status: types::QmpStatus = client.execute("query-status", None).await?;
         let power_state = qemu_status_to_power_state(&status.status);
 
-        // Query CPUs
-        let cpus_val = client.execute("query-cpus-fast", None).await?;
-        let cpus: Vec<types::QmpCpu> = serde_json::from_value(cpus_val).unwrap_or_default();
+        let cpus: Vec<types::QmpCpu> = client.execute("query-cpus-fast", None).await?;
         let cpu_count = cpus.len() as u32;
 
-        // Query memory
-        let mem_val = client.execute("query-memory-size-summary", None).await?;
-        let mem: types::QmpMemorySizeSummary = serde_json::from_value(mem_val)
-            .map_err(|e| BackendError::ApiError(format!("Failed to parse memory: {e}")))?;
+        let mem: types::QmpMemorySizeSummary =
+            client.execute("query-memory-size-summary", None).await?;
         let memory_bytes = mem.base_memory + mem.plugged_memory;
 
-        // Query block devices
-        let block_val = client.execute("query-block", None).await?;
-        let blocks: Vec<types::QmpBlockDevice> =
-            serde_json::from_value(block_val).unwrap_or_default();
+        let blocks: Vec<types::QmpBlockDevice> = client.execute("query-block", None).await?;
         let disks: Vec<bt::DiskInfo> = blocks
             .iter()
             .enumerate()
@@ -85,39 +76,53 @@ impl VmmBackend for QemuBackend {
             .collect();
 
         // Query PCI (best effort)
-        let pci_devices = if let Ok(pci_val) = client.execute("query-pci", None).await {
-            let buses: Vec<types::QmpPciBus> =
-                serde_json::from_value(pci_val).unwrap_or_default();
-            buses
-                .into_iter()
-                .flat_map(|bus| {
-                    bus.devices.unwrap_or_default().into_iter().map(move |dev| {
-                        bt::PciDeviceInfo {
-                            bdf: format!(
-                                "0000:{:02x}:{:02x}.{}",
-                                bus.bus, dev.slot, dev.function
-                            ),
-                            vendor_id: Some(format!("0x{:04x}", dev.id.vendor)),
-                            device_id: Some(format!("0x{:04x}", dev.id.device)),
+        let (pci_devices, nics) = if let Ok(buses) = client
+            .execute::<Vec<types::QmpPciBus>>("query-pci", None)
+            .await
+        {
+            let mut pci = Vec::new();
+            let mut nics = Vec::new();
+            let mut nic_idx = 0u32;
+
+            for bus in &buses {
+                for dev in bus.devices.as_deref().unwrap_or_default() {
+                    let bdf = format!("0000:{:02x}:{:02x}.{}", bus.bus, dev.slot, dev.function);
+
+                    // Ethernet controllers → NIC list
+                    if dev.class_info.class == PCI_CLASS_ETHERNET {
+                        nics.push(bt::NicInfo {
+                            id: format!("NIC{nic_idx}"),
+                            mac_address: None,
+                            tap: None,
+                            speed_mbps: 25000,
+                        });
+                        nic_idx += 1;
+                    }
+
+                    pci.push(bt::PciDeviceInfo {
+                        bdf,
+                        vendor_id: Some(format!("0x{:04x}", dev.id.vendor)),
+                        device_id: Some(format!("0x{:04x}", dev.id.device)),
+                        class_code: Some(format!("0x{:06x}", dev.class_info.class)),
+                        device_name: if dev.qdev_id.is_empty() {
+                            None
+                        } else {
+                            Some(dev.qdev_id.clone())
+                        },
+                        is_passthrough: false,
+                        functions: vec![bt::PciFunctionInfo {
+                            function_id: dev.function as u8,
                             class_code: Some(format!("0x{:06x}", dev.class_info.class)),
-                            device_name: if dev.qdev_id.is_empty() {
-                                None
-                            } else {
-                                Some(dev.qdev_id)
-                            },
-                            is_passthrough: false,
-                            functions: vec![bt::PciFunctionInfo {
-                                function_id: dev.function as u8,
-                                class_code: Some(format!("0x{:06x}", dev.class_info.class)),
-                                device_id: Some(format!("0x{:04x}", dev.id.device)),
-                                vendor_id: Some(format!("0x{:04x}", dev.id.vendor)),
-                            }],
-                        }
-                    })
-                })
-                .collect()
+                            device_id: Some(format!("0x{:04x}", dev.id.device)),
+                            vendor_id: Some(format!("0x{:04x}", dev.id.vendor)),
+                        }],
+                    });
+                }
+            }
+
+            (pci, nics)
         } else {
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
 
         Ok(bt::VmInfo {
@@ -128,7 +133,7 @@ impl VmmBackend for QemuBackend {
             memory_bytes,
             memory_actual_bytes: Some(memory_bytes),
             disks,
-            nics: Vec::new(), // QEMU NIC enumeration requires device model knowledge
+            nics,
             pci_devices,
             uuid: None,
             raw: None,
@@ -147,32 +152,27 @@ impl VmmBackend for QemuBackend {
 
     async fn vm_boot(&self, system_id: &str) -> Result<(), BackendError> {
         let client = self.client_for(system_id)?;
-        client.execute("cont", None).await?;
-        Ok(())
+        client.execute_void("cont", None).await
     }
 
     async fn vm_shutdown(&self, system_id: &str) -> Result<(), BackendError> {
         let client = self.client_for(system_id)?;
-        client.execute("system_powerdown", None).await?;
-        Ok(())
+        client.execute_void("system_powerdown", None).await
     }
 
     async fn vm_delete(&self, system_id: &str) -> Result<(), BackendError> {
         let client = self.client_for(system_id)?;
-        client.execute("quit", None).await?;
-        Ok(())
+        client.execute_void("quit", None).await
     }
 
     async fn vm_power_button(&self, system_id: &str) -> Result<(), BackendError> {
         let client = self.client_for(system_id)?;
-        client.execute("system_powerdown", None).await?;
-        Ok(())
+        client.execute_void("system_powerdown", None).await
     }
 
     async fn vm_reboot(&self, system_id: &str) -> Result<(), BackendError> {
         let client = self.client_for(system_id)?;
-        client.execute("system_reset", None).await?;
-        Ok(())
+        client.execute_void("system_reset", None).await
     }
 
     async fn vm_add_disk(
@@ -187,7 +187,6 @@ impl VmmBackend for QemuBackend {
             .clone()
             .unwrap_or_else(|| format!("drive-{}", uuid::Uuid::new_v4()));
 
-        // Add block device
         let blockdev_args = serde_json::json!({
             "driver": "file",
             "node-name": format!("{node_name}-file"),
@@ -195,48 +194,46 @@ impl VmmBackend for QemuBackend {
             "read-only": disk.readonly,
         });
         client
-            .execute("blockdev-add", Some(blockdev_args))
+            .execute_void("blockdev-add", Some(blockdev_args))
             .await?;
 
-        // Add format layer
         let format_args = serde_json::json!({
             "driver": "raw",
             "node-name": node_name,
             "file": format!("{node_name}-file"),
             "read-only": disk.readonly,
         });
-        client
-            .execute("blockdev-add", Some(format_args))
-            .await?;
-
-        Ok(())
+        client.execute_void("blockdev-add", Some(format_args)).await
     }
 
-    async fn vm_remove_device(
-        &self,
-        system_id: &str,
-        device_id: &str,
-    ) -> Result<(), BackendError> {
+    async fn vm_remove_device(&self, system_id: &str, device_id: &str) -> Result<(), BackendError> {
         let client = self.client_for(system_id)?;
         let args = serde_json::json!({"id": device_id});
-        client.execute("device_del", Some(args)).await?;
-        Ok(())
+        client.execute_void("device_del", Some(args)).await
     }
 
     async fn vmm_ping(&self, system_id: &str) -> Result<bt::VmmPingResponse, BackendError> {
         let client = self.client_for(system_id)?;
-        let status = client.execute("query-status", None).await?;
-        let _ = status; // If we got here, QEMU is reachable
+        let version = client.query_version().await?;
         Ok(bt::VmmPingResponse {
-            version: Some("QEMU".to_string()),
+            version: Some(format!("QEMU {version}")),
             pid: None,
         })
     }
 
-    async fn vm_counters(&self, _system_id: &str) -> Result<bt::VmCounters, BackendError> {
-        Err(BackendError::NotSupported(
-            "vm_counters not supported for QEMU backend".to_string(),
-        ))
+    async fn vm_counters(&self, system_id: &str) -> Result<bt::VmCounters, BackendError> {
+        let client = self.client_for(system_id)?;
+        let stats: Vec<types::QmpBlockStats> = client.execute("query-blockstats", None).await?;
+
+        let mut counters = bt::VmCounters::default();
+        for entry in &stats {
+            counters.block_read_bytes += entry.stats.rd_bytes;
+            counters.block_write_bytes += entry.stats.wr_bytes;
+            counters.block_read_ops += entry.stats.rd_operations;
+            counters.block_write_ops += entry.stats.wr_operations;
+        }
+
+        Ok(counters)
     }
 }
 
@@ -244,9 +241,7 @@ pub fn build_backend(config: &AppConfig) -> super::Backend {
     let sockets = config
         .systems
         .iter()
-        .filter_map(|(id, sys)| {
-            sys.socket_path.clone().map(|p| (id.clone(), p))
-        })
+        .filter_map(|(id, sys)| sys.socket_path.clone().map(|p| (id.clone(), p)))
         .collect();
     super::Backend::Qemu(QemuBackend::new(sockets))
 }
@@ -258,11 +253,26 @@ mod tests {
     #[test]
     fn test_qemu_status_to_power_state() {
         assert_eq!(qemu_status_to_power_state("running"), bt::VmPowerState::On);
-        assert_eq!(qemu_status_to_power_state("paused"), bt::VmPowerState::Paused);
-        assert_eq!(qemu_status_to_power_state("suspended"), bt::VmPowerState::Paused);
-        assert_eq!(qemu_status_to_power_state("shutdown"), bt::VmPowerState::Off);
-        assert_eq!(qemu_status_to_power_state("inmigrate"), bt::VmPowerState::Off);
-        assert_eq!(qemu_status_to_power_state("prelaunch"), bt::VmPowerState::Off);
+        assert_eq!(
+            qemu_status_to_power_state("paused"),
+            bt::VmPowerState::Paused
+        );
+        assert_eq!(
+            qemu_status_to_power_state("suspended"),
+            bt::VmPowerState::Paused
+        );
+        assert_eq!(
+            qemu_status_to_power_state("shutdown"),
+            bt::VmPowerState::Off
+        );
+        assert_eq!(
+            qemu_status_to_power_state("inmigrate"),
+            bt::VmPowerState::Off
+        );
+        assert_eq!(
+            qemu_status_to_power_state("prelaunch"),
+            bt::VmPowerState::Off
+        );
         assert_eq!(qemu_status_to_power_state(""), bt::VmPowerState::Off);
     }
 
@@ -281,8 +291,6 @@ mod tests {
         let mut sockets = std::collections::HashMap::new();
         sockets.insert("vm1".to_string(), std::path::PathBuf::from("/tmp/qmp.sock"));
         let backend = QemuBackend::new(sockets);
-        // client_for returns a QmpClient which doesn't impl Debug,
-        // so just check it doesn't error
         let result = backend.client_for("vm1");
         assert!(result.is_ok());
     }

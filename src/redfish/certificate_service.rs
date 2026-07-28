@@ -41,9 +41,7 @@ pub async fn get_certificate_service() -> Json<CertificateServiceResource> {
         id: "CertificateService",
         name: "Certificate Service",
         description: "Certificate management service",
-        certificate_locations: ODataId::new(
-            "/redfish/v1/CertificateService/CertificateLocations",
-        ),
+        certificate_locations: ODataId::new("/redfish/v1/CertificateService/CertificateLocations"),
         actions: CertificateActions {
             generate_csr: ActionTarget {
                 target: "/redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR"

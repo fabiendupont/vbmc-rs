@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::State;
 use axum::Json;
+use axum::extract::State;
 use serde::{Deserialize, Serialize};
 
 use super::error::RedfishApiError;
@@ -39,24 +39,27 @@ pub struct TlsPolicy {
 
 pub async fn get_security_policy(
     State(state): State<Arc<AppState>>,
-) -> Json<SecurityPolicyResource> {
-    Json(SecurityPolicyResource {
+) -> Result<Json<SecurityPolicyResource>, RedfishApiError> {
+    let policy = state
+        .security_policy
+        .read()
+        .map_err(|_| RedfishApiError::InternalError("Security policy lock poisoned".to_string()))?;
+    Ok(Json(SecurityPolicyResource {
         odata_id: "/redfish/v1/SecurityPolicy",
         odata_type: "#SecurityPolicy.v1_0_0.SecurityPolicy",
         id: "SecurityPolicy",
         name: "Security Policy",
         description: "Security policy configuration",
         spdm: SpdmPolicy {
-            enabled: state.config.security_policy.spdm_enabled,
+            enabled: policy.spdm_enabled,
         },
         tls: TlsPolicy {
-            minimum_version: state.config.security_policy.tls_minimum_version.clone(),
+            minimum_version: policy.tls_minimum_version.clone(),
         },
-    })
+    }))
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct PatchSecurityPolicyRequest {
     #[serde(rename = "SPDM")]
     pub spdm: Option<PatchSpdmPolicy>,
@@ -65,24 +68,49 @@ pub struct PatchSecurityPolicyRequest {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct PatchSpdmPolicy {
     #[serde(rename = "Enabled")]
     pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct PatchTlsPolicy {
     #[serde(rename = "MinimumVersion")]
     pub minimum_version: Option<String>,
 }
 
 pub async fn patch_security_policy(
-    Json(_body): Json<PatchSecurityPolicyRequest>,
-) -> Result<Json<serde_json::Value>, RedfishApiError> {
-    // Security policy patching is a metadata-only operation in this implementation
-    Ok(Json(
-        serde_json::json!({"message": "Security policy updated"}),
-    ))
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<PatchSecurityPolicyRequest>,
+) -> Result<Json<SecurityPolicyResource>, RedfishApiError> {
+    let mut policy = state
+        .security_policy
+        .write()
+        .map_err(|_| RedfishApiError::InternalError("Security policy lock poisoned".to_string()))?;
+
+    if let Some(spdm) = &body.spdm
+        && let Some(enabled) = spdm.enabled
+    {
+        policy.spdm_enabled = enabled;
+    }
+
+    if let Some(tls) = &body.tls
+        && let Some(version) = &tls.minimum_version
+    {
+        policy.tls_minimum_version = Some(version.clone());
+    }
+
+    Ok(Json(SecurityPolicyResource {
+        odata_id: "/redfish/v1/SecurityPolicy",
+        odata_type: "#SecurityPolicy.v1_0_0.SecurityPolicy",
+        id: "SecurityPolicy",
+        name: "Security Policy",
+        description: "Security policy configuration",
+        spdm: SpdmPolicy {
+            enabled: policy.spdm_enabled,
+        },
+        tls: TlsPolicy {
+            minimum_version: policy.tls_minimum_version.clone(),
+        },
+    }))
 }

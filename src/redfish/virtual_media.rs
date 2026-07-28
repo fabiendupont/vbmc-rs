@@ -1,17 +1,17 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
-use crate::backend::types::{DiskCreateConfig, VmPowerState};
 use crate::backend::VmmBackend;
-use crate::events::registry::*;
+use crate::backend::types::{DiskCreateConfig, VmPowerState};
 use crate::events::RedfishEvent;
+use crate::events::registry::*;
 
 #[derive(Debug, Serialize)]
 pub struct VirtualMediaResource {
@@ -155,7 +155,6 @@ pub async fn get_virtual_media(
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct InsertMediaRequest {
     #[serde(rename = "Image")]
     pub image: String,
@@ -167,6 +166,60 @@ pub struct InsertMediaRequest {
 
 fn default_true() -> bool {
     true
+}
+
+async fn do_insert_media(
+    state: &AppState,
+    system_id: &str,
+    body: &InsertMediaRequest,
+) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    let download_dir = state
+        .config
+        .systems
+        .get(system_id)
+        .and_then(|s| s.virtual_media_directory.clone())
+        .unwrap_or_else(|| state.config.state_directory.join("media"));
+
+    let image_path = crate::media::download_image(&body.image, &download_dir)
+        .await
+        .map_err(|e| RedfishApiError::InternalError(format!("Failed to download image: {e}")))?;
+
+    // Try hot-plug if VM is running
+    if let Ok(info) = state.backend.vm_info(system_id).await
+        && info.power_state == VmPowerState::On
+    {
+        let disk = DiskCreateConfig {
+            path: Some(image_path.to_string_lossy().to_string()),
+            id: Some("_vbmc_cdrom".to_string()),
+            readonly: true,
+            vhost_user: None,
+            vhost_socket: None,
+        };
+        let _ = state.backend.vm_add_disk(system_id, disk).await;
+    }
+
+    let mut vm_state = state.get_vm_state(system_id);
+    vm_state.virtual_media.inserted = body.inserted;
+    vm_state.virtual_media.image_url = Some(body.image.clone());
+    vm_state.virtual_media.image_path = Some(image_path);
+    vm_state.virtual_media.write_protected = body.write_protected;
+    vm_state.virtual_media.media_type = Some("CD".to_string());
+    vm_state.virtual_media.device_id = Some("_vbmc_cdrom".to_string());
+    state.save_vm_state(system_id, &vm_state);
+
+    state.event_bus.emit(RedfishEvent {
+        event_type: EVENT_TYPE_RESOURCE_UPDATED.to_string(),
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_timestamp: Utc::now(),
+        message_id: MSG_VIRTUAL_MEDIA_INSERTED.to_string(),
+        message: format!("Virtual media inserted on system '{system_id}'"),
+        origin_of_condition: Some(format!("/redfish/v1/Systems/{system_id}/VirtualMedia/Cd")),
+        severity: SEVERITY_OK.to_string(),
+        actor: None,
+        payload: None,
+    });
+
+    Ok(Json(serde_json::json!({"message": "Media inserted"})))
 }
 
 pub async fn insert_media(
@@ -185,61 +238,15 @@ pub async fn insert_media(
         )));
     }
 
+    let task_id = state.task_manager.create_task("InsertMedia");
     let _lock = state.system_lock(&system_id).await;
 
-    // Download the image
-    let download_dir = state
-        .config
-        .systems
-        .get(&system_id)
-        .and_then(|s| s.virtual_media_directory.clone())
-        .unwrap_or_else(|| state.config.state_directory.join("media"));
-
-    let image_path = crate::media::download_image(&body.image, &download_dir)
-        .await
-        .map_err(|e| RedfishApiError::InternalError(format!("Failed to download image: {e}")))?;
-
-    // Try hot-plug if VM is running
-    let hot_plugged = match state.backend.vm_info(&system_id).await {
-        Ok(info) if info.power_state == VmPowerState::On => {
-            let disk = DiskCreateConfig {
-                path: Some(image_path.to_string_lossy().to_string()),
-                id: Some("_vbmc_cdrom".to_string()),
-                readonly: true,
-                vhost_user: None,
-                vhost_socket: None,
-            };
-            state.backend.vm_add_disk(&system_id, disk).await.is_ok()
-        }
-        _ => false,
-    };
-
-    // Update state
-    let mut vm_state = state.get_vm_state(&system_id);
-    vm_state.virtual_media.inserted = true;
-    vm_state.virtual_media.image_url = Some(body.image.clone());
-    vm_state.virtual_media.image_path = Some(image_path);
-    vm_state.virtual_media.write_protected = true;
-    vm_state.virtual_media.media_type = Some("CD".to_string());
-    vm_state.virtual_media.device_id = Some("_vbmc_cdrom".to_string());
-    state.save_vm_state(&system_id, &vm_state);
-
-    state.event_bus.emit(RedfishEvent {
-        event_type: EVENT_TYPE_RESOURCE_UPDATED.to_string(),
-        event_id: uuid::Uuid::new_v4().to_string(),
-        event_timestamp: Utc::now(),
-        message_id: MSG_VIRTUAL_MEDIA_INSERTED.to_string(),
-        message: format!("Virtual media inserted on system '{system_id}'"),
-        origin_of_condition: Some(format!(
-            "/redfish/v1/Systems/{system_id}/VirtualMedia/Cd"
-        )),
-        severity: SEVERITY_OK.to_string(),
-        actor: None,
-        payload: None,
-    });
-
-    let _ = hot_plugged;
-    Ok(Json(serde_json::json!({"message": "Media inserted"})))
+    let result = do_insert_media(&state, &system_id, &body).await;
+    match &result {
+        Ok(_) => state.task_manager.complete_task(&task_id, None),
+        Err(e) => state.task_manager.fail_task(&task_id, e.message()),
+    }
+    result
 }
 
 pub async fn eject_media(
@@ -260,13 +267,13 @@ pub async fn eject_media(
     let _lock = state.system_lock(&system_id).await;
 
     // Try hot-unplug if VM is running
-    if let Ok(info) = state.backend.vm_info(&system_id).await {
-        if info.power_state == VmPowerState::On {
-            let _ = state
-                .backend
-                .vm_remove_device(&system_id, "_vbmc_cdrom")
-                .await;
-        }
+    if let Ok(info) = state.backend.vm_info(&system_id).await
+        && info.power_state == VmPowerState::On
+    {
+        let _ = state
+            .backend
+            .vm_remove_device(&system_id, "_vbmc_cdrom")
+            .await;
     }
 
     // Update state
@@ -280,9 +287,7 @@ pub async fn eject_media(
         event_timestamp: Utc::now(),
         message_id: MSG_VIRTUAL_MEDIA_EJECTED.to_string(),
         message: format!("Virtual media ejected from system '{system_id}'"),
-        origin_of_condition: Some(format!(
-            "/redfish/v1/Systems/{system_id}/VirtualMedia/Cd"
-        )),
+        origin_of_condition: Some(format!("/redfish/v1/Systems/{system_id}/VirtualMedia/Cd")),
         severity: SEVERITY_OK.to_string(),
         actor: None,
         payload: None,

@@ -1,18 +1,17 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
-use axum::Json;
+use axum::response::sse::{Event, KeepAlive, Sse};
 use serde::{Deserialize, Serialize};
-use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
+use tokio_stream::wrappers::BroadcastStream;
 
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
-
 
 #[derive(Debug, Serialize)]
 pub struct EventServiceResource {
@@ -109,18 +108,11 @@ pub async fn get_event_service() -> Json<EventServiceResource> {
     })
 }
 
-pub async fn get_subscriptions(
-    State(state): State<Arc<AppState>>,
-) -> Json<Collection<ODataId>> {
+pub async fn get_subscriptions(State(state): State<Arc<AppState>>) -> Json<Collection<ODataId>> {
     let subs = state.subscription_store.list();
     let members: Vec<ODataId> = subs
         .iter()
-        .map(|s| {
-            ODataId::new(format!(
-                "/redfish/v1/EventService/Subscriptions/{}",
-                s.id
-            ))
-        })
+        .map(|s| ODataId::new(format!("/redfish/v1/EventService/Subscriptions/{}", s.id)))
         .collect();
 
     Json(Collection::new(
@@ -173,9 +165,7 @@ pub async fn get_subscription(
     let sub = state
         .subscription_store
         .get(&sub_id)
-        .ok_or_else(|| {
-            RedfishApiError::NotFound(format!("Subscription '{sub_id}' not found"))
-        })?;
+        .ok_or_else(|| RedfishApiError::NotFound(format!("Subscription '{sub_id}' not found")))?;
 
     Ok(Json(serde_json::json!({
         "@odata.id": format!("/redfish/v1/EventService/Subscriptions/{}", sub.id),

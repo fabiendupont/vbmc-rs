@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -117,11 +117,7 @@ pub async fn get_pcie_device(
             .clone()
             .unwrap_or_else(|| format!("PCIe Device {}", dev.bdf)),
         description: "PCIe device",
-        device_type: if dev.is_passthrough {
-            "SingleFunction"
-        } else {
-            "SingleFunction"
-        },
+        device_type: "SingleFunction",
         manufacturer: dev.vendor_id.clone(),
         pcie_functions: ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/PCIeDevices/{dev_id}/PCIeFunctions"
@@ -209,9 +205,7 @@ pub async fn get_pcie_function(
         .functions
         .iter()
         .find(|f| f.function_id == func_idx)
-        .ok_or_else(|| {
-            RedfishApiError::NotFound(format!("PCIeFunction '{func_id}' not found"))
-        })?;
+        .ok_or_else(|| RedfishApiError::NotFound(format!("PCIeFunction '{func_id}' not found")))?;
 
     Ok(Json(PCIeFunctionResource {
         odata_id: format!(

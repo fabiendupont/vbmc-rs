@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -73,7 +73,8 @@ pub async fn get_boot_options(
         .iter()
         .map(|o| {
             ODataId::new(format!(
-                "/redfish/v1/Systems/{system_id}/BootOptions/{}", o.id
+                "/redfish/v1/Systems/{system_id}/BootOptions/{}",
+                o.id
             ))
         })
         .collect();
@@ -99,14 +100,10 @@ pub async fn get_boot_option(
     let def = BOOT_OPTIONS
         .iter()
         .find(|o| o.id == option_id)
-        .ok_or_else(|| {
-            RedfishApiError::NotFound(format!("BootOption '{option_id}' not found"))
-        })?;
+        .ok_or_else(|| RedfishApiError::NotFound(format!("BootOption '{option_id}' not found")))?;
 
     Ok(Json(BootOptionResource {
-        odata_id: format!(
-            "/redfish/v1/Systems/{system_id}/BootOptions/{}", def.id
-        ),
+        odata_id: format!("/redfish/v1/Systems/{system_id}/BootOptions/{}", def.id),
         odata_type: "#BootOption.v1_0_4.BootOption",
         id: def.id.to_string(),
         name: def.display_name.to_string(),

@@ -178,8 +178,14 @@ pub async fn get_power_supply() -> Json<PowerSupplyResource> {
             capacity_watts: 500,
         }],
         efficiency_ratings: vec![
-            PsuEfficiencyRating { load_percent: 50, efficiency_percent: 90 },
-            PsuEfficiencyRating { load_percent: 100, efficiency_percent: 85 },
+            PsuEfficiencyRating {
+                load_percent: 50,
+                efficiency_percent: 90,
+            },
+            PsuEfficiencyRating {
+                load_percent: 100,
+                efficiency_percent: 85,
+            },
         ],
         psu_links: PsuLinks {
             powering_chassis: vec![ODataId::new("/redfish/v1/Chassis/1")],

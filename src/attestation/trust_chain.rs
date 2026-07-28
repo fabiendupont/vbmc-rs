@@ -67,7 +67,10 @@ mod tests {
         assert_eq!(decoded.measurement_type, "ImmutableROM");
         assert_eq!(decoded.measurement, "AQID");
         assert!(decoded.part_of_summary);
-        assert_eq!(decoded.last_updated.as_deref(), Some("2026-01-15T10:00:00Z"));
+        assert_eq!(
+            decoded.last_updated.as_deref(),
+            Some("2026-01-15T10:00:00Z")
+        );
     }
 
     #[test]
@@ -92,7 +95,10 @@ mod tests {
         assert_eq!(decoded.measurements.len(), 1);
         assert_eq!(decoded.measurements[0].index, 7);
         assert_eq!(decoded.measurement_summary.as_deref(), Some("abc123"));
-        assert_eq!(decoded.responder_verification, Some(VerificationStatus::Success));
+        assert_eq!(
+            decoded.responder_verification,
+            Some(VerificationStatus::Success)
+        );
         assert_eq!(decoded.provider.as_deref(), Some("keylime"));
     }
 

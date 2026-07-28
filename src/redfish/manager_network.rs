@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -260,12 +260,30 @@ pub async fn get_network_protocol(
             protocol_enabled: false,
             port: 623,
         },
-        ntp: ProtocolEntry { protocol_enabled: false, port: 123 },
-        dhcp: ProtocolEntry { protocol_enabled: false, port: 67 },
-        dhcpv6_proto: ProtocolEntry { protocol_enabled: false, port: 547 },
-        snmp: ProtocolEntry { protocol_enabled: false, port: 161 },
-        http: ProtocolEntry { protocol_enabled: false, port: 80 },
-        telnet: ProtocolEntry { protocol_enabled: false, port: 23 },
+        ntp: ProtocolEntry {
+            protocol_enabled: false,
+            port: 123,
+        },
+        dhcp: ProtocolEntry {
+            protocol_enabled: false,
+            port: 67,
+        },
+        dhcpv6_proto: ProtocolEntry {
+            protocol_enabled: false,
+            port: 547,
+        },
+        snmp: ProtocolEntry {
+            protocol_enabled: false,
+            port: 161,
+        },
+        http: ProtocolEntry {
+            protocol_enabled: false,
+            port: 80,
+        },
+        telnet: ProtocolEntry {
+            protocol_enabled: false,
+            port: 23,
+        },
         ssdp: SsdpProtocol {
             protocol_enabled: false,
             port: 1900,
@@ -273,13 +291,34 @@ pub async fn get_network_protocol(
             notify_ttl: 2,
             notify_ipv6_scope: "Site",
         },
-        virtual_media_proto: ProtocolEntry { protocol_enabled: false, port: 0 },
-        kvmip: ProtocolEntry { protocol_enabled: false, port: 0 },
-        rdp: ProtocolEntry { protocol_enabled: false, port: 3389 },
-        rfb: ProtocolEntry { protocol_enabled: false, port: 5900 },
-        ftp: ProtocolEntry { protocol_enabled: false, port: 21 },
-        sftp: ProtocolEntry { protocol_enabled: false, port: 22 },
-        ftps: ProtocolEntry { protocol_enabled: false, port: 990 },
+        virtual_media_proto: ProtocolEntry {
+            protocol_enabled: false,
+            port: 0,
+        },
+        kvmip: ProtocolEntry {
+            protocol_enabled: false,
+            port: 0,
+        },
+        rdp: ProtocolEntry {
+            protocol_enabled: false,
+            port: 3389,
+        },
+        rfb: ProtocolEntry {
+            protocol_enabled: false,
+            port: 5900,
+        },
+        ftp: ProtocolEntry {
+            protocol_enabled: false,
+            port: 21,
+        },
+        sftp: ProtocolEntry {
+            protocol_enabled: false,
+            port: 22,
+        },
+        ftps: ProtocolEntry {
+            protocol_enabled: false,
+            port: 990,
+        },
         proxy: ProxyConfig {
             enabled: false,
             proxy_auto_config_uri: "",

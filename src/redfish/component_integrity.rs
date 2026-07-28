@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -51,23 +51,38 @@ pub struct SpdmInfo {
     pub requester: ODataId,
     #[serde(rename = "MeasurementSet", skip_serializing_if = "Option::is_none")]
     pub measurement_set: Option<SpdmMeasurementSet>,
-    #[serde(rename = "IdentityAuthentication", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "IdentityAuthentication",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub identity_authentication: Option<SpdmIdentity>,
-    #[serde(rename = "ComponentCommunication", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "ComponentCommunication",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub component_communication: Option<SpdmCommunication>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct SpdmMeasurementSet {
-    #[serde(rename = "MeasurementSpecification", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "MeasurementSpecification",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub measurement_specification: Option<String>,
     #[serde(rename = "Measurements", skip_serializing_if = "Option::is_none")]
     pub measurements: Option<Vec<SpdmSingleMeasurement>>,
     #[serde(rename = "MeasurementSummary", skip_serializing_if = "Option::is_none")]
     pub measurement_summary: Option<String>,
-    #[serde(rename = "MeasurementSummaryHashAlgorithm", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "MeasurementSummaryHashAlgorithm",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub measurement_summary_hash_algorithm: Option<String>,
-    #[serde(rename = "MeasurementSummaryType", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "MeasurementSummaryType",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub measurement_summary_type: Option<String>,
 }
 
@@ -79,7 +94,10 @@ pub struct SpdmSingleMeasurement {
     pub measurement_type: Option<String>,
     #[serde(rename = "Measurement", skip_serializing_if = "Option::is_none")]
     pub measurement: Option<String>,
-    #[serde(rename = "MeasurementHashAlgorithm", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "MeasurementHashAlgorithm",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub measurement_hash_algorithm: Option<String>,
     #[serde(rename = "PartofSummaryHash", skip_serializing_if = "Option::is_none")]
     pub part_of_summary_hash: Option<bool>,
@@ -91,7 +109,10 @@ pub struct SpdmSingleMeasurement {
 pub struct SpdmIdentity {
     #[serde(rename = "ResponderAuthentication")]
     pub responder_authentication: SpdmResponderAuth,
-    #[serde(rename = "RequesterAuthentication", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "RequesterAuthentication",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub requester_authentication: Option<SpdmRequesterAuth>,
 }
 
@@ -99,7 +120,10 @@ pub struct SpdmIdentity {
 pub struct SpdmResponderAuth {
     #[serde(rename = "VerificationStatus")]
     pub verification_status: String,
-    #[serde(rename = "ComponentCertificate", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "ComponentCertificate",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub component_certificate: Option<ODataId>,
 }
 
@@ -137,9 +161,7 @@ fn build_spdm_from_evidence(system_id: &str, evidence: &AttestationEvidence) -> 
         })
         .collect();
 
-    let measurement_set = if !measurements.is_empty()
-        || evidence.measurement_summary.is_some()
-    {
+    let measurement_set = if !measurements.is_empty() || evidence.measurement_summary.is_some() {
         Some(SpdmMeasurementSet {
             measurement_specification: Some("DMTF".to_string()),
             measurements: if measurements.is_empty() {
@@ -148,17 +170,17 @@ fn build_spdm_from_evidence(system_id: &str, evidence: &AttestationEvidence) -> 
                 Some(measurements)
             },
             measurement_summary: evidence.measurement_summary.clone(),
-            measurement_summary_hash_algorithm: evidence
-                .measurement_summary_algorithm
-                .clone(),
+            measurement_summary_hash_algorithm: evidence.measurement_summary_algorithm.clone(),
             measurement_summary_type: evidence.measurement_summary_type.clone(),
         })
     } else {
         None
     };
 
-    let identity_authentication =
-        evidence.responder_verification.as_ref().map(|v| SpdmIdentity {
+    let identity_authentication = evidence
+        .responder_verification
+        .as_ref()
+        .map(|v| SpdmIdentity {
             responder_authentication: SpdmResponderAuth {
                 verification_status: v.to_string(),
                 component_certificate: None,
@@ -167,9 +189,7 @@ fn build_spdm_from_evidence(system_id: &str, evidence: &AttestationEvidence) -> 
         });
 
     SpdmInfo {
-        requester: ODataId::new(format!(
-            "/redfish/v1/ComponentIntegrity/{system_id}"
-        )),
+        requester: ODataId::new(format!("/redfish/v1/ComponentIntegrity/{system_id}")),
         measurement_set,
         identity_authentication,
         component_communication: None,
@@ -219,9 +239,7 @@ pub async fn get_component_integrity(
     let spdm = match &vm_state.attestation.evidence {
         Some(evidence) => build_spdm_from_evidence(&system_id, evidence),
         None => SpdmInfo {
-            requester: ODataId::new(format!(
-                "/redfish/v1/ComponentIntegrity/{system_id}"
-            )),
+            requester: ODataId::new(format!("/redfish/v1/ComponentIntegrity/{system_id}")),
             measurement_set: None,
             identity_authentication: None,
             component_communication: None,
@@ -237,9 +255,7 @@ pub async fn get_component_integrity(
         component_integrity_type: "SPDM",
         component_integrity_type_version: "1.0",
         component_integrity_enabled: true,
-        target_component_uri: format!(
-            "/redfish/v1/Chassis/1/TrustedComponents/{system_id}"
-        ),
+        target_component_uri: format!("/redfish/v1/Chassis/1/TrustedComponents/{system_id}"),
         last_updated: vm_state
             .attestation
             .last_checked
@@ -251,9 +267,7 @@ pub async fn get_component_integrity(
             health_rollup: Some(health.to_string()),
         },
         links: ComponentIntegrityLinks {
-            components_protected: vec![ODataId::new(format!(
-                "/redfish/v1/Systems/{system_id}"
-            ))],
+            components_protected: vec![ODataId::new(format!("/redfish/v1/Systems/{system_id}"))],
         },
         spdm: Some(spdm),
     }))

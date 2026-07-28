@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -62,7 +62,10 @@ pub struct CoreVoltage {
 pub struct CoreMetric {
     #[serde(rename = "CoreId")]
     pub core_id: String,
-    #[serde(rename = "InstructionsPerCycle", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "InstructionsPerCycle",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub instructions_per_cycle: Option<f64>,
     #[serde(rename = "UnhaltedCycles")]
     pub unhalted_cycles: u64,

@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Serialize;
 
 use super::types::{Collection, ODataId};
@@ -56,9 +56,7 @@ pub async fn get_task_service() -> Json<TaskServiceResource> {
     })
 }
 
-pub async fn get_tasks(
-    State(state): State<Arc<AppState>>,
-) -> Json<Collection<ODataId>> {
+pub async fn get_tasks(State(state): State<Arc<AppState>>) -> Json<Collection<ODataId>> {
     let tasks = state.task_manager.list_tasks();
     let members: Vec<ODataId> = tasks
         .iter()
@@ -119,10 +117,7 @@ pub async fn get_task(
         start_time: task.start_time.to_rfc3339(),
         end_time: task.end_time.map(|t| t.to_rfc3339()),
         percent_complete: task.percent_complete,
-        task_monitor: Some(format!(
-            "/redfish/v1/TaskService/TaskMonitors/{}",
-            task.id
-        )),
+        task_monitor: Some(format!("/redfish/v1/TaskService/TaskMonitors/{}", task.id)),
     }))
 }
 
@@ -137,11 +132,17 @@ pub async fn get_task_monitor(
 
     match task.task_state {
         TaskState::Completed => {
-            let result = task.result.unwrap_or(serde_json::json!({"message": "Task completed"}));
+            let result = task
+                .result
+                .unwrap_or(serde_json::json!({"message": "Task completed"}));
             Ok((StatusCode::OK, Json(result)).into_response())
         }
         TaskState::Exception | TaskState::Killed => {
-            let msg = task.messages.first().cloned().unwrap_or_else(|| "Task failed".to_string());
+            let msg = task
+                .messages
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "Task failed".to_string());
             Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": msg})),

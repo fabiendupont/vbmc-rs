@@ -14,16 +14,6 @@ impl TrusteeClient {
         }
     }
 
-    pub async fn attest(
-        &self,
-        _evidence: &[u8],
-    ) -> anyhow::Result<VerificationStatus> {
-        let result = self.attest_with_evidence(_evidence).await?;
-        Ok(result
-            .responder_verification
-            .unwrap_or(VerificationStatus::Unknown))
-    }
-
     pub async fn attest_with_evidence(
         &self,
         _evidence: &[u8],
@@ -85,8 +75,7 @@ fn parse_jwt_claims(token: &str) -> Vec<MeasurementEntry> {
         measurements.push(MeasurementEntry {
             index,
             measurement_type: "ImmutableROM".to_string(),
-            measurement: base64::engine::general_purpose::STANDARD
-                .encode(tcb.as_bytes()),
+            measurement: base64::engine::general_purpose::STANDARD.encode(tcb.as_bytes()),
             hash_algorithm: "SHA-256".to_string(),
             part_of_summary: false,
             last_updated: Some(now.clone()),
@@ -94,15 +83,11 @@ fn parse_jwt_claims(token: &str) -> Vec<MeasurementEntry> {
         index += 1;
     }
 
-    if let Some(launch) = claims
-        .get("launch_measurement")
-        .and_then(|v| v.as_str())
-    {
+    if let Some(launch) = claims.get("launch_measurement").and_then(|v| v.as_str()) {
         measurements.push(MeasurementEntry {
             index,
             measurement_type: "ImmutableROM".to_string(),
-            measurement: base64::engine::general_purpose::STANDARD
-                .encode(launch.as_bytes()),
+            measurement: base64::engine::general_purpose::STANDARD.encode(launch.as_bytes()),
             hash_algorithm: "SHA-256".to_string(),
             part_of_summary: false,
             last_updated: Some(now.clone()),
@@ -130,8 +115,7 @@ fn parse_jwt_claims(token: &str) -> Vec<MeasurementEntry> {
             measurements.push(MeasurementEntry {
                 index,
                 measurement_type: mtype.to_string(),
-                measurement: base64::engine::general_purpose::STANDARD
-                    .encode(val_str.as_bytes()),
+                measurement: base64::engine::general_purpose::STANDARD.encode(val_str.as_bytes()),
                 hash_algorithm: "SHA-256".to_string(),
                 part_of_summary: false,
                 last_updated: Some(now.clone()),
@@ -152,8 +136,7 @@ mod tests {
             .encode(b"{\"alg\":\"RS256\",\"typ\":\"JWT\"}");
         let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(serde_json::to_vec(claims).unwrap());
-        let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(b"fake-signature");
+        let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"fake-signature");
         format!("{header}.{payload}.{signature}")
     }
 

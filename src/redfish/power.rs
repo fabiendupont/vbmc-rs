@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use chrono::Utc;
 use serde::Deserialize;
 
 use super::error::RedfishApiError;
 use crate::app_state::AppState;
-use crate::backend::types::{DiskCreateConfig, VmCreateConfig};
 use crate::backend::VmmBackend;
-use crate::events::registry::*;
+use crate::backend::types::{DiskCreateConfig, VmCreateConfig};
 use crate::events::RedfishEvent;
+use crate::events::registry::*;
 
 #[derive(Debug, Deserialize)]
 pub struct ResetRequest {
@@ -30,23 +30,17 @@ fn build_vm_config(state: &AppState, system_id: &str) -> VmCreateConfig {
     let mut disks: Vec<DiskCreateConfig> = Vec::new();
 
     // If boot target is Cd and virtual media is inserted, put CD first
-    let boot_from_cd = vm_state
-        .boot_override
-        .target
-        .as_deref()
-        == Some("Cd")
-        && vm_state.virtual_media.inserted;
+    let boot_from_cd =
+        vm_state.boot_override.target.as_deref() == Some("Cd") && vm_state.virtual_media.inserted;
 
-    if boot_from_cd {
-        if let Some(ref path) = vm_state.virtual_media.image_path {
-            disks.push(DiskCreateConfig {
-                path: Some(path.to_string_lossy().to_string()),
-                id: Some("_vbmc_cdrom".to_string()),
-                readonly: true,
-                vhost_user: None,
-                vhost_socket: None,
-            });
-        }
+    if boot_from_cd && let Some(ref path) = vm_state.virtual_media.image_path {
+        disks.push(DiskCreateConfig {
+            path: Some(path.to_string_lossy().to_string()),
+            id: Some("_vbmc_cdrom".to_string()),
+            readonly: true,
+            vhost_user: None,
+            vhost_socket: None,
+        });
     }
 
     // Add disks from hardware config
@@ -90,6 +84,13 @@ fn emit_power_event(state: &AppState, system_id: &str, reset_type: &str, severit
         actor: None,
         payload: None,
     });
+
+    let power_state = match reset_type {
+        "On" | "ForceOn" | "GracefulRestart" | "ForceRestart" => "On",
+        "ForceOff" | "GracefulShutdown" => "Off",
+        _ => "Unknown",
+    };
+    crate::telemetry::record_vm_power_state(system_id, power_state);
 }
 
 pub async fn reset_system(

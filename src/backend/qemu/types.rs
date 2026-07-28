@@ -14,7 +14,6 @@ pub struct QmpGreetingInner {
 #[derive(Debug, Deserialize)]
 pub struct QmpVersion {
     pub qemu: QmpQemuVersion,
-    pub package: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -33,23 +32,16 @@ pub struct QmpResponse<T> {
 
 #[derive(Debug, Deserialize)]
 pub struct QmpError {
-    pub class: String,
     pub desc: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct QmpStatus {
-    pub running: bool,
     pub status: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct QmpCpu {
-    #[serde(rename = "cpu-index")]
-    pub cpu_index: u32,
-    #[serde(rename = "thread-id")]
-    pub thread_id: Option<u64>,
-}
+pub struct QmpCpu {}
 
 #[derive(Debug, Deserialize)]
 pub struct QmpMemorySizeSummary {
@@ -81,7 +73,6 @@ pub struct QmpPciBus {
 
 #[derive(Debug, Deserialize)]
 pub struct QmpPciDevice {
-    pub bus: u32,
     pub slot: u32,
     pub function: u32,
     pub id: QmpPciId,
@@ -99,4 +90,21 @@ pub struct QmpPciId {
 #[derive(Debug, Deserialize)]
 pub struct QmpPciClassInfo {
     pub class: u32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct QmpBlockStats {
+    pub stats: QmpBlockStatsInner,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct QmpBlockStatsInner {
+    #[serde(rename = "rd_bytes", default)]
+    pub rd_bytes: u64,
+    #[serde(rename = "wr_bytes", default)]
+    pub wr_bytes: u64,
+    #[serde(rename = "rd_operations", default)]
+    pub rd_operations: u64,
+    #[serde(rename = "wr_operations", default)]
+    pub wr_operations: u64,
 }

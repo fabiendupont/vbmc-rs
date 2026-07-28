@@ -1,5 +1,5 @@
-use quick_xml::events::Event;
 use quick_xml::Reader;
+use quick_xml::events::Event;
 
 use crate::backend::types as bt;
 
@@ -20,78 +20,58 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
     let mut info = DomainInfo::default();
     let mut buf = Vec::new();
 
-    let mut in_vcpu = false;
-    let mut in_memory = false;
-    let mut memory_unit = String::from("KiB");
     let mut disk_idx = 0u32;
     let mut nic_idx = 0u32;
 
-    let mut current_disk: Option<DiskBuilder> = None;
-    let mut current_nic: Option<NicBuilder> = None;
-    let mut current_hostdev: Option<HostdevBuilder> = None;
-    let mut in_devices = false;
+    let mut ps = ParseState {
+        in_vcpu: false,
+        in_memory: false,
+        memory_unit: String::from("KiB"),
+        in_devices: false,
+        current_disk: None,
+        current_nic: None,
+        current_hostdev: None,
+    };
 
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => {
                 let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                handle_open_tag(
-                    &name,
-                    e,
-                    false,
-                    &mut in_vcpu,
-                    &mut in_memory,
-                    &mut memory_unit,
-                    &mut in_devices,
-                    &mut current_disk,
-                    &mut current_nic,
-                    &mut current_hostdev,
-                );
+                handle_open_tag(&name, e, &mut ps);
             }
             Ok(Event::Empty(ref e)) => {
                 let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                handle_open_tag(
-                    &name,
-                    e,
-                    true,
-                    &mut in_vcpu,
-                    &mut in_memory,
-                    &mut memory_unit,
-                    &mut in_devices,
-                    &mut current_disk,
-                    &mut current_nic,
-                    &mut current_hostdev,
-                );
+                handle_open_tag(&name, e, &mut ps);
             }
             Ok(Event::Text(ref e)) => {
                 let text = e.unescape().unwrap_or_default().to_string();
-                if in_vcpu {
+                if ps.in_vcpu {
                     info.vcpu_count = text.trim().parse().unwrap_or(0);
-                    in_vcpu = false;
+                    ps.in_vcpu = false;
                 }
-                if in_memory {
+                if ps.in_memory {
                     let raw_val: u64 = text.trim().parse().unwrap_or(0);
-                    info.memory_bytes = match memory_unit.as_str() {
+                    info.memory_bytes = match ps.memory_unit.as_str() {
                         "KiB" | "k" => raw_val * 1024,
                         "MiB" | "M" => raw_val * 1024 * 1024,
                         "GiB" | "G" => raw_val * 1024 * 1024 * 1024,
                         "bytes" | "b" => raw_val,
                         _ => raw_val * 1024,
                     };
-                    in_memory = false;
+                    ps.in_memory = false;
                 }
             }
             Ok(Event::End(ref e)) => {
                 let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 match name.as_str() {
-                    "vcpu" => in_vcpu = false,
-                    "memory" => in_memory = false,
-                    "devices" => in_devices = false,
-                    "disk" if current_disk.is_some() => {
-                        if let Some(builder) = current_disk.take() {
+                    "vcpu" => ps.in_vcpu = false,
+                    "memory" => ps.in_memory = false,
+                    "devices" => ps.in_devices = false,
+                    "disk" if ps.current_disk.is_some() => {
+                        if let Some(builder) = ps.current_disk.take() {
                             let protocol = match builder.bus.as_deref() {
                                 Some("virtio") => bt::DiskProtocol::Virtio,
-                                Some("sata") | Some("ide") => bt::DiskProtocol::SATA,
+                                Some("sata") | Some("ide") => bt::DiskProtocol::Sata,
                                 _ => bt::DiskProtocol::Unknown,
                             };
                             let id = builder
@@ -108,8 +88,8 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
                             disk_idx += 1;
                         }
                     }
-                    "interface" if current_nic.is_some() => {
-                        if let Some(builder) = current_nic.take() {
+                    "interface" if ps.current_nic.is_some() => {
+                        if let Some(builder) = ps.current_nic.take() {
                             info.nics.push(bt::NicInfo {
                                 id: format!("NIC{nic_idx}"),
                                 mac_address: builder.mac,
@@ -119,28 +99,28 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
                             nic_idx += 1;
                         }
                     }
-                    "hostdev" if current_hostdev.is_some() => {
-                        if let Some(builder) = current_hostdev.take() {
-                            if builder.hostdev_type == "pci" {
-                                let bdf = format!(
-                                    "{:04x}:{:02x}:{:02x}.{:x}",
-                                    builder.domain, builder.bus, builder.slot, builder.function
-                                );
-                                info.pci_devices.push(bt::PciDeviceInfo {
-                                    bdf,
-                                    vendor_id: None,
-                                    device_id: None,
+                    "hostdev" if ps.current_hostdev.is_some() => {
+                        if let Some(builder) = ps.current_hostdev.take()
+                            && builder.hostdev_type == "pci"
+                        {
+                            let bdf = format!(
+                                "{:04x}:{:02x}:{:02x}.{:x}",
+                                builder.domain, builder.bus, builder.slot, builder.function
+                            );
+                            info.pci_devices.push(bt::PciDeviceInfo {
+                                bdf,
+                                vendor_id: None,
+                                device_id: None,
+                                class_code: None,
+                                device_name: None,
+                                is_passthrough: true,
+                                functions: vec![bt::PciFunctionInfo {
+                                    function_id: builder.function as u8,
                                     class_code: None,
-                                    device_name: None,
-                                    is_passthrough: true,
-                                    functions: vec![bt::PciFunctionInfo {
-                                        function_id: builder.function as u8,
-                                        class_code: None,
-                                        device_id: None,
-                                        vendor_id: None,
-                                    }],
-                                });
-                            }
+                                    device_id: None,
+                                    vendor_id: None,
+                                }],
+                            });
                         }
                     }
                     _ => {}
@@ -156,30 +136,29 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
     info
 }
 
-fn handle_open_tag(
-    name: &str,
-    e: &quick_xml::events::BytesStart<'_>,
-    _is_empty: bool,
-    in_vcpu: &mut bool,
-    in_memory: &mut bool,
-    memory_unit: &mut String,
-    in_devices: &mut bool,
-    current_disk: &mut Option<DiskBuilder>,
-    current_nic: &mut Option<NicBuilder>,
-    current_hostdev: &mut Option<HostdevBuilder>,
-) {
+struct ParseState {
+    in_vcpu: bool,
+    in_memory: bool,
+    memory_unit: String,
+    in_devices: bool,
+    current_disk: Option<DiskBuilder>,
+    current_nic: Option<NicBuilder>,
+    current_hostdev: Option<HostdevBuilder>,
+}
+
+fn handle_open_tag(name: &str, e: &quick_xml::events::BytesStart<'_>, ps: &mut ParseState) {
     match name {
-        "vcpu" => *in_vcpu = true,
+        "vcpu" => ps.in_vcpu = true,
         "memory" => {
-            *in_memory = true;
+            ps.in_memory = true;
             for attr in e.attributes().flatten() {
                 if attr.key.as_ref() == b"unit" {
-                    *memory_unit = String::from_utf8_lossy(&attr.value).to_string();
+                    ps.memory_unit = String::from_utf8_lossy(&attr.value).to_string();
                 }
             }
         }
-        "devices" => *in_devices = true,
-        "disk" if *in_devices => {
+        "devices" => ps.in_devices = true,
+        "disk" if ps.in_devices => {
             let mut builder = DiskBuilder::default();
             for attr in e.attributes().flatten() {
                 match attr.key.as_ref() {
@@ -192,10 +171,10 @@ fn handle_open_tag(
                     _ => {}
                 }
             }
-            *current_disk = Some(builder);
+            ps.current_disk = Some(builder);
         }
-        "source" if current_disk.is_some() => {
-            if let Some(disk) = current_disk {
+        "source" if ps.current_disk.is_some() => {
+            if let Some(disk) = &mut ps.current_disk {
                 for attr in e.attributes().flatten() {
                     if attr.key.as_ref() == b"file" || attr.key.as_ref() == b"dev" {
                         disk.source = Some(String::from_utf8_lossy(&attr.value).to_string());
@@ -203,29 +182,28 @@ fn handle_open_tag(
                 }
             }
         }
-        "target" if current_disk.is_some() => {
-            if let Some(disk) = current_disk {
+        "target" if ps.current_disk.is_some() => {
+            if let Some(disk) = &mut ps.current_disk {
                 for attr in e.attributes().flatten() {
                     if attr.key.as_ref() == b"bus" {
                         disk.bus = Some(String::from_utf8_lossy(&attr.value).to_string());
                     }
                     if attr.key.as_ref() == b"dev" {
-                        disk.target_dev =
-                            Some(String::from_utf8_lossy(&attr.value).to_string());
+                        disk.target_dev = Some(String::from_utf8_lossy(&attr.value).to_string());
                     }
                 }
             }
         }
-        "readonly" if current_disk.is_some() => {
-            if let Some(disk) = current_disk {
+        "readonly" if ps.current_disk.is_some() => {
+            if let Some(disk) = &mut ps.current_disk {
                 disk.readonly = true;
             }
         }
-        "interface" if *in_devices => {
-            *current_nic = Some(NicBuilder::default());
+        "interface" if ps.in_devices => {
+            ps.current_nic = Some(NicBuilder::default());
         }
-        "mac" if current_nic.is_some() => {
-            if let Some(nic) = current_nic {
+        "mac" if ps.current_nic.is_some() => {
+            if let Some(nic) = &mut ps.current_nic {
                 for attr in e.attributes().flatten() {
                     if attr.key.as_ref() == b"address" {
                         nic.mac = Some(String::from_utf8_lossy(&attr.value).to_string());
@@ -233,8 +211,8 @@ fn handle_open_tag(
                 }
             }
         }
-        "target" if current_nic.is_some() => {
-            if let Some(nic) = current_nic {
+        "target" if ps.current_nic.is_some() => {
+            if let Some(nic) = &mut ps.current_nic {
                 for attr in e.attributes().flatten() {
                     if attr.key.as_ref() == b"dev" {
                         nic.target_dev = Some(String::from_utf8_lossy(&attr.value).to_string());
@@ -242,8 +220,8 @@ fn handle_open_tag(
                 }
             }
         }
-        "model" if current_nic.is_some() => {
-            if let Some(nic) = current_nic {
+        "model" if ps.current_nic.is_some() => {
+            if let Some(nic) = &mut ps.current_nic {
                 for attr in e.attributes().flatten() {
                     if attr.key.as_ref() == b"type" {
                         nic.model = Some(String::from_utf8_lossy(&attr.value).to_string());
@@ -251,17 +229,17 @@ fn handle_open_tag(
                 }
             }
         }
-        "hostdev" if *in_devices => {
+        "hostdev" if ps.in_devices => {
             let mut builder = HostdevBuilder::default();
             for attr in e.attributes().flatten() {
                 if attr.key.as_ref() == b"type" {
                     builder.hostdev_type = String::from_utf8_lossy(&attr.value).to_string();
                 }
             }
-            *current_hostdev = Some(builder);
+            ps.current_hostdev = Some(builder);
         }
-        "address" if current_hostdev.is_some() => {
-            if let Some(hd) = current_hostdev {
+        "address" if ps.current_hostdev.is_some() => {
+            if let Some(hd) = &mut ps.current_hostdev {
                 for attr in e.attributes().flatten() {
                     match attr.key.as_ref() {
                         b"domain" => {
@@ -399,7 +377,7 @@ mod tests {
         let info = parse_domain_xml(xml);
         assert_eq!(info.disks.len(), 1);
         assert!(info.disks[0].readonly);
-        assert_eq!(info.disks[0].protocol, bt::DiskProtocol::SATA); // ide maps to SATA
+        assert_eq!(info.disks[0].protocol, bt::DiskProtocol::Sata); // ide maps to SATA
     }
 
     #[test]
@@ -417,7 +395,7 @@ mod tests {
         </domain>
         "#;
         let info = parse_domain_xml(xml);
-        assert_eq!(info.disks[0].protocol, bt::DiskProtocol::SATA);
+        assert_eq!(info.disks[0].protocol, bt::DiskProtocol::Sata);
     }
 
     #[test]
@@ -451,8 +429,14 @@ mod tests {
         assert_eq!(info.nics.len(), 2);
         assert_eq!(info.nics[0].id, "NIC0");
         assert_eq!(info.nics[1].id, "NIC1");
-        assert_eq!(info.nics[0].mac_address.as_deref(), Some("52:54:00:00:00:01"));
-        assert_eq!(info.nics[1].mac_address.as_deref(), Some("52:54:00:00:00:02"));
+        assert_eq!(
+            info.nics[0].mac_address.as_deref(),
+            Some("52:54:00:00:00:01")
+        );
+        assert_eq!(
+            info.nics[1].mac_address.as_deref(),
+            Some("52:54:00:00:00:02")
+        );
     }
 
     #[test]

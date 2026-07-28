@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -91,18 +91,19 @@ pub struct NdfLinks {
     pub endpoints: Vec<ODataId>,
     #[serde(rename = "PCIeFunction", skip_serializing_if = "Option::is_none")]
     pub pcie_function: Option<ODataId>,
-    #[serde(rename = "PhysicalNetworkPortAssignment", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "PhysicalNetworkPortAssignment",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub physical_network_port_assignment: Option<ODataId>,
     #[serde(rename = "EthernetInterfaces")]
     pub ethernet_interfaces: Vec<ODataId>,
 }
 
-pub async fn get_network_adapters(
-    State(state): State<Arc<AppState>>,
-) -> Json<Collection<ODataId>> {
+pub async fn get_network_adapters(State(state): State<Arc<AppState>>) -> Json<Collection<ODataId>> {
     // We aggregate NICs across all systems into chassis-level adapters
     let mut members = Vec::new();
-    for (system_id, _) in &state.config.systems {
+    for system_id in state.config.systems.keys() {
         if let Ok(info) = state.backend.vm_info(system_id).await {
             for (i, _nic) in info.nics.iter().enumerate() {
                 members.push(ODataId::new(format!(
@@ -125,14 +126,16 @@ pub async fn get_network_adapter(
     Path(adapter_id): Path<String>,
 ) -> Result<Json<NetworkAdapterResource>, RedfishApiError> {
     // adapter_id format: "{system_id}_NIC{idx}"
-    let (system_id, nic_suffix) = adapter_id
-        .rsplit_once('_')
-        .ok_or_else(|| RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found")))?;
+    let (system_id, nic_suffix) = adapter_id.rsplit_once('_').ok_or_else(|| {
+        RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found"))
+    })?;
 
     let _idx: usize = nic_suffix
         .strip_prefix("NIC")
         .and_then(|s| s.parse().ok())
-        .ok_or_else(|| RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found")))?;
+        .ok_or_else(|| {
+            RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found"))
+        })?;
 
     if !state.config.systems.contains_key(system_id) {
         return Err(RedfishApiError::NotFound(format!(
@@ -158,14 +161,16 @@ pub async fn get_network_device_functions(
     State(state): State<Arc<AppState>>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
-    let (system_id, nic_suffix) = adapter_id
-        .rsplit_once('_')
-        .ok_or_else(|| RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found")))?;
+    let (system_id, nic_suffix) = adapter_id.rsplit_once('_').ok_or_else(|| {
+        RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found"))
+    })?;
 
     let _idx: usize = nic_suffix
         .strip_prefix("NIC")
         .and_then(|s| s.parse().ok())
-        .ok_or_else(|| RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found")))?;
+        .ok_or_else(|| {
+            RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found"))
+        })?;
 
     if !state.config.systems.contains_key(system_id) {
         return Err(RedfishApiError::NotFound(format!(
@@ -189,14 +194,16 @@ pub async fn get_network_device_function(
     State(state): State<Arc<AppState>>,
     Path((adapter_id, func_id)): Path<(String, String)>,
 ) -> Result<Json<NetworkDeviceFunction>, RedfishApiError> {
-    let (system_id, nic_suffix) = adapter_id
-        .rsplit_once('_')
-        .ok_or_else(|| RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found")))?;
+    let (system_id, nic_suffix) = adapter_id.rsplit_once('_').ok_or_else(|| {
+        RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found"))
+    })?;
 
     let idx: usize = nic_suffix
         .strip_prefix("NIC")
         .and_then(|s| s.parse().ok())
-        .ok_or_else(|| RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found")))?;
+        .ok_or_else(|| {
+            RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found"))
+        })?;
 
     if !state.config.systems.contains_key(system_id) {
         return Err(RedfishApiError::NotFound(format!(

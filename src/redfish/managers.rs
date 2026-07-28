@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -85,7 +85,6 @@ pub struct ManagerConsole {
     #[serde(rename = "ConnectTypesSupported")]
     pub connect_types_supported: Vec<&'static str>,
 }
-
 
 #[derive(Debug, Serialize)]
 pub struct ManagerLinks {
@@ -171,9 +170,18 @@ pub async fn get_manager(
         last_reset_time: now.clone(),
         location_indicator_active: false,
         time_zone_name: "UTC",
-        service_identification: format!("vbmc-rs-{}", state.instance_uuid.split('-').next().unwrap_or("0000")),
+        service_identification: format!(
+            "vbmc-rs-{}",
+            state.instance_uuid.split('-').next().unwrap_or("0000")
+        ),
         auto_dst_enabled: false,
-        location: super::types::RedfishLocation::new("Virtual BMC", "Embedded", "BMC", "Embedded", 0),
+        location: super::types::RedfishLocation::new(
+            "Virtual BMC",
+            "Embedded",
+            "BMC",
+            "Embedded",
+            0,
+        ),
         network_protocol: ODataId::new("/redfish/v1/Managers/vbmc/NetworkProtocol"),
         ethernet_interfaces: ODataId::new("/redfish/v1/Managers/vbmc/EthernetInterfaces"),
         log_services: Some(ODataId::new("/redfish/v1/Managers/vbmc/LogServices")),

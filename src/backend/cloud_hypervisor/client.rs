@@ -23,23 +23,21 @@ impl UnixClient {
         path: &str,
         body: Option<&[u8]>,
     ) -> Result<(StatusCode, Vec<u8>), BackendError> {
-        let mut stream = UnixStream::connect(&self.socket_path)
-            .await
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound
-                    || e.kind() == std::io::ErrorKind::ConnectionRefused
-                {
-                    BackendError::VmmNotRunning
-                } else {
-                    BackendError::ConnectionFailed(e.to_string())
-                }
-            })?;
+        let mut stream = UnixStream::connect(&self.socket_path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound
+                || e.kind() == std::io::ErrorKind::ConnectionRefused
+            {
+                BackendError::VmmNotRunning
+            } else {
+                BackendError::ConnectionFailed(e.to_string())
+            }
+        })?;
 
         // Build raw HTTP/1.1 request
         let mut request = format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\n");
 
         if let Some(b) = body {
-            request.push_str(&format!("Content-Type: application/json\r\n"));
+            request.push_str("Content-Type: application/json\r\n");
             request.push_str(&format!("Content-Length: {}\r\n", b.len()));
         } else {
             request.push_str("Content-Length: 0\r\n");
@@ -85,8 +83,8 @@ impl UnixClient {
             .and_then(|s| s.parse::<u16>().ok())
             .ok_or_else(|| BackendError::ApiError(format!("Invalid status line: {status_line}")))?;
 
-        let status = StatusCode::from_u16(status_code)
-            .map_err(|e| BackendError::ApiError(e.to_string()))?;
+        let status =
+            StatusCode::from_u16(status_code).map_err(|e| BackendError::ApiError(e.to_string()))?;
 
         // Find body (after \r\n\r\n)
         let body_bytes = if let Some(pos) = find_header_end(&response_buf) {

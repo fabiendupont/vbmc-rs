@@ -36,13 +36,11 @@ pub struct Task {
     pub result: Option<serde_json::Value>,
 }
 
-#[allow(dead_code)]
 pub struct TaskManager {
     tasks: DashMap<String, Task>,
     next_id: AtomicU64,
 }
 
-#[allow(dead_code)]
 impl TaskManager {
     pub fn new() -> Self {
         Self {

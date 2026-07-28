@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::SaltString;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use chrono::{DateTime, Utc};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,17 @@ pub struct Account {
     pub lockout_until: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_scope: Option<Vec<String>>,
+}
+
+impl Account {
+    pub fn set_password(&mut self, password: &str) -> anyhow::Result<()> {
+        let salt = SaltString::generate(&mut OsRng);
+        self.password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
+            .map_err(|e| anyhow::anyhow!("Failed to hash password: {e}"))?
+            .to_string();
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -53,7 +64,6 @@ impl AccountStore {
         self.accounts.iter().find(|a| a.username == username)
     }
 
-    #[allow(dead_code)]
     pub fn find_account_mut(&mut self, username: &str) -> Option<&mut Account> {
         self.accounts.iter_mut().find(|a| a.username == username)
     }
@@ -113,7 +123,9 @@ mod tests {
     #[test]
     fn test_add_account() {
         let mut store = AccountStore::default();
-        store.add_account("admin", "secret123", "Administrator").unwrap();
+        store
+            .add_account("admin", "secret123", "Administrator")
+            .unwrap();
 
         assert_eq!(store.accounts.len(), 1);
         assert_eq!(store.accounts[0].username, "admin");
@@ -152,7 +164,9 @@ mod tests {
     #[test]
     fn test_verify_password_correct() {
         let mut store = AccountStore::default();
-        store.add_account("user", "correct_password", "ReadOnly").unwrap();
+        store
+            .add_account("user", "correct_password", "ReadOnly")
+            .unwrap();
 
         assert!(store.verify_password("user", "correct_password"));
     }
@@ -195,7 +209,9 @@ mod tests {
         let path = dir.path().join("accounts.json");
 
         let mut store = AccountStore::default();
-        store.add_account("admin", "secret", "Administrator").unwrap();
+        store
+            .add_account("admin", "secret", "Administrator")
+            .unwrap();
         store.add_account("viewer", "view", "ReadOnly").unwrap();
         store.save(&path).unwrap();
 

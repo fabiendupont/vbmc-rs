@@ -1,17 +1,17 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId};
 use crate::app_state::AppState;
-use crate::events::registry::*;
 use crate::events::RedfishEvent;
+use crate::events::registry::*;
 
 #[derive(Debug, Serialize)]
 pub struct SessionServiceResource {
@@ -51,9 +51,7 @@ pub async fn get_session_service(
     })
 }
 
-pub async fn get_sessions(
-    State(state): State<Arc<AppState>>,
-) -> Json<Collection<ODataId>> {
+pub async fn get_sessions(State(state): State<Arc<AppState>>) -> Json<Collection<ODataId>> {
     let sessions = state.session_store.list_sessions();
     let members: Vec<ODataId> = sessions
         .iter()
@@ -96,7 +94,10 @@ pub async fn create_session(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateSessionRequest>,
 ) -> Result<Response, RedfishApiError> {
-    let account_store = state.account_store.lock().unwrap();
+    let account_store = state
+        .account_store
+        .lock()
+        .map_err(|_| RedfishApiError::InternalError("Account store lock poisoned".to_string()))?;
     if !account_store.verify_password(&body.user_name, &body.password) {
         state.event_bus.emit(RedfishEvent {
             event_type: EVENT_TYPE_ALERT.to_string(),
@@ -109,6 +110,7 @@ pub async fn create_session(
             actor: Some(body.user_name.clone()),
             payload: None,
         });
+        crate::telemetry::record_auth_attempt(false);
         return Err(RedfishApiError::Unauthorized(
             "Invalid credentials".to_string(),
         ));
@@ -119,13 +121,12 @@ pub async fn create_session(
         .map(|a| a.role.clone())
         .unwrap_or_else(|| "ReadOnly".to_string());
     drop(account_store);
+    crate::telemetry::record_auth_attempt(true);
 
     let session = state
         .session_store
         .create_session(&body.user_name, &role)
-        .ok_or_else(|| {
-            RedfishApiError::Conflict("Maximum sessions reached".to_string())
-        })?;
+        .ok_or_else(|| RedfishApiError::Conflict("Maximum sessions reached".to_string()))?;
 
     state.event_bus.emit(RedfishEvent {
         event_type: EVENT_TYPE_RESOURCE_ADDED.to_string(),
@@ -176,9 +177,7 @@ pub async fn delete_session(
             event_timestamp: Utc::now(),
             message_id: MSG_SESSION_TERMINATED.to_string(),
             message: format!("Session '{session_id}' terminated"),
-            origin_of_condition: Some(format!(
-                "/redfish/v1/SessionService/Sessions/{session_id}"
-            )),
+            origin_of_condition: Some(format!("/redfish/v1/SessionService/Sessions/{session_id}")),
             severity: SEVERITY_OK.to_string(),
             actor: None,
             payload: None,

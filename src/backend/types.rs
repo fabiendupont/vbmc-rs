@@ -12,15 +12,18 @@ pub enum VmPowerState {
 pub enum DiskProtocol {
     Virtio,
     NVMe,
-    SATA,
+    #[serde(rename = "SATA")]
+    Sata,
     VhostUser,
     Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DiskMediaType {
-    SSD,
-    HDD,
+    #[serde(rename = "SSD")]
+    Ssd,
+    #[serde(rename = "HDD")]
+    Hdd,
     Virtual,
     Unknown,
 }
@@ -155,7 +158,12 @@ mod tests {
 
     #[test]
     fn test_vm_power_state_serde_roundtrip() {
-        for state in [VmPowerState::On, VmPowerState::Off, VmPowerState::Paused, VmPowerState::Unknown] {
+        for state in [
+            VmPowerState::On,
+            VmPowerState::Off,
+            VmPowerState::Paused,
+            VmPowerState::Unknown,
+        ] {
             let json = serde_json::to_string(&state).unwrap();
             let back: VmPowerState = serde_json::from_str(&json).unwrap();
             assert_eq!(state, back);
@@ -164,7 +172,13 @@ mod tests {
 
     #[test]
     fn test_disk_protocol_serde_roundtrip() {
-        for proto in [DiskProtocol::Virtio, DiskProtocol::NVMe, DiskProtocol::SATA, DiskProtocol::VhostUser, DiskProtocol::Unknown] {
+        for proto in [
+            DiskProtocol::Virtio,
+            DiskProtocol::NVMe,
+            DiskProtocol::Sata,
+            DiskProtocol::VhostUser,
+            DiskProtocol::Unknown,
+        ] {
             let json = serde_json::to_string(&proto).unwrap();
             let back: DiskProtocol = serde_json::from_str(&json).unwrap();
             assert_eq!(proto, back);
@@ -173,7 +187,12 @@ mod tests {
 
     #[test]
     fn test_disk_media_type_serde_roundtrip() {
-        for mt in [DiskMediaType::SSD, DiskMediaType::HDD, DiskMediaType::Virtual, DiskMediaType::Unknown] {
+        for mt in [
+            DiskMediaType::Ssd,
+            DiskMediaType::Hdd,
+            DiskMediaType::Virtual,
+            DiskMediaType::Unknown,
+        ] {
             let json = serde_json::to_string(&mt).unwrap();
             let back: DiskMediaType = serde_json::from_str(&json).unwrap();
             assert_eq!(mt, back);
@@ -211,7 +230,7 @@ mod tests {
                 capacity_bytes: Some(10_000_000_000),
                 readonly: false,
                 protocol: DiskProtocol::Virtio,
-                media_type: DiskMediaType::SSD,
+                media_type: DiskMediaType::Ssd,
             }],
             nics: vec![NicInfo {
                 id: "NIC0".to_string(),
@@ -234,7 +253,10 @@ mod tests {
         assert_eq!(back.disks[0].id, "vda");
         assert_eq!(back.disks[0].protocol, DiskProtocol::Virtio);
         assert_eq!(back.nics.len(), 1);
-        assert_eq!(back.nics[0].mac_address.as_deref(), Some("52:54:00:12:34:56"));
+        assert_eq!(
+            back.nics[0].mac_address.as_deref(),
+            Some("52:54:00:12:34:56")
+        );
         assert_eq!(back.cpu_topology.unwrap().threads_per_core, Some(2));
     }
 }

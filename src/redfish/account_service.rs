@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId};
 use crate::app_state::AppState;
-use crate::auth::rbac::{has_privilege, Privilege};
 use crate::auth::OptionalAuth;
+use crate::auth::rbac::{Privilege, has_privilege};
 
 #[derive(Debug, Serialize)]
 pub struct AccountServiceResource {
@@ -91,8 +91,11 @@ pub async fn get_account_service(
 
 pub async fn get_accounts(
     State(state): State<Arc<AppState>>,
-) -> Json<Collection<ODataId>> {
-    let store = state.account_store.lock().unwrap();
+) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
+    let store = state
+        .account_store
+        .lock()
+        .map_err(|_| RedfishApiError::InternalError("Account store lock poisoned".to_string()))?;
     let members: Vec<ODataId> = store
         .accounts
         .iter()
@@ -104,12 +107,12 @@ pub async fn get_accounts(
         })
         .collect();
 
-    Json(Collection::new(
+    Ok(Json(Collection::new(
         "/redfish/v1/AccountService/Accounts",
         "#ManagerAccountCollection.ManagerAccountCollection",
         "Account Collection",
         members,
-    ))
+    )))
 }
 
 #[derive(Debug, Serialize)]
@@ -138,12 +141,13 @@ pub async fn get_account(
     State(state): State<Arc<AppState>>,
     Path(account_id): Path<String>,
 ) -> Result<Json<AccountResource>, RedfishApiError> {
-    let store = state.account_store.lock().unwrap();
+    let store = state
+        .account_store
+        .lock()
+        .map_err(|_| RedfishApiError::InternalError("Account store lock poisoned".to_string()))?;
     let account = store
         .find_account(&account_id)
-        .ok_or_else(|| {
-            RedfishApiError::NotFound(format!("Account '{account_id}' not found"))
-        })?;
+        .ok_or_else(|| RedfishApiError::NotFound(format!("Account '{account_id}' not found")))?;
 
     Ok(Json(AccountResource {
         odata_id: format!("/redfish/v1/AccountService/Accounts/{}", account.username),
@@ -183,7 +187,10 @@ pub async fn create_account(
         }
     }
 
-    let mut store = state.account_store.lock().unwrap();
+    let mut store = state
+        .account_store
+        .lock()
+        .map_err(|_| RedfishApiError::InternalError("Account store lock poisoned".to_string()))?;
     if store.find_account(&body.user_name).is_some() {
         return Err(RedfishApiError::Conflict(format!(
             "Account '{}' already exists",
@@ -208,6 +215,62 @@ pub async fn create_account(
             "RoleId": body.role_id,
         })),
     ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchAccountRequest {
+    #[serde(rename = "Password")]
+    pub password: Option<String>,
+    #[serde(rename = "RoleId")]
+    pub role_id: Option<String>,
+    #[serde(rename = "Enabled")]
+    pub enabled: Option<bool>,
+}
+
+pub async fn patch_account(
+    State(state): State<Arc<AppState>>,
+    Path(account_id): Path<String>,
+    Json(body): Json<PatchAccountRequest>,
+) -> Result<Json<AccountResource>, RedfishApiError> {
+    let mut store = state
+        .account_store
+        .lock()
+        .map_err(|_| RedfishApiError::InternalError("Account store lock poisoned".to_string()))?;
+    let account = store
+        .find_account_mut(&account_id)
+        .ok_or_else(|| RedfishApiError::NotFound(format!("Account '{account_id}' not found")))?;
+
+    if let Some(role) = body.role_id {
+        account.role = role;
+    }
+    if let Some(enabled) = body.enabled {
+        account.enabled = enabled;
+    }
+    if let Some(password) = body.password {
+        account
+            .set_password(&password)
+            .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+    }
+
+    let result = AccountResource {
+        odata_id: format!("/redfish/v1/AccountService/Accounts/{}", account.username),
+        odata_type: "#ManagerAccount.v1_12_0.ManagerAccount",
+        id: account.username.clone(),
+        name: format!("Account: {}", account.username),
+        description: "User account",
+        user_name: account.username.clone(),
+        role_id: account.role.clone(),
+        enabled: account.enabled,
+        locked: account.locked,
+    };
+
+    if let Some(path) = &state.config.auth.accounts_file {
+        store
+            .save(path)
+            .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+    }
+
+    Ok(Json(result))
 }
 
 pub async fn get_roles() -> Json<Collection<ODataId>> {
@@ -251,13 +314,14 @@ pub struct RoleResource {
     pub restricted: bool,
 }
 
-pub async fn get_role(
-    Path(role_id): Path<String>,
-) -> Result<Json<RoleResource>, RedfishApiError> {
+pub async fn get_role(Path(role_id): Path<String>) -> Result<Json<RoleResource>, RedfishApiError> {
     let privileges = match role_id.as_str() {
         "Administrator" => vec![
-            "Login", "ConfigureManager", "ConfigureUsers",
-            "ConfigureComponents", "ConfigureSelf",
+            "Login",
+            "ConfigureManager",
+            "ConfigureUsers",
+            "ConfigureComponents",
+            "ConfigureSelf",
         ],
         "Operator" => vec!["Login", "ConfigureComponents", "ConfigureSelf"],
         "ReadOnly" => vec!["Login", "ConfigureSelf"],

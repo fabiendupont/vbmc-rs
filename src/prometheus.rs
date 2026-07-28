@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
-use axum::routing::get;
 use axum::Router;
+use axum::routing::get;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;

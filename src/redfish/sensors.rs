@@ -1,5 +1,5 @@
-use axum::extract::Path;
 use axum::Json;
+use axum::extract::Path;
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -418,9 +418,7 @@ pub async fn get_sensor(
         calibration_time: "2026-01-01T00:00:00Z",
         lifetime_start_date_time: "2026-01-01T00:00:00Z",
         related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
-        location: super::types::RedfishLocation::new(
-            def.name, "Embedded", def.id, "Embedded", 0,
-        ),
+        location: super::types::RedfishLocation::new(def.name, "Embedded", def.id, "Embedded", 0),
         status: Status::enabled_ok(),
     }))
 }

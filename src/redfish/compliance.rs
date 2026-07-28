@@ -1,5 +1,5 @@
-use axum::body::{to_bytes, Body};
-use axum::http::{header, Method, Request, Response};
+use axum::body::{Body, to_bytes};
+use axum::http::{Method, Request, Response, header};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -101,24 +101,18 @@ where
                 .unwrap_or(false);
 
             if is_json {
-                let bytes = to_bytes(body, 10_000_000)
-                    .await
-                    .unwrap_or_default();
+                let bytes = to_bytes(body, 10_000_000).await.unwrap_or_default();
 
                 if let Ok(mut json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                    if let Some(obj) = json.as_object_mut() {
-                        if !obj.contains_key("@odata.context") {
-                            if let Some(odata_type) =
-                                obj.get("@odata.type").and_then(|v| v.as_str())
-                            {
-                                if let Some(context) = odata_context_from_type(odata_type) {
-                                    obj.insert(
-                                        "@odata.context".to_string(),
-                                        serde_json::Value::String(context),
-                                    );
-                                }
-                            }
-                        }
+                    if let Some(obj) = json.as_object_mut()
+                        && !obj.contains_key("@odata.context")
+                        && let Some(odata_type) = obj.get("@odata.type").and_then(|v| v.as_str())
+                        && let Some(context) = odata_context_from_type(odata_type)
+                    {
+                        obj.insert(
+                            "@odata.context".to_string(),
+                            serde_json::Value::String(context),
+                        );
                     }
 
                     let new_body = serde_json::to_vec(&json).unwrap_or_else(|_| bytes.to_vec());
@@ -155,7 +149,10 @@ mod tests {
     fn test_odata_context_from_type_collection() {
         assert_eq!(
             odata_context_from_type("#ComputerSystemCollection.ComputerSystemCollection"),
-            Some("/redfish/v1/$metadata#ComputerSystemCollection.ComputerSystemCollection".to_string())
+            Some(
+                "/redfish/v1/$metadata#ComputerSystemCollection.ComputerSystemCollection"
+                    .to_string()
+            )
         );
     }
 

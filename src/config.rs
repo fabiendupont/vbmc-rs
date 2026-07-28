@@ -2,20 +2,15 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BackendType {
+    #[default]
     CloudHypervisor,
     #[cfg(feature = "qemu")]
     Qemu,
     #[cfg(feature = "libvirt")]
     Libvirt,
-}
-
-impl Default for BackendType {
-    fn default() -> Self {
-        Self::CloudHypervisor
-    }
 }
 
 impl BackendType {
@@ -263,10 +258,7 @@ mod tests {
 
         let vm1 = &config.systems["vm1"];
         assert_eq!(vm1.domain_name.as_deref(), Some("my-test-vm"));
-        assert_eq!(
-            vm1.connection_uri.as_deref(),
-            Some("qemu:///system")
-        );
+        assert_eq!(vm1.connection_uri.as_deref(), Some("qemu:///system"));
         assert!(vm1.socket_path.is_none());
     }
 }

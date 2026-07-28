@@ -1,15 +1,11 @@
+use axum::Json;
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 
 static METADATA_XML: &str = include_str!("../../data/metadata.xml");
 
 pub async fn get_metadata() -> Response {
-    (
-        [(header::CONTENT_TYPE, "application/xml")],
-        METADATA_XML,
-    )
-        .into_response()
+    ([(header::CONTENT_TYPE, "application/xml")], METADATA_XML).into_response()
 }
 
 pub async fn get_odata_service_document() -> Json<serde_json::Value> {

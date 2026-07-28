@@ -6,9 +6,9 @@ use tokio::sync::{Mutex, OwnedMutexGuard};
 use crate::auth::accounts::AccountStore;
 use crate::auth::sessions::SessionStore;
 use crate::backend::Backend;
-use crate::config::AppConfig;
-use crate::events::subscriptions::SubscriptionStore;
+use crate::config::{AppConfig, SecurityPolicyConfig};
 use crate::events::EventBus;
+use crate::events::subscriptions::SubscriptionStore;
 use crate::state::VmState;
 use crate::tasks::TaskManager;
 
@@ -21,16 +21,13 @@ pub struct AppState {
     pub session_store: SessionStore,
     pub account_store: std::sync::Mutex<AccountStore>,
     pub subscription_store: SubscriptionStore,
+    pub security_policy: std::sync::RwLock<SecurityPolicyConfig>,
     pub instance_uuid: String,
     system_locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
 impl AppState {
-    pub fn new(
-        config: AppConfig,
-        backend: Backend,
-        account_store: AccountStore,
-    ) -> Self {
+    pub fn new(config: AppConfig, backend: Backend, account_store: AccountStore) -> Self {
         let vm_states: DashMap<String, VmState> = DashMap::new();
 
         for system_id in config.systems.keys() {
@@ -44,6 +41,8 @@ impl AppState {
             config.auth.max_sessions,
         );
 
+        let security_policy = std::sync::RwLock::new(config.security_policy.clone());
+
         Self {
             config,
             backend,
@@ -52,6 +51,7 @@ impl AppState {
             task_manager: TaskManager::new(),
             session_store,
             account_store: std::sync::Mutex::new(account_store),
+            security_policy,
             subscription_store: SubscriptionStore::new(),
             instance_uuid: uuid::Uuid::new_v4().to_string(),
             system_locks: DashMap::new(),

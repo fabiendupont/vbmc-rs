@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -106,7 +106,6 @@ pub struct PhysicalSecurity {
     pub intrusion_sensor_re_arm: &'static str,
 }
 
-
 #[derive(Debug, Serialize)]
 pub struct ChassisLinks {
     #[serde(rename = "ComputerSystems")]
@@ -139,9 +138,7 @@ pub async fn get_chassis_collection() -> Json<Collection<ODataId>> {
     ))
 }
 
-pub async fn get_chassis(
-    State(state): State<Arc<AppState>>,
-) -> Json<ChassisResource> {
+pub async fn get_chassis(State(state): State<Arc<AppState>>) -> Json<ChassisResource> {
     let computer_systems: Vec<ODataId> = state
         .config
         .systems
@@ -189,7 +186,13 @@ pub async fn get_chassis(
         powered_by_parent: false,
         electrical_source_manager_uris: Vec::new(),
         electrical_source_names: Vec::new(),
-        location: super::types::RedfishLocation::new("Rack 1, Unit 1", "Rack:RackUnit", "Chassis 1", "Bay", 0),
+        location: super::types::RedfishLocation::new(
+            "Rack 1, Unit 1",
+            "Rack:RackUnit",
+            "Chassis 1",
+            "Bay",
+            0,
+        ),
         physical_security: PhysicalSecurity {
             intrusion_sensor_number: 1,
             intrusion_sensor: "Normal",
@@ -220,11 +223,7 @@ pub async fn get_trusted_components(
         .config
         .systems
         .keys()
-        .map(|id| {
-            ODataId::new(format!(
-                "/redfish/v1/Chassis/1/TrustedComponents/{id}"
-            ))
-        })
+        .map(|id| ODataId::new(format!("/redfish/v1/Chassis/1/TrustedComponents/{id}")))
         .collect();
 
     Json(Collection::new(
@@ -296,9 +295,7 @@ pub async fn get_trusted_component(
     }
 
     Ok(Json(TrustedComponentResource {
-        odata_id: format!(
-            "/redfish/v1/Chassis/1/TrustedComponents/{component_id}"
-        ),
+        odata_id: format!("/redfish/v1/Chassis/1/TrustedComponents/{component_id}"),
         odata_type: "#TrustedComponent.v1_3_0.TrustedComponent",
         id: component_id.clone(),
         name: format!("Trusted: {component_id}"),
@@ -321,9 +318,7 @@ pub async fn get_trusted_component(
             ))],
             integrated_into: ODataId::new("/redfish/v1/Chassis/1"),
             owner: ODataId::new("/redfish/v1/Chassis/1"),
-            components_protected: vec![ODataId::new(format!(
-                "/redfish/v1/Systems/{component_id}"
-            ))],
+            components_protected: vec![ODataId::new(format!("/redfish/v1/Systems/{component_id}"))],
             active_software_image: ODataId::new(
                 "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
             ),

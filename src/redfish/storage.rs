@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -99,9 +99,7 @@ pub async fn get_simple_storage(
     }
 
     Ok(Json(SimpleStorage {
-        odata_id: format!(
-            "/redfish/v1/Systems/{system_id}/SimpleStorage/{storage_id}"
-        ),
+        odata_id: format!("/redfish/v1/Systems/{system_id}/SimpleStorage/{storage_id}"),
         odata_type: "#SimpleStorage.v1_3_0.SimpleStorage",
         id: storage_id,
         name: "Simple Storage Controller".to_string(),
@@ -110,9 +108,7 @@ pub async fn get_simple_storage(
         uefi_device_path: "",
         links: SimpleStorageLinks {
             chassis: ODataId::new("/redfish/v1/Chassis/1"),
-            storage: ODataId::new(format!(
-                "/redfish/v1/Systems/{system_id}/Storage/Virtio"
-            )),
+            storage: ODataId::new(format!("/redfish/v1/Systems/{system_id}/Storage/Virtio")),
         },
         status: Status::enabled_ok(),
     }))

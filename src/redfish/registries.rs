@@ -1,5 +1,5 @@
-use axum::extract::Path;
 use axum::Json;
+use axum::extract::Path;
 use serde::Serialize;
 
 use super::error::RedfishApiError;

@@ -1,6 +1,8 @@
 use axum::Json;
+use axum::extract::Path;
 use serde::Serialize;
 
+use super::error::RedfishApiError;
 use super::types::{Collection, ODataId};
 
 #[derive(Debug, Serialize)]
@@ -39,9 +41,7 @@ pub async fn get_telemetry_service() -> Json<TelemetryServiceResource> {
         name: "Telemetry Service",
         description: "Telemetry and metrics service",
         service_enabled: true,
-        metric_definitions: ODataId::new(
-            "/redfish/v1/TelemetryService/MetricDefinitions",
-        ),
+        metric_definitions: ODataId::new("/redfish/v1/TelemetryService/MetricDefinitions"),
         metric_reports: ODataId::new("/redfish/v1/TelemetryService/MetricReports"),
         max_reports: 10,
         min_collection_interval: "PT10S",
@@ -50,8 +50,7 @@ pub async fn get_telemetry_service() -> Json<TelemetryServiceResource> {
     })
 }
 
-#[derive(Debug, Serialize)]
-#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MetricDefinition {
     #[serde(rename = "@odata.id")]
     pub odata_id: String,
@@ -67,13 +66,59 @@ pub struct MetricDefinition {
     pub units: Option<String>,
 }
 
+fn built_in_metric_definitions() -> Vec<MetricDefinition> {
+    vec![
+        MetricDefinition {
+            odata_id: "/redfish/v1/TelemetryService/MetricDefinitions/HttpRequestsTotal"
+                .to_string(),
+            odata_type: "#MetricDefinition.v1_3_0.MetricDefinition",
+            id: "HttpRequestsTotal".to_string(),
+            name: "HTTP Requests Total".to_string(),
+            metric_type: "Counter".to_string(),
+            units: Some("{requests}".to_string()),
+        },
+        MetricDefinition {
+            odata_id: "/redfish/v1/TelemetryService/MetricDefinitions/HttpRequestDuration"
+                .to_string(),
+            odata_type: "#MetricDefinition.v1_3_0.MetricDefinition",
+            id: "HttpRequestDuration".to_string(),
+            name: "HTTP Request Duration".to_string(),
+            metric_type: "Gauge".to_string(),
+            units: Some("s".to_string()),
+        },
+        MetricDefinition {
+            odata_id: "/redfish/v1/TelemetryService/MetricDefinitions/VmPowerState".to_string(),
+            odata_type: "#MetricDefinition.v1_3_0.MetricDefinition",
+            id: "VmPowerState".to_string(),
+            name: "VM Power State".to_string(),
+            metric_type: "Discrete".to_string(),
+            units: None,
+        },
+    ]
+}
+
 pub async fn get_metric_definitions() -> Json<Collection<ODataId>> {
+    let members: Vec<ODataId> = built_in_metric_definitions()
+        .iter()
+        .map(|d| ODataId::new(&d.odata_id))
+        .collect();
+
     Json(Collection::new(
         "/redfish/v1/TelemetryService/MetricDefinitions",
         "#MetricDefinitionCollection.MetricDefinitionCollection",
         "Metric Definitions",
-        Vec::<ODataId>::new(),
+        members,
     ))
+}
+
+pub async fn get_metric_definition(
+    Path(def_id): Path<String>,
+) -> Result<Json<MetricDefinition>, RedfishApiError> {
+    built_in_metric_definitions()
+        .into_iter()
+        .find(|d| d.id == def_id)
+        .map(Json)
+        .ok_or_else(|| RedfishApiError::NotFound(format!("Metric definition '{def_id}' not found")))
 }
 
 pub async fn get_metric_reports() -> Json<Collection<ODataId>> {

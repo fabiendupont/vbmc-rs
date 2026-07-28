@@ -1,8 +1,10 @@
 use std::path::{Path, PathBuf};
 
+use serde::de::DeserializeOwned;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
+use super::types::{QmpGreeting, QmpResponse};
 use crate::backend::BackendError;
 
 pub struct QmpClient {
@@ -16,14 +18,15 @@ impl QmpClient {
         }
     }
 
-    /// Execute a QMP command and return the raw JSON response.
-    /// Each call opens a new connection, performs the greeting/capabilities
-    /// handshake, sends the command, and returns the result.
-    pub async fn execute(
+    async fn connect(
         &self,
-        command: &str,
-        arguments: Option<serde_json::Value>,
-    ) -> Result<serde_json::Value, BackendError> {
+    ) -> Result<
+        (
+            BufReader<tokio::net::unix::OwnedReadHalf>,
+            tokio::net::unix::OwnedWriteHalf,
+        ),
+        BackendError,
+    > {
         let stream = UnixStream::connect(&self.socket_path).await.map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound
                 || e.kind() == std::io::ErrorKind::ConnectionRefused
@@ -34,27 +37,29 @@ impl QmpClient {
             }
         })?;
 
-        let (reader, mut writer) = stream.into_split();
-        let mut reader = BufReader::new(reader);
+        let (reader, writer) = stream.into_split();
+        Ok((BufReader::new(reader), writer))
+    }
+
+    async fn handshake(
+        reader: &mut BufReader<tokio::net::unix::OwnedReadHalf>,
+        writer: &mut tokio::net::unix::OwnedWriteHalf,
+    ) -> Result<QmpGreeting, BackendError> {
         let mut line = String::new();
 
-        // 1. Read QMP greeting
+        // Read and parse QMP greeting
         reader
             .read_line(&mut line)
             .await
             .map_err(|e| BackendError::ConnectionFailed(e.to_string()))?;
 
-        // Validate it's a QMP greeting
-        if !line.contains("\"QMP\"") {
-            return Err(BackendError::ApiError(format!(
-                "Expected QMP greeting, got: {line}"
-            )));
-        }
+        let greeting: QmpGreeting = serde_json::from_str(&line)
+            .map_err(|e| BackendError::ApiError(format!("Invalid QMP greeting: {e}")))?;
 
-        // 2. Send qmp_capabilities to enter command mode
+        // Send qmp_capabilities to enter command mode
         let caps = serde_json::json!({"execute": "qmp_capabilities"});
-        let mut caps_bytes = serde_json::to_vec(&caps)
-            .map_err(|e| BackendError::ApiError(e.to_string()))?;
+        let mut caps_bytes =
+            serde_json::to_vec(&caps).map_err(|e| BackendError::ApiError(e.to_string()))?;
         caps_bytes.push(b'\n');
         writer
             .write_all(&caps_bytes)
@@ -68,30 +73,50 @@ impl QmpClient {
             .await
             .map_err(|e| BackendError::ConnectionFailed(e.to_string()))?;
 
-        // Check for error in capabilities response
-        let caps_resp: serde_json::Value = serde_json::from_str(&line)
+        let caps_resp: QmpResponse<serde_json::Value> = serde_json::from_str(&line)
             .map_err(|e| BackendError::ApiError(format!("Invalid QMP response: {e}")))?;
-        if caps_resp.get("error").is_some() {
+        if let Some(err) = caps_resp.error {
             return Err(BackendError::ApiError(format!(
                 "qmp_capabilities failed: {}",
-                caps_resp
+                err.desc
             )));
         }
 
-        // 3. Send the actual command
+        Ok(greeting)
+    }
+
+    /// Connect, perform the QMP handshake, and return the QEMU version string.
+    pub async fn query_version(&self) -> Result<String, BackendError> {
+        let (mut reader, mut writer) = self.connect().await?;
+        let greeting = Self::handshake(&mut reader, &mut writer).await?;
+        let v = &greeting.qmp.version.qemu;
+        Ok(format!("{}.{}.{}", v.major, v.minor, v.micro))
+    }
+
+    /// Execute a QMP command and deserialize the response into `T`.
+    pub async fn execute<T: DeserializeOwned>(
+        &self,
+        command: &str,
+        arguments: Option<serde_json::Value>,
+    ) -> Result<T, BackendError> {
+        let (mut reader, mut writer) = self.connect().await?;
+        Self::handshake(&mut reader, &mut writer).await?;
+
+        // Send the command
         let mut cmd = serde_json::json!({"execute": command});
         if let Some(args) = arguments {
             cmd["arguments"] = args;
         }
-        let mut cmd_bytes = serde_json::to_vec(&cmd)
-            .map_err(|e| BackendError::ApiError(e.to_string()))?;
+        let mut cmd_bytes =
+            serde_json::to_vec(&cmd).map_err(|e| BackendError::ApiError(e.to_string()))?;
         cmd_bytes.push(b'\n');
         writer
             .write_all(&cmd_bytes)
             .await
             .map_err(|e| BackendError::ConnectionFailed(e.to_string()))?;
 
-        // 4. Read response, skipping event messages
+        // Read response, skipping event messages
+        let mut line = String::new();
         loop {
             line.clear();
             let bytes_read = reader
@@ -105,29 +130,39 @@ impl QmpClient {
                 ));
             }
 
-            let resp: serde_json::Value = serde_json::from_str(&line)
-                .map_err(|e| BackendError::ApiError(format!("Invalid JSON: {e}")))?;
-
             // Skip event notifications
-            if resp.get("event").is_some() {
+            let peek: serde_json::Value = serde_json::from_str(&line)
+                .map_err(|e| BackendError::ApiError(format!("Invalid JSON: {e}")))?;
+            if peek.get("event").is_some() {
                 continue;
             }
 
-            // Check for error
-            if let Some(err) = resp.get("error") {
-                let desc = err
-                    .get("desc")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown error");
-                return Err(BackendError::ApiError(format!("QMP error: {desc}")));
+            // Parse as typed response
+            let resp: QmpResponse<T> = serde_json::from_str(&line).map_err(|e| {
+                BackendError::ApiError(format!("Failed to parse QMP response: {e}"))
+            })?;
+
+            if let Some(err) = resp.error {
+                return Err(BackendError::ApiError(format!("QMP error: {}", err.desc)));
             }
 
-            // Return the "return" field
-            if let Some(result) = resp.get("return") {
-                return Ok(result.clone());
+            if let Some(result) = resp.result {
+                return Ok(result);
             }
 
-            return Ok(resp);
+            return Err(BackendError::ApiError(
+                "QMP response contained neither 'return' nor 'error'".to_string(),
+            ));
         }
+    }
+
+    /// Execute a QMP command that returns `{"return": {}}`.
+    pub async fn execute_void(
+        &self,
+        command: &str,
+        arguments: Option<serde_json::Value>,
+    ) -> Result<(), BackendError> {
+        let _: serde_json::Value = self.execute(command, arguments).await?;
+        Ok(())
     }
 }

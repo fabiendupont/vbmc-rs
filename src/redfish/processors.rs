@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -240,9 +240,7 @@ pub async fn get_processor(
     let max_speed_mhz = get_host_cpu_mhz();
 
     Ok(Json(Processor {
-        odata_id: format!(
-            "/redfish/v1/Systems/{system_id}/Processors/CPU0"
-        ),
+        odata_id: format!("/redfish/v1/Systems/{system_id}/Processors/CPU0"),
         odata_type: "#Processor.v1_18_0.Processor",
         id: "CPU0",
         name: "Virtual CPU",
@@ -380,13 +378,7 @@ fn get_host_cpu_manufacturer() -> String {
             content
                 .lines()
                 .find(|l| l.starts_with("vendor_id"))
-                .map(|l| {
-                    l.split(':')
-                        .nth(1)
-                        .unwrap_or("Unknown")
-                        .trim()
-                        .to_string()
-                })
+                .map(|l| l.split(':').nth(1).unwrap_or("Unknown").trim().to_string())
         })
         .unwrap_or_else(|| "Unknown".to_string())
 }

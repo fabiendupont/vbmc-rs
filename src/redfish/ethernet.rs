@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
@@ -83,9 +83,7 @@ pub async fn get_ethernet_interface(
         .ok_or_else(|| RedfishApiError::NotFound(format!("NIC '{nic_id}' not found")))?;
 
     Ok(Json(EthernetInterface {
-        odata_id: format!(
-            "/redfish/v1/Systems/{system_id}/EthernetInterfaces/{nic_id}"
-        ),
+        odata_id: format!("/redfish/v1/Systems/{system_id}/EthernetInterfaces/{nic_id}"),
         odata_type: "#EthernetInterface.v1_12_0.EthernetInterface",
         id: nic_id,
         name: nic.id.clone(),

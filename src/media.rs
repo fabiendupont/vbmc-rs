@@ -5,11 +5,7 @@ use tokio::io::AsyncWriteExt;
 pub async fn download_image(url: &str, download_dir: &Path) -> anyhow::Result<PathBuf> {
     tokio::fs::create_dir_all(download_dir).await?;
 
-    let file_name = url
-        .rsplit('/')
-        .next()
-        .unwrap_or("image.iso")
-        .to_string();
+    let file_name = url.rsplit('/').next().unwrap_or("image.iso").to_string();
 
     let dest = download_dir.join(&file_name);
 
@@ -20,11 +16,7 @@ pub async fn download_image(url: &str, download_dir: &Path) -> anyhow::Result<Pa
 
     let response = reqwest::get(url).await?;
     if !response.status().is_success() {
-        anyhow::bail!(
-            "Failed to download {}: HTTP {}",
-            url,
-            response.status()
-        );
+        anyhow::bail!("Failed to download {}: HTTP {}", url, response.status());
     }
 
     let tmp_path = download_dir.join(format!(".{file_name}.tmp"));

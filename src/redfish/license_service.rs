@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::{Deserialize, Serialize};
 
 use super::error::RedfishApiError;
@@ -59,9 +59,7 @@ pub async fn get_license_service() -> Json<LicenseServiceResource> {
     })
 }
 
-pub async fn get_licenses(
-    State(state): State<Arc<AppState>>,
-) -> Json<Collection<ODataId>> {
+pub async fn get_licenses(State(state): State<Arc<AppState>>) -> Json<Collection<ODataId>> {
     // Collect licenses from all system states
     let mut members = Vec::new();
     for entry in state.vm_states.iter() {

@@ -9,11 +9,9 @@ use tower::ServiceExt;
 
 use crate::app_state::AppState;
 use crate::auth::accounts::AccountStore;
-use crate::backend::mock::MockBackend;
-use crate::backend::types::{
-    DiskInfo, DiskMediaType, DiskProtocol, NicInfo, VmInfo, VmPowerState,
-};
 use crate::backend::Backend;
+use crate::backend::mock::MockBackend;
+use crate::backend::types::{DiskInfo, DiskMediaType, DiskProtocol, NicInfo, VmInfo, VmPowerState};
 use crate::config::{
     AppConfig, AuthConfig, BackendType, DefaultsConfig, HardwareConfig, MetricsConfig,
     SecurityPolicyConfig, ServerConfig, SystemConfig,
@@ -67,7 +65,7 @@ fn make_running_vm() -> VmInfo {
             capacity_bytes: Some(10_000_000_000),
             readonly: false,
             protocol: DiskProtocol::Virtio,
-            media_type: DiskMediaType::SSD,
+            media_type: DiskMediaType::Ssd,
         }],
         nics: vec![NicInfo {
             id: "NIC0".to_string(),
@@ -94,7 +92,10 @@ fn build_app(state: Arc<AppState>) -> axum::Router {
     crate::redfish::router(state)
 }
 
-async fn get(app: &axum::Router, uri: &str) -> (StatusCode, serde_json::Value, axum::http::HeaderMap) {
+async fn get(
+    app: &axum::Router,
+    uri: &str,
+) -> (StatusCode, serde_json::Value, axum::http::HeaderMap) {
     let req = Request::builder()
         .method("GET")
         .uri(uri)
@@ -281,8 +282,14 @@ async fn test_service_root() {
     assert_eq!(json["Systems"]["@odata.id"], "/redfish/v1/Systems");
     assert_eq!(json["Managers"]["@odata.id"], "/redfish/v1/Managers");
     assert_eq!(json["Chassis"]["@odata.id"], "/redfish/v1/Chassis");
-    assert_eq!(json["UpdateService"]["@odata.id"], "/redfish/v1/UpdateService");
-    assert_eq!(json["LicenseService"]["@odata.id"], "/redfish/v1/LicenseService");
+    assert_eq!(
+        json["UpdateService"]["@odata.id"],
+        "/redfish/v1/UpdateService"
+    );
+    assert_eq!(
+        json["LicenseService"]["@odata.id"],
+        "/redfish/v1/LicenseService"
+    );
 }
 
 // ── Systems ───────────────────────────────────────────────────────────
@@ -298,7 +305,12 @@ async fn test_systems_collection() {
     let (status, json, _) = get(&app, "/redfish/v1/Systems").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["Members@odata.count"], 2);
-    assert!(json["@odata.context"].as_str().unwrap().starts_with("/redfish/v1/$metadata#"));
+    assert!(
+        json["@odata.context"]
+            .as_str()
+            .unwrap()
+            .starts_with("/redfish/v1/$metadata#")
+    );
 }
 
 #[tokio::test]
@@ -319,7 +331,9 @@ async fn test_get_system_running() {
     assert_eq!(json["Status"]["Health"], "OK");
     assert_eq!(json["ProcessorSummary"]["Count"], 4);
     // 4 GiB
-    let mem_gib = json["MemorySummary"]["TotalSystemMemoryGiB"].as_f64().unwrap();
+    let mem_gib = json["MemorySummary"]["TotalSystemMemoryGiB"]
+        .as_f64()
+        .unwrap();
     assert!((mem_gib - 4.0).abs() < 0.01);
     // Links present
     assert!(json["Memory"]["@odata.id"].as_str().is_some());
@@ -335,7 +349,12 @@ async fn test_get_system_not_found() {
 
     let (status, json, _) = get(&app, "/redfish/v1/Systems/nonexistent").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(json["error"]["message"].as_str().unwrap().contains("nonexistent"));
+    assert!(
+        json["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("nonexistent")
+    );
 }
 
 #[tokio::test]
@@ -396,7 +415,12 @@ async fn test_reset_graceful_shutdown() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(json["message"].as_str().unwrap().contains("GracefulShutdown"));
+    assert!(
+        json["message"]
+            .as_str()
+            .unwrap()
+            .contains("GracefulShutdown")
+    );
 }
 
 #[tokio::test]
@@ -413,7 +437,12 @@ async fn test_reset_invalid_type() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(json["error"]["message"].as_str().unwrap().contains("InvalidType"));
+    assert!(
+        json["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("InvalidType")
+    );
 }
 
 #[tokio::test]
@@ -421,7 +450,7 @@ async fn test_reset_not_found_system() {
     let state = make_app_state(MockBackend::new(), HashMap::new());
     let app = build_app(state);
 
-    let (status, _, ) = post_json(
+    let (status, _) = post_json(
         &app,
         "/redfish/v1/Systems/nonexistent/Actions/ComputerSystem.Reset",
         serde_json::json!({"ResetType": "On"}),
@@ -820,7 +849,10 @@ async fn test_component_integrity_minimal_spdm() {
     let (status, json, _) = get(&app, "/redfish/v1/ComponentIntegrity/vm1").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["ComponentIntegrityType"], "SPDM");
-    assert_eq!(json["SPDM"]["Requester"]["@odata.id"], "/redfish/v1/ComponentIntegrity/vm1");
+    assert_eq!(
+        json["SPDM"]["Requester"]["@odata.id"],
+        "/redfish/v1/ComponentIntegrity/vm1"
+    );
     // No evidence → no MeasurementSet or IdentityAuthentication
     assert!(json["SPDM"]["MeasurementSet"].is_null());
     assert!(json["SPDM"]["IdentityAuthentication"].is_null());
@@ -828,7 +860,9 @@ async fn test_component_integrity_minimal_spdm() {
 
 #[tokio::test]
 async fn test_component_integrity_with_evidence() {
-    use crate::attestation::trust_chain::{AttestationEvidence, MeasurementEntry, VerificationStatus};
+    use crate::attestation::trust_chain::{
+        AttestationEvidence, MeasurementEntry, VerificationStatus,
+    };
 
     let mut systems = HashMap::new();
     systems.insert("vm1".to_string(), make_system_config("VM 1"));
@@ -861,7 +895,10 @@ async fn test_component_integrity_with_evidence() {
 
     // Full SPDM structure present
     let spdm = &json["SPDM"];
-    assert_eq!(spdm["Requester"]["@odata.id"], "/redfish/v1/ComponentIntegrity/vm1");
+    assert_eq!(
+        spdm["Requester"]["@odata.id"],
+        "/redfish/v1/ComponentIntegrity/vm1"
+    );
 
     let mset = &spdm["MeasurementSet"];
     assert_eq!(mset["MeasurementSpecification"], "DMTF");
@@ -878,5 +915,8 @@ async fn test_component_integrity_with_evidence() {
     assert_eq!(m0["LastUpdated"], "2026-01-15T10:00:00Z");
 
     let identity = &spdm["IdentityAuthentication"];
-    assert_eq!(identity["ResponderAuthentication"]["VerificationStatus"], "Success");
+    assert_eq!(
+        identity["ResponderAuthentication"]["VerificationStatus"],
+        "Success"
+    );
 }
