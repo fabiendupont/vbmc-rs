@@ -372,8 +372,7 @@ pub fn set_secure_boot_xml(
                     1,
                 );
             }
-        } else if result.contains("<smm state='off'/>") || result.contains("<smm state=\"off\"/>")
-        {
+        } else if result.contains("<smm state='off'/>") || result.contains("<smm state=\"off\"/>") {
             result = result
                 .replace("<smm state='off'/>", "<smm state='on'/>")
                 .replace("<smm state=\"off\"/>", "<smm state='on'/>");

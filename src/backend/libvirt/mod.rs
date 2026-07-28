@@ -216,11 +216,7 @@ impl VmmBackend for LibvirtBackend {
         Ok(counters)
     }
 
-    async fn vm_set_secure_boot(
-        &self,
-        system_id: &str,
-        enabled: bool,
-    ) -> Result<(), BackendError> {
+    async fn vm_set_secure_boot(&self, system_id: &str, enabled: bool) -> Result<(), BackendError> {
         let domain = self.domain_for(system_id)?;
         let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
 

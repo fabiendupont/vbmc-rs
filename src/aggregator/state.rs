@@ -7,6 +7,7 @@ use super::config::AggregatorConfig;
 use super::discovery::SidecarRegistry;
 use super::proxy::ProxyClient;
 
+#[allow(dead_code)]
 pub struct AggregatorState {
     pub config: AggregatorConfig,
     pub registry: Arc<SidecarRegistry>,

@@ -37,9 +37,9 @@ impl fmt::Display for BackendError {
 
 impl std::error::Error for BackendError {}
 
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(test)]
 mod tests {
-    use super::*;
+    use super::BackendError;
 
     #[test]
     fn test_backend_error_display() {
@@ -158,11 +158,17 @@ pub mod mock {
         vms: Mutex<HashMap<String, bt::VmInfo>>,
     }
 
-    impl MockBackend {
-        pub fn new() -> Self {
+    impl Default for MockBackend {
+        fn default() -> Self {
             Self {
                 vms: Mutex::new(HashMap::new()),
             }
+        }
+    }
+
+    impl MockBackend {
+        pub fn new() -> Self {
+            Self::default()
         }
 
         pub fn with_vm(self, system_id: &str, info: bt::VmInfo) -> Self {
@@ -405,11 +411,7 @@ impl VmmBackend for Backend {
         }
     }
 
-    async fn vm_set_secure_boot(
-        &self,
-        system_id: &str,
-        enabled: bool,
-    ) -> Result<(), BackendError> {
+    async fn vm_set_secure_boot(&self, system_id: &str, enabled: bool) -> Result<(), BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_set_secure_boot(system_id, enabled).await,
             #[cfg(feature = "kubevirt")]

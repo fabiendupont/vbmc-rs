@@ -11,7 +11,9 @@ use vbmc_rs::app_state::AppState;
 use vbmc_rs::auth::accounts::AccountStore;
 use vbmc_rs::backend::Backend;
 use vbmc_rs::backend::mock::MockBackend;
-use vbmc_rs::backend::types::{DiskInfo, DiskMediaType, DiskProtocol, NicInfo, VmInfo, VmPowerState};
+use vbmc_rs::backend::types::{
+    DiskInfo, DiskMediaType, DiskProtocol, NicInfo, VmInfo, VmPowerState,
+};
 use vbmc_rs::config::{
     AppConfig, AuthConfig, BackendType, DefaultsConfig, HardwareConfig, MetricsConfig,
     SecurityPolicyConfig, ServerConfig, SystemConfig,

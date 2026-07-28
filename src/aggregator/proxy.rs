@@ -12,9 +12,11 @@ impl ProxyClient {
     pub fn new(sidecar_config: &super::config::SidecarConnectionConfig) -> anyhow::Result<Self> {
         let mut builder = reqwest::Client::builder();
 
-        if let (Some(ca), Some(cert), Some(key)) =
-            (&sidecar_config.tls_ca, &sidecar_config.tls_cert, &sidecar_config.tls_key)
-        {
+        if let (Some(ca), Some(cert), Some(key)) = (
+            &sidecar_config.tls_ca,
+            &sidecar_config.tls_cert,
+            &sidecar_config.tls_key,
+        ) {
             let ca_pem = std::fs::read(ca)?;
             builder = builder.add_root_certificate(reqwest::Certificate::from_pem(&ca_pem)?);
 

@@ -121,8 +121,14 @@ pub async fn create_session(
                 event_id: uuid::Uuid::new_v4().to_string(),
                 event_timestamp: Utc::now(),
                 message_id: MSG_ACCOUNT_LOCKED.to_string(),
-                message: format!("Account '{}' locked after too many failed attempts", body.user_name),
-                origin_of_condition: Some(format!("/redfish/v1/AccountService/Accounts/{}", body.user_name)),
+                message: format!(
+                    "Account '{}' locked after too many failed attempts",
+                    body.user_name
+                ),
+                origin_of_condition: Some(format!(
+                    "/redfish/v1/AccountService/Accounts/{}",
+                    body.user_name
+                )),
                 severity: SEVERITY_WARNING.to_string(),
                 actor: Some(body.user_name.clone()),
                 payload: None,

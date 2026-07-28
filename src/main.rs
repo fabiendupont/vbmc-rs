@@ -11,11 +11,11 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 use vbmc_rs::app_state::AppState;
 use vbmc_rs::auth::accounts::AccountStore;
+#[cfg(any(feature = "qemu", feature = "libvirt", feature = "kubevirt"))]
+use vbmc_rs::backend;
 use vbmc_rs::backend::Backend;
 use vbmc_rs::backend::cloud_hypervisor::CloudHypervisorBackend;
 use vbmc_rs::{attestation, config, events, prometheus, redfish, tls};
-#[cfg(any(feature = "qemu", feature = "libvirt", feature = "kubevirt"))]
-use vbmc_rs::backend;
 
 #[derive(Parser, Debug)]
 #[command(name = "vbmc-rs", version, about = "Redfish-compliant virtual BMC")]
@@ -58,11 +58,9 @@ async fn main() -> anyhow::Result<()> {
         #[cfg(feature = "libvirt")]
         config::BackendType::Libvirt => backend::libvirt::build_backend(&config)?,
         #[cfg(feature = "kubevirt")]
-        config::BackendType::KubeVirt => {
-            backend::kubevirt::build_backend(&config)
-                .await
-                .map_err(|e| anyhow::anyhow!("{e}"))?
-        }
+        config::BackendType::KubeVirt => backend::kubevirt::build_backend(&config)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?,
     };
 
     // Load accounts
@@ -78,8 +76,8 @@ async fn main() -> anyhow::Result<()> {
         &config.server,
         config.security_policy.tls_minimum_version.as_deref(),
     )?;
-    let rustls_config = tls_server_config
-        .map(|c| axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(c)));
+    let rustls_config =
+        tls_server_config.map(|c| axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(c)));
 
     let app_state = Arc::new(AppState::new(
         config.clone(),

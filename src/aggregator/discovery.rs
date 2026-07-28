@@ -21,10 +21,8 @@ impl SidecarRegistry {
     }
 
     pub fn register(&self, system_id: String, url: String) {
-        self.endpoints.insert(
-            system_id.clone(),
-            SidecarEndpoint { system_id, url },
-        );
+        self.endpoints
+            .insert(system_id.clone(), SidecarEndpoint { system_id, url });
     }
 
     pub fn deregister(&self, system_id: &str) {
@@ -63,7 +61,7 @@ pub async fn start_kubernetes_watcher(
     use kube::runtime::watcher;
     use kube::runtime::watcher::Event;
     use tokio_stream::StreamExt;
-    use tracing::{warn, debug};
+    use tracing::{debug, warn};
 
     let client = match kube::Client::try_default().await {
         Ok(c) => c,

@@ -65,6 +65,77 @@ impl Default for SubscriptionStore {
     }
 }
 
+pub fn start_webhook_delivery(
+    mut rx: broadcast::Receiver<RedfishEvent>,
+    subscription: Subscription,
+) {
+    tokio::spawn(async move {
+        let client = reqwest::Client::new();
+        let backoff_schedule = [1u64, 5, 30];
+
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if !subscription.event_types.is_empty()
+                        && !subscription.event_types.contains(&event.event_type)
+                    {
+                        continue;
+                    }
+
+                    let payload = serde_json::json!({
+                        "@odata.type": "#Event.v1_9_0.Event",
+                        "Events": [event],
+                    });
+
+                    let mut delivered = false;
+                    for (attempt, &delay) in backoff_schedule.iter().enumerate() {
+                        match client
+                            .post(&subscription.destination)
+                            .json(&payload)
+                            .send()
+                            .await
+                        {
+                            Ok(resp) if resp.status().is_success() => {
+                                delivered = true;
+                                break;
+                            }
+                            Ok(resp) => {
+                                warn!(
+                                    "Webhook delivery attempt {} to {} failed: HTTP {}",
+                                    attempt + 1,
+                                    subscription.destination,
+                                    resp.status()
+                                );
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Webhook delivery attempt {} to {} failed: {}",
+                                    attempt + 1,
+                                    subscription.destination,
+                                    e
+                                );
+                            }
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+                    }
+
+                    if !delivered {
+                        error!(
+                            "Failed to deliver webhook to {} after {} attempts",
+                            subscription.destination,
+                            backoff_schedule.len()
+                        );
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    warn!("Webhook subscriber lagged, missed {n} events");
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests_subscription_store {
     use super::*;
@@ -142,76 +213,4 @@ mod tests_subscription_store {
         store.remove(&s1.id);
         assert_eq!(store.list().len(), 1);
     }
-}
-
-pub fn start_webhook_delivery(
-    mut rx: broadcast::Receiver<RedfishEvent>,
-    subscription: Subscription,
-) {
-    tokio::spawn(async move {
-        let client = reqwest::Client::new();
-        let backoff_schedule = [1u64, 5, 30];
-
-        loop {
-            match rx.recv().await {
-                Ok(event) => {
-                    // Filter by event type if specified
-                    if !subscription.event_types.is_empty()
-                        && !subscription.event_types.contains(&event.event_type)
-                    {
-                        continue;
-                    }
-
-                    let payload = serde_json::json!({
-                        "@odata.type": "#Event.v1_9_0.Event",
-                        "Events": [event],
-                    });
-
-                    let mut delivered = false;
-                    for (attempt, &delay) in backoff_schedule.iter().enumerate() {
-                        match client
-                            .post(&subscription.destination)
-                            .json(&payload)
-                            .send()
-                            .await
-                        {
-                            Ok(resp) if resp.status().is_success() => {
-                                delivered = true;
-                                break;
-                            }
-                            Ok(resp) => {
-                                warn!(
-                                    "Webhook delivery attempt {} to {} failed: HTTP {}",
-                                    attempt + 1,
-                                    subscription.destination,
-                                    resp.status()
-                                );
-                            }
-                            Err(e) => {
-                                warn!(
-                                    "Webhook delivery attempt {} to {} failed: {}",
-                                    attempt + 1,
-                                    subscription.destination,
-                                    e
-                                );
-                            }
-                        }
-                        tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
-                    }
-
-                    if !delivered {
-                        error!(
-                            "Failed to deliver webhook to {} after {} attempts",
-                            subscription.destination,
-                            backoff_schedule.len()
-                        );
-                    }
-                }
-                Err(broadcast::error::RecvError::Lagged(n)) => {
-                    warn!("Webhook subscriber lagged, missed {n} events");
-                }
-                Err(broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
 }

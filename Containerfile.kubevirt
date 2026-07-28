@@ -1,20 +1,22 @@
-FROM registry.access.redhat.com/ubi9/ubi as builder
+FROM registry.fedoraproject.org/fedora:latest AS builder
 
-RUN dnf install -y gcc make openssl-devel && dnf clean all
-
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+RUN dnf install -y gcc musl-gcc musl-libc-static && dnf clean all
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rustup target add x86_64-unknown-linux-musl
+
+ENV K8S_OPENAPI_ENABLED_VERSION=1.32
 
 WORKDIR /build
 COPY . .
 
-RUN cargo build --release --features "cloud-hypervisor,qemu,kubevirt,aggregator"
+RUN cargo build --release --target x86_64-unknown-linux-musl --features "cloud-hypervisor,qemu,kubevirt,aggregator"
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal
+FROM scratch
 
-COPY --from=builder /build/target/release/vbmc-rs /usr/local/bin/vbmc-rs
-COPY --from=builder /build/target/release/vbmc-rs-aggregator /usr/local/bin/vbmc-rs-aggregator
+COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/vbmc-rs /vbmc-rs
+COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/vbmc-rs-aggregator /vbmc-rs-aggregator
 
 EXPOSE 8000
-ENTRYPOINT ["/usr/local/bin/vbmc-rs"]
+ENTRYPOINT ["/vbmc-rs"]
 CMD ["-c", "/etc/vbmc-rs/config.toml"]

@@ -1,8 +1,7 @@
-FROM registry.access.redhat.com/ubi9/ubi as builder
+FROM registry.fedoraproject.org/fedora:latest AS builder
 
-RUN dnf install -y gcc make openssl-devel libvirt-devel && dnf clean all
-
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+RUN dnf install -y gcc libvirt-devel && dnf clean all
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /build
@@ -10,7 +9,7 @@ COPY . .
 
 RUN cargo build --release --features "cloud-hypervisor,qemu,libvirt"
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal
+FROM registry.fedoraproject.org/fedora-minimal:latest
 
 RUN microdnf install -y libvirt-libs && microdnf clean all
 

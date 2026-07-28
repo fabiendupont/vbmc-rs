@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use axum::Json;
+use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
 use tracing::warn;
 
 use super::state::AggregatorState;
@@ -56,9 +56,7 @@ async fn get_redfish_root() -> Json<serde_json::Value> {
     }))
 }
 
-async fn get_service_root(
-    State(state): State<Arc<AggregatorState>>,
-) -> Json<serde_json::Value> {
+async fn get_service_root(State(state): State<Arc<AggregatorState>>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "@odata.id": "/redfish/v1",
         "@odata.type": "#ServiceRoot.v1_17_0.ServiceRoot",
@@ -149,9 +147,15 @@ async fn proxy_system_get(
     Path(system_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let endpoint = state
+        .registry
+        .get(&system_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
     let path = format!("/redfish/v1/Systems/{system_id}");
-    state.proxy.forward(&endpoint, Method::GET, &path, headers, None).await
+    state
+        .proxy
+        .forward(&endpoint, Method::GET, &path, headers, None)
+        .await
 }
 
 async fn proxy_system_mutate(
@@ -161,10 +165,16 @@ async fn proxy_system_mutate(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, StatusCode> {
-    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let endpoint = state
+        .registry
+        .get(&system_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
     let path = format!("/redfish/v1/Systems/{system_id}");
     let body_opt = if body.is_empty() { None } else { Some(body) };
-    state.proxy.forward(&endpoint, method, &path, headers, body_opt).await
+    state
+        .proxy
+        .forward(&endpoint, method, &path, headers, body_opt)
+        .await
 }
 
 async fn proxy_system_sub_get(
@@ -172,9 +182,15 @@ async fn proxy_system_sub_get(
     Path((system_id, rest)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let endpoint = state
+        .registry
+        .get(&system_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
     let path = format!("/redfish/v1/Systems/{system_id}/{rest}");
-    state.proxy.forward(&endpoint, Method::GET, &path, headers, None).await
+    state
+        .proxy
+        .forward(&endpoint, Method::GET, &path, headers, None)
+        .await
 }
 
 async fn proxy_system_sub_mutate(
@@ -184,10 +200,16 @@ async fn proxy_system_sub_mutate(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, StatusCode> {
-    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let endpoint = state
+        .registry
+        .get(&system_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
     let path = format!("/redfish/v1/Systems/{system_id}/{rest}");
     let body_opt = if body.is_empty() { None } else { Some(body) };
-    state.proxy.forward(&endpoint, method, &path, headers, body_opt).await
+    state
+        .proxy
+        .forward(&endpoint, method, &path, headers, body_opt)
+        .await
 }
 
 async fn proxy_chassis_get(
@@ -195,9 +217,15 @@ async fn proxy_chassis_get(
     Path(system_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let endpoint = state
+        .registry
+        .get(&system_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
     let path = format!("/redfish/v1/Chassis/{system_id}");
-    state.proxy.forward(&endpoint, Method::GET, &path, headers, None).await
+    state
+        .proxy
+        .forward(&endpoint, Method::GET, &path, headers, None)
+        .await
 }
 
 async fn proxy_chassis_mutate(
@@ -207,10 +235,16 @@ async fn proxy_chassis_mutate(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, StatusCode> {
-    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let endpoint = state
+        .registry
+        .get(&system_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
     let path = format!("/redfish/v1/Chassis/{system_id}");
     let body_opt = if body.is_empty() { None } else { Some(body) };
-    state.proxy.forward(&endpoint, method, &path, headers, body_opt).await
+    state
+        .proxy
+        .forward(&endpoint, method, &path, headers, body_opt)
+        .await
 }
 
 async fn proxy_chassis_sub_get(
@@ -218,9 +252,15 @@ async fn proxy_chassis_sub_get(
     Path((system_id, rest)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let endpoint = state
+        .registry
+        .get(&system_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
     let path = format!("/redfish/v1/Chassis/{system_id}/{rest}");
-    state.proxy.forward(&endpoint, Method::GET, &path, headers, None).await
+    state
+        .proxy
+        .forward(&endpoint, Method::GET, &path, headers, None)
+        .await
 }
 
 async fn proxy_chassis_sub_mutate(
@@ -230,8 +270,14 @@ async fn proxy_chassis_sub_mutate(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, StatusCode> {
-    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let endpoint = state
+        .registry
+        .get(&system_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
     let path = format!("/redfish/v1/Chassis/{system_id}/{rest}");
     let body_opt = if body.is_empty() { None } else { Some(body) };
-    state.proxy.forward(&endpoint, method, &path, headers, body_opt).await
+    state
+        .proxy
+        .forward(&endpoint, method, &path, headers, body_opt)
+        .await
 }

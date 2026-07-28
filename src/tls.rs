@@ -8,11 +8,15 @@ use rustls::server::WebPkiClientVerifier;
 
 use crate::config;
 
-fn parse_tls_min_version(version: &str) -> anyhow::Result<&'static rustls::SupportedProtocolVersion> {
+fn parse_tls_min_version(
+    version: &str,
+) -> anyhow::Result<&'static rustls::SupportedProtocolVersion> {
     match version {
         "1.2" => Ok(&rustls::version::TLS12),
         "1.3" => Ok(&rustls::version::TLS13),
-        other => anyhow::bail!("unsupported TLS minimum version '{other}', expected '1.2' or '1.3'"),
+        other => {
+            anyhow::bail!("unsupported TLS minimum version '{other}', expected '1.2' or '1.3'")
+        }
     }
 }
 
@@ -56,9 +60,7 @@ pub fn build_tls_config(
             .with_client_cert_verifier(verifier)
             .with_single_cert(certs, key)?
     } else {
-        builder
-            .with_no_client_auth()
-            .with_single_cert(certs, key)?
+        builder.with_no_client_auth().with_single_cert(certs, key)?
     };
 
     tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
