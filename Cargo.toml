@@ -5,18 +5,30 @@ edition = "2024"
 description = "A Redfish-compliant virtual BMC"
 license = "Apache-2.0"
 
+[lib]
+name = "vbmc_rs"
+path = "src/lib.rs"
+
 [[bin]]
 name = "vbmc-rs"
 path = "src/main.rs"
+
+[[bin]]
+name = "vbmc-rs-aggregator"
+path = "src/aggregator/main.rs"
+required-features = ["aggregator"]
 
 [features]
 default = ["cloud-hypervisor"]
 cloud-hypervisor = []
 qemu = []
 libvirt = ["dep:quick-xml", "dep:virt"]
+kubevirt = ["dep:kube", "dep:k8s-openapi"]
+aggregator = ["dep:kube", "dep:k8s-openapi"]
 keylime = []
 trustee = []
 nvidia-cc = []
+test-support = []
 
 [dependencies]
 axum = { version = "0.8", features = ["macros"] }
@@ -49,8 +61,12 @@ tokio-rustls = "0.26"
 tokio-stream = { version = "0.1", features = ["sync"] }
 quick-xml = { version = "0.37", optional = true }
 virt = { version = "0.4", optional = true }
+kube = { version = "4.2.0", features = ["client", "runtime", "derive"], optional = true }
+k8s-openapi = { version = "0.28.0", optional = true }
 
 [dev-dependencies]
+k8s-openapi = { version = "0.28.0", features = ["latest"] }
 tempfile = "3"
 tokio-test = "0.4"
 tower = { version = "0.5", features = ["util"] }
+vbmc-rs = { path = ".", features = ["test-support"] }

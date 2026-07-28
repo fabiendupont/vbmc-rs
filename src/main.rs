@@ -1,18 +1,5 @@
-mod app_state;
-mod attestation;
-mod auth;
-mod backend;
-mod config;
-mod events;
 #[cfg(test)]
 mod integration_tests;
-mod media;
-mod prometheus;
-mod redfish;
-mod state;
-mod tasks;
-mod telemetry;
-mod tls;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -22,11 +9,13 @@ use clap::Parser;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
-
-use app_state::AppState;
-use auth::accounts::AccountStore;
-use backend::Backend;
-use backend::cloud_hypervisor::CloudHypervisorBackend;
+use vbmc_rs::app_state::AppState;
+use vbmc_rs::auth::accounts::AccountStore;
+use vbmc_rs::backend::Backend;
+use vbmc_rs::backend::cloud_hypervisor::CloudHypervisorBackend;
+use vbmc_rs::{attestation, config, events, prometheus, redfish, tls};
+#[cfg(any(feature = "qemu", feature = "libvirt", feature = "kubevirt"))]
+use vbmc_rs::backend;
 
 #[derive(Parser, Debug)]
 #[command(name = "vbmc-rs", version, about = "Redfish-compliant virtual BMC")]

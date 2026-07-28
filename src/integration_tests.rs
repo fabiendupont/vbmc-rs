@@ -7,12 +7,12 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
-use crate::app_state::AppState;
-use crate::auth::accounts::AccountStore;
-use crate::backend::Backend;
-use crate::backend::mock::MockBackend;
-use crate::backend::types::{DiskInfo, DiskMediaType, DiskProtocol, NicInfo, VmInfo, VmPowerState};
-use crate::config::{
+use vbmc_rs::app_state::AppState;
+use vbmc_rs::auth::accounts::AccountStore;
+use vbmc_rs::backend::Backend;
+use vbmc_rs::backend::mock::MockBackend;
+use vbmc_rs::backend::types::{DiskInfo, DiskMediaType, DiskProtocol, NicInfo, VmInfo, VmPowerState};
+use vbmc_rs::config::{
     AppConfig, AuthConfig, BackendType, DefaultsConfig, HardwareConfig, MetricsConfig,
     SecurityPolicyConfig, ServerConfig, SystemConfig,
 };
@@ -91,7 +91,7 @@ fn make_app_state(mock: MockBackend, systems: HashMap<String, SystemConfig>) -> 
 }
 
 fn build_app(state: Arc<AppState>) -> axum::Router {
-    crate::redfish::router(state)
+    vbmc_rs::redfish::router(state)
 }
 
 async fn get(
@@ -862,7 +862,7 @@ async fn test_component_integrity_minimal_spdm() {
 
 #[tokio::test]
 async fn test_component_integrity_with_evidence() {
-    use crate::attestation::trust_chain::{
+    use vbmc_rs::attestation::trust_chain::{
         AttestationEvidence, MeasurementEntry, VerificationStatus,
     };
 
