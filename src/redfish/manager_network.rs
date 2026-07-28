@@ -7,6 +7,7 @@ use serde::Serialize;
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct NetworkProtocolResource {
@@ -234,6 +235,7 @@ pub struct EthernetLinks {
 
 pub async fn get_network_protocol(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
 ) -> Json<NetworkProtocolResource> {
     let hostname = std::fs::read_to_string("/etc/hostname")
         .map(|s| s.trim().to_string())
@@ -327,7 +329,9 @@ pub async fn get_network_protocol(
     })
 }
 
-pub async fn get_manager_ethernet_interfaces() -> Json<Collection<ODataId>> {
+pub async fn get_manager_ethernet_interfaces(
+    _user: AuthenticatedUser,
+) -> Json<Collection<ODataId>> {
     let members = vec![ODataId::new(
         "/redfish/v1/Managers/vbmc/EthernetInterfaces/mgmt0",
     )];
@@ -342,6 +346,7 @@ pub async fn get_manager_ethernet_interfaces() -> Json<Collection<ODataId>> {
 
 pub async fn get_manager_ethernet_interface(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(nic_id): Path<String>,
 ) -> Result<Json<EthernetInterfaceResource>, RedfishApiError> {
     if nic_id != "mgmt0" {

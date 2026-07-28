@@ -8,6 +8,7 @@ use serde::Serialize;
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
 use crate::backend::VmmBackend;
 use crate::backend::types::{DiskInfo, DiskMediaType, DiskProtocol};
 
@@ -245,6 +246,7 @@ fn group_disks_by_protocol(disks: &[DiskInfo]) -> HashMap<String, Vec<&DiskInfo>
 
 pub async fn get_storage_collection(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(system_id): Path<String>,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -279,6 +281,7 @@ pub async fn get_storage_collection(
 
 pub async fn get_storage(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, ctrl_id)): Path<(String, String)>,
 ) -> Result<Json<StorageResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -395,6 +398,7 @@ pub async fn get_storage(
 
 pub async fn get_drive(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, ctrl_id, drive_id)): Path<(String, String, String)>,
 ) -> Result<Json<DriveResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -430,6 +434,7 @@ pub async fn get_drive(
 
 pub async fn get_volumes(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, ctrl_id)): Path<(String, String)>,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -461,6 +466,7 @@ pub async fn get_volumes(
 
 pub async fn get_volume(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, ctrl_id, vol_id)): Path<(String, String, String)>,
 ) -> Result<Json<VolumeResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -554,6 +560,7 @@ pub struct ScLinks {
 
 pub async fn get_controllers(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, ctrl_id)): Path<(String, String)>,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -576,6 +583,7 @@ pub async fn get_controllers(
 
 pub async fn get_controller(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, ctrl_id, controller_id)): Path<(String, String, String)>,
 ) -> Result<Json<StorageControllerResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {

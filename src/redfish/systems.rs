@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status, StatusRollup};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
+use crate::auth::rbac::{Privilege, has_privilege};
 use crate::backend::VmmBackend;
 use crate::backend::types::VmPowerState;
 
@@ -352,7 +354,10 @@ fn power_state_to_status(ps: VmPowerState) -> Status {
     }
 }
 
-pub async fn get_systems(State(state): State<Arc<AppState>>) -> Json<Collection<ODataId>> {
+pub async fn get_systems(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<Collection<ODataId>> {
     let members: Vec<ODataId> = state
         .config
         .systems
@@ -370,6 +375,7 @@ pub async fn get_systems(State(state): State<Arc<AppState>>) -> Json<Collection<
 
 pub async fn get_system(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(system_id): Path<String>,
 ) -> Result<Json<ComputerSystem>, RedfishApiError> {
     let sys_config = state
@@ -615,9 +621,16 @@ pub struct PatchSystemRequest {
 
 pub async fn patch_system(
     State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
     Path(system_id): Path<String>,
     Json(body): Json<PatchSystemRequest>,
 ) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    if !has_privilege(&user.role, Privilege::ConfigureComponents) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
     if !state.config.systems.contains_key(&system_id) {
         return Err(RedfishApiError::NotFound(format!(
             "System '{system_id}' not found"

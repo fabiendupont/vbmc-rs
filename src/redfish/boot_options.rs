@@ -7,6 +7,7 @@ use serde::Serialize;
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct BootOptionResource {
@@ -61,6 +62,7 @@ const BOOT_OPTIONS: &[BootOptionDef] = &[
 
 pub async fn get_boot_options(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(system_id): Path<String>,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -89,6 +91,7 @@ pub async fn get_boot_options(
 
 pub async fn get_boot_option(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, option_id)): Path<(String, String)>,
 ) -> Result<Json<BootOptionResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {

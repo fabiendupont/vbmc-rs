@@ -7,6 +7,7 @@ use serde::Serialize;
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct ChassisResource {
@@ -128,7 +129,7 @@ pub struct ChassisLinks {
     pub contains: Vec<ODataId>,
 }
 
-pub async fn get_chassis_collection() -> Json<Collection<ODataId>> {
+pub async fn get_chassis_collection(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
     let members = vec![ODataId::new("/redfish/v1/Chassis/1")];
     Json(Collection::new(
         "/redfish/v1/Chassis",
@@ -138,7 +139,10 @@ pub async fn get_chassis_collection() -> Json<Collection<ODataId>> {
     ))
 }
 
-pub async fn get_chassis(State(state): State<Arc<AppState>>) -> Json<ChassisResource> {
+pub async fn get_chassis(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<ChassisResource> {
     let computer_systems: Vec<ODataId> = state
         .config
         .systems
@@ -218,6 +222,7 @@ pub async fn get_chassis(State(state): State<Arc<AppState>>) -> Json<ChassisReso
 
 pub async fn get_trusted_components(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
 ) -> Json<Collection<ODataId>> {
     let members: Vec<ODataId> = state
         .config
@@ -286,6 +291,7 @@ pub struct TrustedComponentLinks {
 
 pub async fn get_trusted_component(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(component_id): Path<String>,
 ) -> Result<Json<TrustedComponentResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&component_id) {

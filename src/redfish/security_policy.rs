@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use super::error::RedfishApiError;
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
+use crate::auth::rbac::{Privilege, has_privilege};
 
 #[derive(Debug, Serialize)]
 pub struct SecurityPolicyResource {
@@ -39,6 +41,7 @@ pub struct TlsPolicy {
 
 pub async fn get_security_policy(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
 ) -> Result<Json<SecurityPolicyResource>, RedfishApiError> {
     let policy = state
         .security_policy
@@ -81,8 +84,15 @@ pub struct PatchTlsPolicy {
 
 pub async fn patch_security_policy(
     State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
     Json(body): Json<PatchSecurityPolicyRequest>,
 ) -> Result<Json<SecurityPolicyResource>, RedfishApiError> {
+    if !has_privilege(&user.role, Privilege::ConfigureManager) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
     let mut policy = state
         .security_policy
         .write()

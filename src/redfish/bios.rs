@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use super::error::RedfishApiError;
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
+use crate::auth::rbac::{Privilege, has_privilege};
 
 #[derive(Debug, Serialize)]
 pub struct BiosResource {
@@ -53,6 +55,7 @@ pub struct SettingsObject {
 
 pub async fn get_bios(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(system_id): Path<String>,
 ) -> Result<Json<BiosResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -88,6 +91,7 @@ pub async fn get_bios(
 
 pub async fn get_bios_settings(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(system_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -123,9 +127,16 @@ pub struct PatchBiosSettingsRequest {
 
 pub async fn patch_bios_settings(
     State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
     Path(system_id): Path<String>,
     Json(body): Json<PatchBiosSettingsRequest>,
 ) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    if !has_privilege(&user.role, Privilege::ConfigureComponents) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
     if !state.config.systems.contains_key(&system_id) {
         return Err(RedfishApiError::NotFound(format!(
             "System '{system_id}' not found"

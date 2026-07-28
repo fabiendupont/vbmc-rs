@@ -12,6 +12,8 @@ use tokio_stream::wrappers::BroadcastStream;
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
+use crate::auth::rbac::{Privilege, has_privilege};
 
 #[derive(Debug, Serialize)]
 pub struct EventServiceResource {
@@ -75,7 +77,7 @@ pub struct SseFilterProperties {
     pub subordinate_resources: bool,
 }
 
-pub async fn get_event_service() -> Json<EventServiceResource> {
+pub async fn get_event_service(_user: AuthenticatedUser) -> Json<EventServiceResource> {
     Json(EventServiceResource {
         odata_id: "/redfish/v1/EventService",
         odata_type: "#EventService.v1_10_0.EventService",
@@ -108,7 +110,10 @@ pub async fn get_event_service() -> Json<EventServiceResource> {
     })
 }
 
-pub async fn get_subscriptions(State(state): State<Arc<AppState>>) -> Json<Collection<ODataId>> {
+pub async fn get_subscriptions(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<Collection<ODataId>> {
     let subs = state.subscription_store.list();
     let members: Vec<ODataId> = subs
         .iter()
@@ -135,8 +140,15 @@ pub struct CreateSubscriptionRequest {
 
 pub async fn create_subscription(
     State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
     Json(body): Json<CreateSubscriptionRequest>,
 ) -> Result<impl IntoResponse, RedfishApiError> {
+    if !has_privilege(&user.role, Privilege::ConfigureManager) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
     let sub = state.subscription_store.add(
         &body.destination,
         body.protocol.as_deref().unwrap_or("Redfish"),
@@ -160,6 +172,7 @@ pub async fn create_subscription(
 
 pub async fn get_subscription(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(sub_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, RedfishApiError> {
     let sub = state
@@ -180,8 +193,15 @@ pub async fn get_subscription(
 
 pub async fn delete_subscription(
     State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
     Path(sub_id): Path<String>,
 ) -> Result<StatusCode, RedfishApiError> {
+    if !has_privilege(&user.role, Privilege::ConfigureManager) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
     if state.subscription_store.remove(&sub_id) {
         Ok(StatusCode::NO_CONTENT)
     } else {

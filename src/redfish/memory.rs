@@ -7,6 +7,7 @@ use serde::Serialize;
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
 use crate::backend::VmmBackend;
 
 #[derive(Debug, Serialize)]
@@ -203,6 +204,7 @@ pub struct MemSpeedRange {
 
 pub async fn get_memory_collection(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(system_id): Path<String>,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -225,6 +227,7 @@ pub async fn get_memory_collection(
 
 pub async fn get_memory(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, dimm_id)): Path<(String, String)>,
 ) -> Result<Json<MemoryResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {

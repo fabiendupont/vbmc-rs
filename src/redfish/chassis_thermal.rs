@@ -2,6 +2,7 @@ use axum::Json;
 use serde::Serialize;
 
 use super::types::{ODataId, Status};
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct ThermalResource {
@@ -131,7 +132,7 @@ pub struct Fan {
     pub status: Status,
 }
 
-pub async fn get_thermal() -> Json<ThermalResource> {
+pub async fn get_thermal(_user: AuthenticatedUser) -> Json<ThermalResource> {
     Json(ThermalResource {
         odata_id: "/redfish/v1/Chassis/1/Thermal",
         odata_type: "#Thermal.v1_7_2.Thermal",

@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
+use crate::auth::rbac::{Privilege, has_privilege};
 use crate::backend::VmmBackend;
 use crate::backend::types::{DiskCreateConfig, VmPowerState};
 use crate::events::RedfishEvent;
@@ -72,6 +74,7 @@ pub struct ActionTarget {
 
 pub async fn get_virtual_media_collection(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(system_id): Path<String>,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -94,6 +97,7 @@ pub async fn get_virtual_media_collection(
 
 pub async fn get_virtual_media(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, media_id)): Path<(String, String)>,
 ) -> Result<Json<VirtualMediaResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -224,9 +228,16 @@ async fn do_insert_media(
 
 pub async fn insert_media(
     State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
     Path((system_id, media_id)): Path<(String, String)>,
     Json(body): Json<InsertMediaRequest>,
 ) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    if !has_privilege(&user.role, Privilege::ConfigureComponents) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
     if !state.config.systems.contains_key(&system_id) {
         return Err(RedfishApiError::NotFound(format!(
             "System '{system_id}' not found"
@@ -251,8 +262,15 @@ pub async fn insert_media(
 
 pub async fn eject_media(
     State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
     Path((system_id, media_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    if !has_privilege(&user.role, Privilege::ConfigureComponents) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
     if !state.config.systems.contains_key(&system_id) {
         return Err(RedfishApiError::NotFound(format!(
             "System '{system_id}' not found"

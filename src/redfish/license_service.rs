@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
+use crate::auth::rbac::{Privilege, has_privilege};
 
 #[derive(Debug, Serialize)]
 pub struct LicenseServiceResource {
@@ -46,7 +48,7 @@ pub struct LicenseResource {
     pub status: Status,
 }
 
-pub async fn get_license_service() -> Json<LicenseServiceResource> {
+pub async fn get_license_service(_user: AuthenticatedUser) -> Json<LicenseServiceResource> {
     Json(LicenseServiceResource {
         odata_id: "/redfish/v1/LicenseService",
         odata_type: "#LicenseService.v1_1_0.LicenseService",
@@ -59,7 +61,10 @@ pub async fn get_license_service() -> Json<LicenseServiceResource> {
     })
 }
 
-pub async fn get_licenses(State(state): State<Arc<AppState>>) -> Json<Collection<ODataId>> {
+pub async fn get_licenses(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<Collection<ODataId>> {
     // Collect licenses from all system states
     let mut members = Vec::new();
     for entry in state.vm_states.iter() {
@@ -90,8 +95,15 @@ pub struct CreateLicenseRequest {
 
 pub async fn create_license(
     State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
     Json(body): Json<CreateLicenseRequest>,
 ) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    if !has_privilege(&user.role, Privilege::ConfigureManager) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let name = body.name.unwrap_or_else(|| format!("License {}", &id[..8]));
 
@@ -120,6 +132,7 @@ pub async fn create_license(
 
 pub async fn get_license(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(license_id): Path<String>,
 ) -> Result<Json<LicenseResource>, RedfishApiError> {
     for entry in state.vm_states.iter() {

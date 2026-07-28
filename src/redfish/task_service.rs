@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use super::types::{Collection, ODataId};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
 use crate::redfish::error::RedfishApiError;
 use crate::tasks::TaskState;
 
@@ -39,7 +40,7 @@ pub struct TaskServiceResource {
     pub status: super::types::Status,
 }
 
-pub async fn get_task_service() -> Json<TaskServiceResource> {
+pub async fn get_task_service(_user: AuthenticatedUser) -> Json<TaskServiceResource> {
     Json(TaskServiceResource {
         odata_id: "/redfish/v1/TaskService",
         odata_type: "#TaskService.v1_2_0.TaskService",
@@ -56,7 +57,10 @@ pub async fn get_task_service() -> Json<TaskServiceResource> {
     })
 }
 
-pub async fn get_tasks(State(state): State<Arc<AppState>>) -> Json<Collection<ODataId>> {
+pub async fn get_tasks(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<Collection<ODataId>> {
     let tasks = state.task_manager.list_tasks();
     let members: Vec<ODataId> = tasks
         .iter()
@@ -99,6 +103,7 @@ pub struct TaskResource {
 
 pub async fn get_task(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskResource>, RedfishApiError> {
     let task = state
@@ -123,6 +128,7 @@ pub async fn get_task(
 
 pub async fn get_task_monitor(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(task_id): Path<String>,
 ) -> Result<Response, RedfishApiError> {
     let task = state

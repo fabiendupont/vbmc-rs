@@ -7,6 +7,7 @@ use serde::Serialize;
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct LogServiceResource {
@@ -75,6 +76,7 @@ pub struct LogEntryResource {
 // System LogServices collection
 pub async fn get_system_log_services(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(system_id): Path<String>,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -97,6 +99,7 @@ pub async fn get_system_log_services(
 
 pub async fn get_system_log_service(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, log_id)): Path<(String, String)>,
 ) -> Result<Json<LogServiceResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -137,6 +140,7 @@ pub async fn get_system_log_service(
 
 pub async fn get_system_log_entries(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, log_id)): Path<(String, String)>,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -160,7 +164,7 @@ pub async fn get_system_log_entries(
 }
 
 // Manager LogServices collection
-pub async fn get_manager_log_services() -> Json<Collection<ODataId>> {
+pub async fn get_manager_log_services(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
     let members = vec![ODataId::new("/redfish/v1/Managers/vbmc/LogServices/Audit")];
 
     Json(Collection::new(
@@ -172,6 +176,7 @@ pub async fn get_manager_log_services() -> Json<Collection<ODataId>> {
 }
 
 pub async fn get_manager_log_service(
+    _user: AuthenticatedUser,
     Path(log_id): Path<String>,
 ) -> Result<Json<LogServiceResource>, RedfishApiError> {
     if log_id != "Audit" {
@@ -205,6 +210,7 @@ pub async fn get_manager_log_service(
 
 pub async fn get_manager_log_entries(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(log_id): Path<String>,
 ) -> Result<Json<Collection<LogEntryResource>>, RedfishApiError> {
     if log_id != "Audit" {

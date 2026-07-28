@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId};
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct TelemetryServiceResource {
@@ -33,7 +34,7 @@ pub struct TelemetryServiceResource {
     pub status: super::types::Status,
 }
 
-pub async fn get_telemetry_service() -> Json<TelemetryServiceResource> {
+pub async fn get_telemetry_service(_user: AuthenticatedUser) -> Json<TelemetryServiceResource> {
     Json(TelemetryServiceResource {
         odata_id: "/redfish/v1/TelemetryService",
         odata_type: "#TelemetryService.v1_3_0.TelemetryService",
@@ -97,7 +98,7 @@ fn built_in_metric_definitions() -> Vec<MetricDefinition> {
     ]
 }
 
-pub async fn get_metric_definitions() -> Json<Collection<ODataId>> {
+pub async fn get_metric_definitions(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
     let members: Vec<ODataId> = built_in_metric_definitions()
         .iter()
         .map(|d| ODataId::new(&d.odata_id))
@@ -112,6 +113,7 @@ pub async fn get_metric_definitions() -> Json<Collection<ODataId>> {
 }
 
 pub async fn get_metric_definition(
+    _user: AuthenticatedUser,
     Path(def_id): Path<String>,
 ) -> Result<Json<MetricDefinition>, RedfishApiError> {
     built_in_metric_definitions()
@@ -121,7 +123,7 @@ pub async fn get_metric_definition(
         .ok_or_else(|| RedfishApiError::NotFound(format!("Metric definition '{def_id}' not found")))
 }
 
-pub async fn get_metric_reports() -> Json<Collection<ODataId>> {
+pub async fn get_metric_reports(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
     Json(Collection::new(
         "/redfish/v1/TelemetryService/MetricReports",
         "#MetricReportCollection.MetricReportCollection",

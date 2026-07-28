@@ -2,6 +2,7 @@ use axum::Json;
 use serde::Serialize;
 
 use super::types::{ODataId, Status};
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct PowerResource {
@@ -177,7 +178,7 @@ pub struct LegacyInputRange {
     pub output_wattage: u32,
 }
 
-pub async fn get_power() -> Json<PowerResource> {
+pub async fn get_power(_user: AuthenticatedUser) -> Json<PowerResource> {
     Json(PowerResource {
         odata_id: "/redfish/v1/Chassis/1/Power",
         odata_type: "#Power.v1_7_2.Power",

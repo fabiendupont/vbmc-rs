@@ -20,6 +20,7 @@ nvidia-cc = []
 
 [dependencies]
 axum = { version = "0.8", features = ["macros"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -35,12 +36,15 @@ rand = "0.8"
 base64 = "0.22"
 argon2 = "0.5"
 reqwest = { version = "0.12", features = ["stream", "rustls-tls", "json"], default-features = false }
+rustls = "0.23"
+rustls-pemfile = "2"
 dashmap = "6"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.16"
 tokio-util = { version = "0.7", features = ["io"] }
 bytes = "1"
 anyhow = "1"
+tokio-rustls = "0.26"
 tokio-stream = { version = "0.1", features = ["sync"] }
 quick-xml = { version = "0.37", optional = true }
 virt = { version = "0.4", optional = true }

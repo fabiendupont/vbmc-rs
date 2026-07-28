@@ -83,6 +83,48 @@ impl AccountStore {
             .is_ok()
     }
 
+    pub fn check_and_unlock(&mut self, username: &str) {
+        let Some(account) = self.find_account_mut(username) else {
+            return;
+        };
+        if account.locked
+            && let Some(until) = account.lockout_until
+            && until <= Utc::now()
+        {
+            account.locked = false;
+            account.lockout_until = None;
+            account.failed_login_count = 0;
+        }
+    }
+
+    pub fn record_failed_login(
+        &mut self,
+        username: &str,
+        threshold: u32,
+        duration_secs: u64,
+    ) -> bool {
+        let Some(account) = self.find_account_mut(username) else {
+            return false;
+        };
+        if account.locked {
+            return false;
+        }
+        account.failed_login_count += 1;
+        if threshold > 0 && account.failed_login_count >= threshold {
+            account.locked = true;
+            account.lockout_until =
+                Some(Utc::now() + chrono::Duration::seconds(duration_secs as i64));
+            return true;
+        }
+        false
+    }
+
+    pub fn record_successful_login(&mut self, username: &str) {
+        if let Some(account) = self.find_account_mut(username) {
+            account.failed_login_count = 0;
+        }
+    }
+
     pub fn add_account(
         &mut self,
         username: &str,
@@ -221,6 +263,86 @@ mod tests {
         assert_eq!(loaded.accounts[1].username, "viewer");
         // Verify loaded password hash still works
         assert!(loaded.verify_password("admin", "secret"));
+    }
+
+    #[test]
+    fn test_record_failed_login_increments_count() {
+        let mut store = AccountStore::default();
+        store.add_account("user", "pass", "ReadOnly").unwrap();
+
+        let locked = store.record_failed_login("user", 5, 300);
+        assert!(!locked);
+        assert_eq!(store.find_account("user").unwrap().failed_login_count, 1);
+    }
+
+    #[test]
+    fn test_record_failed_login_locks_at_threshold() {
+        let mut store = AccountStore::default();
+        store.add_account("user", "pass", "ReadOnly").unwrap();
+
+        for _ in 0..4 {
+            assert!(!store.record_failed_login("user", 5, 300));
+        }
+        assert!(store.record_failed_login("user", 5, 300));
+        assert!(store.find_account("user").unwrap().locked);
+        assert!(store.find_account("user").unwrap().lockout_until.is_some());
+    }
+
+    #[test]
+    fn test_record_failed_login_unknown_user() {
+        let mut store = AccountStore::default();
+        assert!(!store.record_failed_login("nobody", 5, 300));
+    }
+
+    #[test]
+    fn test_record_successful_login_resets_count() {
+        let mut store = AccountStore::default();
+        store.add_account("user", "pass", "ReadOnly").unwrap();
+
+        store.record_failed_login("user", 5, 300);
+        store.record_failed_login("user", 5, 300);
+        assert_eq!(store.find_account("user").unwrap().failed_login_count, 2);
+
+        store.record_successful_login("user");
+        assert_eq!(store.find_account("user").unwrap().failed_login_count, 0);
+    }
+
+    #[test]
+    fn test_check_and_unlock_after_duration() {
+        let mut store = AccountStore::default();
+        store.add_account("user", "pass", "ReadOnly").unwrap();
+
+        // Lock with 0-second duration (already expired)
+        let account = store.find_account_mut("user").unwrap();
+        account.locked = true;
+        account.failed_login_count = 5;
+        account.lockout_until = Some(Utc::now() - chrono::Duration::seconds(1));
+
+        store.check_and_unlock("user");
+        let account = store.find_account("user").unwrap();
+        assert!(!account.locked);
+        assert_eq!(account.failed_login_count, 0);
+        assert!(account.lockout_until.is_none());
+    }
+
+    #[test]
+    fn test_check_and_unlock_not_yet_expired() {
+        let mut store = AccountStore::default();
+        store.add_account("user", "pass", "ReadOnly").unwrap();
+
+        let account = store.find_account_mut("user").unwrap();
+        account.locked = true;
+        account.failed_login_count = 5;
+        account.lockout_until = Some(Utc::now() + chrono::Duration::seconds(300));
+
+        store.check_and_unlock("user");
+        assert!(store.find_account("user").unwrap().locked);
+    }
+
+    #[test]
+    fn test_check_and_unlock_unknown_user() {
+        let mut store = AccountStore::default();
+        store.check_and_unlock("nobody"); // should not panic
     }
 
     #[test]

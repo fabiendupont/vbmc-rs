@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
+use crate::auth::rbac::{Privilege, has_privilege};
 use crate::events::RedfishEvent;
 use crate::events::registry::*;
 
@@ -37,6 +39,7 @@ pub struct SessionServiceResource {
 
 pub async fn get_session_service(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
 ) -> Json<SessionServiceResource> {
     Json(SessionServiceResource {
         odata_id: "/redfish/v1/SessionService",
@@ -51,7 +54,10 @@ pub async fn get_session_service(
     })
 }
 
-pub async fn get_sessions(State(state): State<Arc<AppState>>) -> Json<Collection<ODataId>> {
+pub async fn get_sessions(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<Collection<ODataId>> {
     let sessions = state.session_store.list_sessions();
     let members: Vec<ODataId> = sessions
         .iter()
@@ -94,11 +100,34 @@ pub async fn create_session(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateSessionRequest>,
 ) -> Result<Response, RedfishApiError> {
-    let account_store = state
+    let mut account_store = state
         .account_store
         .lock()
         .map_err(|_| RedfishApiError::InternalError("Account store lock poisoned".to_string()))?;
+    account_store.check_and_unlock(&body.user_name);
     if !account_store.verify_password(&body.user_name, &body.password) {
+        let locked = account_store.record_failed_login(
+            &body.user_name,
+            state.config.auth.lockout_threshold,
+            state.config.auth.lockout_duration_seconds,
+        );
+        if let Some(path) = &state.config.auth.accounts_file {
+            let _ = account_store.save(path);
+        }
+        drop(account_store);
+        if locked {
+            state.event_bus.emit(RedfishEvent {
+                event_type: EVENT_TYPE_ALERT.to_string(),
+                event_id: uuid::Uuid::new_v4().to_string(),
+                event_timestamp: Utc::now(),
+                message_id: MSG_ACCOUNT_LOCKED.to_string(),
+                message: format!("Account '{}' locked after too many failed attempts", body.user_name),
+                origin_of_condition: Some(format!("/redfish/v1/AccountService/Accounts/{}", body.user_name)),
+                severity: SEVERITY_WARNING.to_string(),
+                actor: Some(body.user_name.clone()),
+                payload: None,
+            });
+        }
         state.event_bus.emit(RedfishEvent {
             event_type: EVENT_TYPE_ALERT.to_string(),
             event_id: uuid::Uuid::new_v4().to_string(),
@@ -120,6 +149,10 @@ pub async fn create_session(
         .find_account(&body.user_name)
         .map(|a| a.role.clone())
         .unwrap_or_else(|| "ReadOnly".to_string());
+    account_store.record_successful_login(&body.user_name);
+    if let Some(path) = &state.config.auth.accounts_file {
+        let _ = account_store.save(path);
+    }
     drop(account_store);
     crate::telemetry::record_auth_attempt(true);
 
@@ -168,8 +201,18 @@ pub async fn create_session(
 
 pub async fn delete_session(
     State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
     Path(session_id): Path<String>,
 ) -> Result<StatusCode, RedfishApiError> {
+    if let Some(session) = state.session_store.get_session_by_id(&session_id)
+        && session.username != user.username
+        && !has_privilege(&user.role, Privilege::ConfigureManager)
+    {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
     if state.session_store.delete_session_by_id(&session_id) {
         state.event_bus.emit(RedfishEvent {
             event_type: EVENT_TYPE_RESOURCE_REMOVED.to_string(),

@@ -7,6 +7,7 @@ use serde::Serialize;
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct NetworkInterfaceResource {
@@ -34,6 +35,7 @@ pub struct NetworkInterfaceLinks {
 
 pub async fn get_network_interfaces(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(system_id): Path<String>,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -56,6 +58,7 @@ pub async fn get_network_interfaces(
 
 pub async fn get_network_interface(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, nic_id)): Path<(String, String)>,
 ) -> Result<Json<NetworkInterfaceResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {

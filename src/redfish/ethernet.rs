@@ -7,6 +7,7 @@ use serde::Serialize;
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
 use crate::backend::VmmBackend;
 
 #[derive(Debug, Serialize)]
@@ -31,6 +32,7 @@ pub struct EthernetInterface {
 
 pub async fn get_ethernet_interfaces(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(system_id): Path<String>,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {
@@ -58,6 +60,7 @@ pub async fn get_ethernet_interfaces(
 
 pub async fn get_ethernet_interface(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, nic_id)): Path<(String, String)>,
 ) -> Result<Json<EthernetInterface>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {

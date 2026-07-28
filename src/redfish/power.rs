@@ -7,6 +7,8 @@ use serde::Deserialize;
 
 use super::error::RedfishApiError;
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
+use crate::auth::rbac::{Privilege, has_privilege};
 use crate::backend::VmmBackend;
 use crate::backend::types::{DiskCreateConfig, VmCreateConfig};
 use crate::events::RedfishEvent;
@@ -72,7 +74,13 @@ fn build_vm_config(state: &AppState, system_id: &str) -> VmCreateConfig {
     }
 }
 
-fn emit_power_event(state: &AppState, system_id: &str, reset_type: &str, severity: &str) {
+fn emit_power_event(
+    state: &AppState,
+    system_id: &str,
+    reset_type: &str,
+    severity: &str,
+    actor: Option<String>,
+) {
     state.event_bus.emit(RedfishEvent {
         event_type: EVENT_TYPE_STATUS_CHANGE.to_string(),
         event_id: uuid::Uuid::new_v4().to_string(),
@@ -81,7 +89,7 @@ fn emit_power_event(state: &AppState, system_id: &str, reset_type: &str, severit
         message: format!("System '{system_id}' reset action: {reset_type}"),
         origin_of_condition: Some(format!("/redfish/v1/Systems/{system_id}")),
         severity: severity.to_string(),
-        actor: None,
+        actor,
         payload: None,
     });
 
@@ -95,9 +103,16 @@ fn emit_power_event(state: &AppState, system_id: &str, reset_type: &str, severit
 
 pub async fn reset_system(
     State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
     Path(system_id): Path<String>,
     Json(body): Json<ResetRequest>,
 ) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    if !has_privilege(&user.role, Privilege::ConfigureComponents) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
     if !state.config.systems.contains_key(&system_id) {
         return Err(RedfishApiError::NotFound(format!(
             "System '{system_id}' not found"
@@ -129,13 +144,25 @@ pub async fn reset_system(
                 state.save_vm_state(&system_id, &vm_state);
             }
 
-            emit_power_event(&state, &system_id, "On", SEVERITY_OK);
+            emit_power_event(
+                &state,
+                &system_id,
+                "On",
+                SEVERITY_OK,
+                Some(user.username.clone()),
+            );
         }
         "ForceOff" => {
             // Force shutdown + delete
             let _ = state.backend.vm_shutdown(&system_id).await;
             let _ = state.backend.vm_delete(&system_id).await;
-            emit_power_event(&state, &system_id, "ForceOff", SEVERITY_OK);
+            emit_power_event(
+                &state,
+                &system_id,
+                "ForceOff",
+                SEVERITY_OK,
+                Some(user.username.clone()),
+            );
         }
         "GracefulShutdown" => {
             state
@@ -143,7 +170,13 @@ pub async fn reset_system(
                 .vm_power_button(&system_id)
                 .await
                 .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
-            emit_power_event(&state, &system_id, "GracefulShutdown", SEVERITY_OK);
+            emit_power_event(
+                &state,
+                &system_id,
+                "GracefulShutdown",
+                SEVERITY_OK,
+                Some(user.username.clone()),
+            );
         }
         "GracefulRestart" => {
             state
@@ -159,7 +192,13 @@ pub async fn reset_system(
                 state.save_vm_state(&system_id, &vm_state);
             }
 
-            emit_power_event(&state, &system_id, "GracefulRestart", SEVERITY_OK);
+            emit_power_event(
+                &state,
+                &system_id,
+                "GracefulRestart",
+                SEVERITY_OK,
+                Some(user.username.clone()),
+            );
         }
         "ForceRestart" => {
             let _ = state.backend.vm_shutdown(&system_id).await;
@@ -184,7 +223,13 @@ pub async fn reset_system(
                 state.save_vm_state(&system_id, &vm_state);
             }
 
-            emit_power_event(&state, &system_id, "ForceRestart", SEVERITY_OK);
+            emit_power_event(
+                &state,
+                &system_id,
+                "ForceRestart",
+                SEVERITY_OK,
+                Some(user.username.clone()),
+            );
         }
         "PushPowerButton" => {
             state
@@ -192,7 +237,13 @@ pub async fn reset_system(
                 .vm_power_button(&system_id)
                 .await
                 .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
-            emit_power_event(&state, &system_id, "PushPowerButton", SEVERITY_OK);
+            emit_power_event(
+                &state,
+                &system_id,
+                "PushPowerButton",
+                SEVERITY_OK,
+                Some(user.username.clone()),
+            );
         }
         other => {
             return Err(RedfishApiError::BadRequest(format!(

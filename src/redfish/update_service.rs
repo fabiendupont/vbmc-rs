@@ -2,6 +2,7 @@ use axum::Json;
 use serde::Serialize;
 
 use super::types::{Collection, ODataId, Status};
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct UpdateServiceResource {
@@ -81,7 +82,7 @@ pub struct FwAdditionalVersions {
     pub microcode: &'static str,
 }
 
-pub async fn get_update_service() -> Json<UpdateServiceResource> {
+pub async fn get_update_service(_user: AuthenticatedUser) -> Json<UpdateServiceResource> {
     Json(UpdateServiceResource {
         odata_id: "/redfish/v1/UpdateService",
         odata_type: "#UpdateService.v1_14_0.UpdateService",
@@ -99,7 +100,7 @@ pub async fn get_update_service() -> Json<UpdateServiceResource> {
     })
 }
 
-pub async fn get_firmware_inventory() -> Json<Collection<ODataId>> {
+pub async fn get_firmware_inventory(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
     let members = vec![ODataId::new(
         "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
     )];
@@ -113,6 +114,7 @@ pub async fn get_firmware_inventory() -> Json<Collection<ODataId>> {
 }
 
 pub async fn get_firmware_inventory_item(
+    _user: AuthenticatedUser,
     axum::extract::Path(item_id): axum::extract::Path<String>,
 ) -> Result<Json<SoftwareInventoryResource>, super::error::RedfishApiError> {
     if item_id == "vbmc-rs" {

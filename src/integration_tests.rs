@@ -920,3 +920,143 @@ async fn test_component_integrity_with_evidence() {
         "Success"
     );
 }
+
+// ── Authentication & RBAC ────────────────────────────────────────────
+
+fn make_auth_config(systems: HashMap<String, SystemConfig>) -> AppConfig {
+    let mut config = make_test_config(systems);
+    config.auth.enabled = true;
+    config
+}
+
+fn make_auth_app_state(mock: MockBackend, systems: HashMap<String, SystemConfig>) -> Arc<AppState> {
+    let config = make_auth_config(systems);
+    let mut accounts = AccountStore::default();
+    accounts
+        .add_account("admin", "admin123", "Administrator")
+        .unwrap();
+    accounts
+        .add_account("operator", "oper123", "Operator")
+        .unwrap();
+    accounts
+        .add_account("viewer", "view123", "ReadOnly")
+        .unwrap();
+    Arc::new(AppState::new(config, Backend::Mock(mock), accounts))
+}
+
+fn basic_auth_header(username: &str, password: &str) -> String {
+    use base64::Engine;
+    let encoded =
+        base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"));
+    format!("Basic {encoded}")
+}
+
+async fn get_with_auth(
+    app: &axum::Router,
+    uri: &str,
+    auth_header: &str,
+) -> (StatusCode, serde_json::Value) {
+    let req = Request::builder()
+        .method("GET")
+        .uri(uri)
+        .header("Authorization", auth_header)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 1_000_000)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
+    (status, json)
+}
+
+async fn post_json_with_auth(
+    app: &axum::Router,
+    uri: &str,
+    body: serde_json::Value,
+    auth_header: &str,
+) -> (StatusCode, serde_json::Value) {
+    let req = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("content-type", "application/json")
+        .header("Authorization", auth_header)
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 1_000_000)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
+    (status, json)
+}
+
+#[tokio::test]
+async fn test_auth_enabled_no_credentials_returns_401() {
+    let mut systems = HashMap::new();
+    systems.insert("vm1".to_string(), make_system_config("VM 1"));
+    let state = make_auth_app_state(MockBackend::new(), systems);
+    let app = build_app(state);
+
+    let (status, _, _) = get(&app, "/redfish/v1/Systems").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_auth_enabled_valid_basic_auth_returns_200() {
+    let mut systems = HashMap::new();
+    systems.insert("vm1".to_string(), make_system_config("VM 1"));
+    let state = make_auth_app_state(MockBackend::new(), systems);
+    let app = build_app(state);
+
+    let auth = basic_auth_header("admin", "admin123");
+    let (status, json) = get_with_auth(&app, "/redfish/v1/Systems", &auth).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["Members@odata.count"], 1);
+}
+
+#[tokio::test]
+async fn test_auth_readonly_user_gets_403_on_reset() {
+    let mut systems = HashMap::new();
+    systems.insert("vm1".to_string(), make_system_config("VM 1"));
+    let mock = MockBackend::new().with_vm("vm1", make_running_vm());
+    let state = make_auth_app_state(mock, systems);
+    let app = build_app(state);
+
+    let auth = basic_auth_header("viewer", "view123");
+    let (status, _) = post_json_with_auth(
+        &app,
+        "/redfish/v1/Systems/vm1/Actions/ComputerSystem.Reset",
+        serde_json::json!({"ResetType": "GracefulShutdown"}),
+        &auth,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_auth_operator_can_reset() {
+    let mut systems = HashMap::new();
+    systems.insert("vm1".to_string(), make_system_config("VM 1"));
+    let mock = MockBackend::new().with_vm("vm1", make_running_vm());
+    let state = make_auth_app_state(mock, systems);
+    let app = build_app(state);
+
+    let auth = basic_auth_header("operator", "oper123");
+    let (status, json) = post_json_with_auth(
+        &app,
+        "/redfish/v1/Systems/vm1/Actions/ComputerSystem.Reset",
+        serde_json::json!({"ResetType": "GracefulShutdown"}),
+        &auth,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        json["message"]
+            .as_str()
+            .unwrap()
+            .contains("GracefulShutdown")
+    );
+}

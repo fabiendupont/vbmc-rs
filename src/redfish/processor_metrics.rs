@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use super::error::RedfishApiError;
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
 use crate::backend::VmmBackend;
 
 #[derive(Debug, Serialize)]
@@ -85,6 +86,7 @@ pub struct CoreMetric {
 
 pub async fn get_processor_metrics(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((system_id, processor_id)): Path<(String, String)>,
 ) -> Result<Json<ProcessorMetricsResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {

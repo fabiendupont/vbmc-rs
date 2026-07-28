@@ -12,6 +12,7 @@ mod redfish;
 mod state;
 mod tasks;
 mod telemetry;
+mod tls;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -48,6 +49,8 @@ async fn main() -> anyhow::Result<()> {
 
     let config = config::AppConfig::load(&cli.config)?;
     info!("Loaded configuration from {}", cli.config.display());
+
+    config.server.validate_tls()?;
 
     let addr = SocketAddr::new(config.server.bind_address.parse()?, config.server.port);
 
@@ -122,21 +125,41 @@ async fn main() -> anyhow::Result<()> {
 
     let app = redfish::router(app_state.clone());
 
-    let listener = TcpListener::bind(addr).await?;
-    info!("Listening on {}", addr);
-
-    let cancel_clone = cancel.clone();
-    tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.ok();
-        info!("Received shutdown signal");
-        cancel_clone.cancel();
-    });
-
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            cancel.cancelled().await;
-        })
-        .await?;
+    if let Some(tls_config) = tls::build_tls_config(&config.server)? {
+        if config.server.tls_client_ca.is_some() {
+            info!("Listening on {} (TLS with mutual authentication)", addr);
+        } else {
+            info!("Listening on {} (TLS)", addr);
+        }
+        let rustls_config =
+            axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config));
+        let handle = axum_server::Handle::new();
+        let handle_clone = handle.clone();
+        tokio::spawn(async move {
+            tokio::signal::ctrl_c().await.ok();
+            info!("Received shutdown signal");
+            handle_clone.graceful_shutdown(None);
+            cancel.cancel();
+        });
+        axum_server::bind_rustls(addr, rustls_config)
+            .handle(handle)
+            .serve(app.into_make_service())
+            .await?;
+    } else {
+        let listener = TcpListener::bind(addr).await?;
+        info!("Listening on {}", addr);
+        let cancel_clone = cancel.clone();
+        tokio::spawn(async move {
+            tokio::signal::ctrl_c().await.ok();
+            info!("Received shutdown signal");
+            cancel_clone.cancel();
+        });
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                cancel.cancelled().await;
+            })
+            .await?;
+    }
 
     info!("Server shut down");
     Ok(())

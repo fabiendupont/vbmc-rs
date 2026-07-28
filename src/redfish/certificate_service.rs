@@ -2,6 +2,7 @@ use axum::Json;
 use serde::Serialize;
 
 use super::types::ODataId;
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct CertificateServiceResource {
@@ -34,7 +35,7 @@ pub struct ActionTarget {
     pub target: String,
 }
 
-pub async fn get_certificate_service() -> Json<CertificateServiceResource> {
+pub async fn get_certificate_service(_user: AuthenticatedUser) -> Json<CertificateServiceResource> {
     Json(CertificateServiceResource {
         odata_id: "/redfish/v1/CertificateService",
         odata_type: "#CertificateService.v1_0_5.CertificateService",
@@ -56,7 +57,7 @@ pub async fn get_certificate_service() -> Json<CertificateServiceResource> {
     })
 }
 
-pub async fn get_certificate_locations() -> Json<serde_json::Value> {
+pub async fn get_certificate_locations(_user: AuthenticatedUser) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "@odata.id": "/redfish/v1/CertificateService/CertificateLocations",
         "@odata.type": "#CertificateLocations.v1_0_3.CertificateLocations",

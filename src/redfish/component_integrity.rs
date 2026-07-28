@@ -8,6 +8,7 @@ use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
 use crate::attestation::trust_chain::AttestationEvidence;
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct ComponentIntegrityResource {
@@ -198,6 +199,7 @@ fn build_spdm_from_evidence(system_id: &str, evidence: &AttestationEvidence) -> 
 
 pub async fn get_component_integrity_collection(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
 ) -> Json<Collection<ODataId>> {
     let members: Vec<ODataId> = state
         .config
@@ -216,6 +218,7 @@ pub async fn get_component_integrity_collection(
 
 pub async fn get_component_integrity(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(system_id): Path<String>,
 ) -> Result<Json<ComponentIntegrityResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&system_id) {

@@ -7,6 +7,7 @@ use serde::Serialize;
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
 
 const MANAGER_ID: &str = "vbmc";
 
@@ -106,7 +107,7 @@ pub struct ManagerLinks {
     pub software_images: Vec<ODataId>,
 }
 
-pub async fn get_managers() -> Json<Collection<ODataId>> {
+pub async fn get_managers(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
     let members = vec![ODataId::new(format!("/redfish/v1/Managers/{MANAGER_ID}"))];
     Json(Collection::new(
         "/redfish/v1/Managers",
@@ -118,6 +119,7 @@ pub async fn get_managers() -> Json<Collection<ODataId>> {
 
 pub async fn get_manager(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(manager_id): Path<String>,
 ) -> Result<Json<Manager>, RedfishApiError> {
     if manager_id != MANAGER_ID {

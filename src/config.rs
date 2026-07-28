@@ -47,7 +47,6 @@ pub struct AppConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 pub struct ServerConfig {
     #[serde(default = "default_bind_address")]
     pub bind_address: String,
@@ -211,6 +210,41 @@ fn default_memory_mib() -> u64 {
     1024
 }
 
+impl ServerConfig {
+    pub fn validate_tls(&self) -> anyhow::Result<()> {
+        match (&self.tls_cert, &self.tls_key) {
+            (Some(_), None) => {
+                anyhow::bail!("tls_cert is set but tls_key is missing");
+            }
+            (None, Some(_)) => {
+                anyhow::bail!("tls_key is set but tls_cert is missing");
+            }
+            (None, None) => {
+                if self.tls_client_ca.is_some() {
+                    anyhow::bail!("tls_client_ca requires tls_cert and tls_key");
+                }
+                return Ok(());
+            }
+            (Some(cert), Some(key)) => {
+                if !cert.exists() {
+                    anyhow::bail!("tls_cert file does not exist: {}", cert.display());
+                }
+                if !key.exists() {
+                    anyhow::bail!("tls_key file does not exist: {}", key.display());
+                }
+            }
+        }
+
+        if let Some(ca) = &self.tls_client_ca
+            && !ca.exists()
+        {
+            anyhow::bail!("tls_client_ca file does not exist: {}", ca.display());
+        }
+
+        Ok(())
+    }
+}
+
 impl AppConfig {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
@@ -248,6 +282,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "libvirt")]
     fn test_parse_libvirt_config() {
         let content = std::fs::read_to_string("examples/config-libvirt.toml").unwrap();
         // Parse without the libvirt feature — backend field should still parse

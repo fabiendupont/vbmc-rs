@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId};
 use crate::app_state::AppState;
-use crate::auth::OptionalAuth;
+use crate::auth::AuthenticatedUser;
 use crate::auth::rbac::{Privilege, has_privilege};
 
 #[derive(Debug, Serialize)]
@@ -62,6 +62,7 @@ pub struct AccountServiceResource {
 
 pub async fn get_account_service(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
 ) -> Json<AccountServiceResource> {
     Json(AccountServiceResource {
         odata_id: "/redfish/v1/AccountService",
@@ -91,6 +92,7 @@ pub async fn get_account_service(
 
 pub async fn get_accounts(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
     let store = state
         .account_store
@@ -139,6 +141,7 @@ pub struct AccountResource {
 
 pub async fn get_account(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(account_id): Path<String>,
 ) -> Result<Json<AccountResource>, RedfishApiError> {
     let store = state
@@ -174,17 +177,13 @@ pub struct CreateAccountRequest {
 
 pub async fn create_account(
     State(state): State<Arc<AppState>>,
-    OptionalAuth(user): OptionalAuth,
+    user: AuthenticatedUser,
     Json(body): Json<CreateAccountRequest>,
 ) -> Result<impl IntoResponse, RedfishApiError> {
-    if state.config.auth.enabled {
-        let u = user
-            .ok_or_else(|| RedfishApiError::Unauthorized("Authentication required".to_string()))?;
-        if !has_privilege(&u.role, Privilege::ConfigureUsers) {
-            return Err(RedfishApiError::Forbidden(
-                "Insufficient privileges".to_string(),
-            ));
-        }
+    if !has_privilege(&user.role, Privilege::ConfigureUsers) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
     }
 
     let mut store = state
@@ -229,9 +228,29 @@ pub struct PatchAccountRequest {
 
 pub async fn patch_account(
     State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
     Path(account_id): Path<String>,
     Json(body): Json<PatchAccountRequest>,
 ) -> Result<Json<AccountResource>, RedfishApiError> {
+    if user.username == account_id {
+        if !has_privilege(&user.role, Privilege::ConfigureSelf) {
+            return Err(RedfishApiError::Forbidden(
+                "Insufficient privileges".to_string(),
+            ));
+        }
+        if (body.role_id.is_some() || body.enabled.is_some())
+            && !has_privilege(&user.role, Privilege::ConfigureUsers)
+        {
+            return Err(RedfishApiError::Forbidden(
+                "Insufficient privileges to modify role or status".to_string(),
+            ));
+        }
+    } else if !has_privilege(&user.role, Privilege::ConfigureUsers) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
     let mut store = state
         .account_store
         .lock()
@@ -273,7 +292,7 @@ pub async fn patch_account(
     Ok(Json(result))
 }
 
-pub async fn get_roles() -> Json<Collection<ODataId>> {
+pub async fn get_roles(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
     let members = vec![
         ODataId::new("/redfish/v1/AccountService/Roles/Administrator"),
         ODataId::new("/redfish/v1/AccountService/Roles/Operator"),
@@ -314,7 +333,10 @@ pub struct RoleResource {
     pub restricted: bool,
 }
 
-pub async fn get_role(Path(role_id): Path<String>) -> Result<Json<RoleResource>, RedfishApiError> {
+pub async fn get_role(
+    _user: AuthenticatedUser,
+    Path(role_id): Path<String>,
+) -> Result<Json<RoleResource>, RedfishApiError> {
     let privileges = match role_id.as_str() {
         "Administrator" => vec![
             "Login",

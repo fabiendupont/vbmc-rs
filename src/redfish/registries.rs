@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId};
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct MessageRegistryFileResource {
@@ -33,7 +34,7 @@ pub struct RegistryLocation {
     pub uri: &'static str,
 }
 
-pub async fn get_registries() -> Json<Collection<ODataId>> {
+pub async fn get_registries(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
     let members = vec![ODataId::new("/redfish/v1/Registries/Base")];
 
     Json(Collection::new(
@@ -45,6 +46,7 @@ pub async fn get_registries() -> Json<Collection<ODataId>> {
 }
 
 pub async fn get_registry(
+    _user: AuthenticatedUser,
     Path(registry_id): Path<String>,
 ) -> Result<Json<MessageRegistryFileResource>, RedfishApiError> {
     if registry_id != "Base" {

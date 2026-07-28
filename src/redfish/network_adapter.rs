@@ -7,6 +7,7 @@ use serde::Serialize;
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::auth::AuthenticatedUser;
 use crate::backend::VmmBackend;
 
 #[derive(Debug, Serialize)]
@@ -100,7 +101,10 @@ pub struct NdfLinks {
     pub ethernet_interfaces: Vec<ODataId>,
 }
 
-pub async fn get_network_adapters(State(state): State<Arc<AppState>>) -> Json<Collection<ODataId>> {
+pub async fn get_network_adapters(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<Collection<ODataId>> {
     // We aggregate NICs across all systems into chassis-level adapters
     let mut members = Vec::new();
     for system_id in state.config.systems.keys() {
@@ -123,6 +127,7 @@ pub async fn get_network_adapters(State(state): State<Arc<AppState>>) -> Json<Co
 
 pub async fn get_network_adapter(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<NetworkAdapterResource>, RedfishApiError> {
     // adapter_id format: "{system_id}_NIC{idx}"
@@ -159,6 +164,7 @@ pub async fn get_network_adapter(
 
 pub async fn get_network_device_functions(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
     let (system_id, nic_suffix) = adapter_id.rsplit_once('_').ok_or_else(|| {
@@ -192,6 +198,7 @@ pub async fn get_network_device_functions(
 
 pub async fn get_network_device_function(
     State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
     Path((adapter_id, func_id)): Path<(String, String)>,
 ) -> Result<Json<NetworkDeviceFunction>, RedfishApiError> {
     let (system_id, nic_suffix) = adapter_id.rsplit_once('_').ok_or_else(|| {

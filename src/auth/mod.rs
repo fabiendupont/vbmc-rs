@@ -12,7 +12,6 @@ use axum::response::{IntoResponse, Response};
 use crate::app_state::AppState;
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct AuthenticatedUser {
     pub username: String,
     pub role: String,
@@ -46,6 +45,8 @@ impl FromRequestParts<Arc<AppState>> for AuthenticatedUser {
             });
         }
 
+        let mut attempted_user: Option<String> = None;
+
         // Check X-Auth-Token header
         if let Some(token) = parts.headers.get("X-Auth-Token")
             && let Ok(token_str) = token.to_str()
@@ -66,35 +67,67 @@ impl FromRequestParts<Arc<AppState>> for AuthenticatedUser {
             && let Ok(decoded_str) = String::from_utf8(decoded)
             && let Some((username, password)) = decoded_str.split_once(':')
         {
-            let account_store = state.account_store.lock().map_err(|_| AuthError)?;
-            if account_store.verify_password(username, password)
-                && let Some(account) = account_store.find_account(username)
-            {
+            attempted_user = Some(username.to_string());
+            let mut account_store = state.account_store.lock().map_err(|_| AuthError)?;
+            account_store.check_and_unlock(username);
+            if account_store.verify_password(username, password) {
+                let role = account_store
+                    .find_account(username)
+                    .map(|a| a.role.clone())
+                    .unwrap_or_else(|| "ReadOnly".to_string());
+                account_store.record_successful_login(username);
+                if let Some(path) = &state.config.auth.accounts_file {
+                    let _ = account_store.save(path);
+                }
                 return Ok(AuthenticatedUser {
                     username: username.to_string(),
-                    role: account.role.clone(),
+                    role,
+                });
+            }
+            let locked = account_store.record_failed_login(
+                username,
+                state.config.auth.lockout_threshold,
+                state.config.auth.lockout_duration_seconds,
+            );
+            if let Some(path) = &state.config.auth.accounts_file {
+                let _ = account_store.save(path);
+            }
+            if locked {
+                state.event_bus.emit(crate::events::RedfishEvent {
+                    event_type: crate::events::registry::EVENT_TYPE_ALERT.to_string(),
+                    event_id: uuid::Uuid::new_v4().to_string(),
+                    event_timestamp: chrono::Utc::now(),
+                    message_id: crate::events::registry::MSG_ACCOUNT_LOCKED.to_string(),
+                    message: format!("Account '{username}' locked after too many failed attempts"),
+                    origin_of_condition: Some(format!(
+                        "/redfish/v1/AccountService/Accounts/{username}"
+                    )),
+                    severity: crate::events::registry::SEVERITY_WARNING.to_string(),
+                    actor: Some(username.to_string()),
+                    payload: None,
                 });
             }
         }
 
+        state.event_bus.emit(crate::events::RedfishEvent {
+            event_type: crate::events::registry::EVENT_TYPE_ALERT.to_string(),
+            event_id: uuid::Uuid::new_v4().to_string(),
+            event_timestamp: chrono::Utc::now(),
+            message_id: crate::events::registry::MSG_AUTH_FAILURE.to_string(),
+            message: format!(
+                "Authentication failure{}",
+                attempted_user
+                    .as_ref()
+                    .map(|u| format!(" for user '{u}'"))
+                    .unwrap_or_default()
+            ),
+            origin_of_condition: Some(parts.uri.path().to_string()),
+            severity: crate::events::registry::SEVERITY_WARNING.to_string(),
+            actor: attempted_user,
+            payload: None,
+        });
+        crate::telemetry::record_auth_attempt(false);
+
         Err(AuthError)
-    }
-}
-
-/// Optional auth — returns None instead of 401 when auth is disabled or no credentials
-pub struct OptionalAuth(pub Option<AuthenticatedUser>);
-
-impl FromRequestParts<Arc<AppState>> for OptionalAuth {
-    type Rejection = std::convert::Infallible;
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &Arc<AppState>,
-    ) -> Result<Self, Self::Rejection> {
-        Ok(OptionalAuth(
-            AuthenticatedUser::from_request_parts(parts, state)
-                .await
-                .ok(),
-        ))
     }
 }

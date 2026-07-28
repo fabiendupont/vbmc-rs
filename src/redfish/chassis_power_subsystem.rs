@@ -2,6 +2,7 @@ use axum::Json;
 use serde::Serialize;
 
 use super::types::{Collection, ODataId, Status};
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct PowerSubsystemResource {
@@ -117,7 +118,7 @@ pub struct PsuLinks {
     pub power_outlets: Vec<ODataId>,
 }
 
-pub async fn get_power_subsystem() -> Json<PowerSubsystemResource> {
+pub async fn get_power_subsystem(_user: AuthenticatedUser) -> Json<PowerSubsystemResource> {
     Json(PowerSubsystemResource {
         odata_id: "/redfish/v1/Chassis/1/PowerSubsystem",
         odata_type: "#PowerSubsystem.v1_1_0.PowerSubsystem",
@@ -135,7 +136,7 @@ pub async fn get_power_subsystem() -> Json<PowerSubsystemResource> {
     })
 }
 
-pub async fn get_power_supplies() -> Json<Collection<ODataId>> {
+pub async fn get_power_supplies(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
     let members = vec![ODataId::new(
         "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0",
     )];
@@ -148,7 +149,7 @@ pub async fn get_power_supplies() -> Json<Collection<ODataId>> {
     ))
 }
 
-pub async fn get_power_supply() -> Json<PowerSupplyResource> {
+pub async fn get_power_supply(_user: AuthenticatedUser) -> Json<PowerSupplyResource> {
     Json(PowerSupplyResource {
         odata_id: "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0",
         odata_type: "#PowerSupply.v1_5_0.PowerSupply",

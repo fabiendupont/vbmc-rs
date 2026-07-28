@@ -64,6 +64,13 @@ impl SessionStore {
         Some(session.clone())
     }
 
+    pub fn get_session_by_id(&self, session_id: &str) -> Option<Session> {
+        self.sessions
+            .iter()
+            .find(|s| s.id == session_id)
+            .map(|s| s.value().clone())
+    }
+
     pub fn delete_session_by_id(&self, session_id: &str) -> bool {
         let token = self
             .sessions

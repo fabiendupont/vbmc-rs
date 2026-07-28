@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct SensorResource {
@@ -315,7 +316,7 @@ const SENSORS: &[SensorDef] = &[
     },
 ];
 
-pub async fn get_sensors() -> Json<Collection<ODataId>> {
+pub async fn get_sensors(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
     let members: Vec<ODataId> = SENSORS
         .iter()
         .map(|s| ODataId::new(format!("/redfish/v1/Chassis/1/Sensors/{}", s.id)))
@@ -340,6 +341,7 @@ fn make_threshold(reading: f64, activation: &'static str) -> ThresholdValue {
 }
 
 pub async fn get_sensor(
+    _user: AuthenticatedUser,
     Path(sensor_id): Path<String>,
 ) -> Result<Json<SensorResource>, RedfishApiError> {
     let def = SENSORS

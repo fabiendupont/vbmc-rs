@@ -2,6 +2,7 @@ use axum::Json;
 use serde::Serialize;
 
 use super::types::{Collection, ODataId, Status};
+use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct ThermalSubsystemResource {
@@ -177,7 +178,7 @@ pub struct FanResource {
     pub status: Status,
 }
 
-pub async fn get_thermal_subsystem() -> Json<ThermalSubsystemResource> {
+pub async fn get_thermal_subsystem(_user: AuthenticatedUser) -> Json<ThermalSubsystemResource> {
     Json(ThermalSubsystemResource {
         odata_id: "/redfish/v1/Chassis/1/ThermalSubsystem",
         odata_type: "#ThermalSubsystem.v1_3_0.ThermalSubsystem",
@@ -191,7 +192,7 @@ pub async fn get_thermal_subsystem() -> Json<ThermalSubsystemResource> {
     })
 }
 
-pub async fn get_thermal_metrics() -> Json<ThermalMetricsResource> {
+pub async fn get_thermal_metrics(_user: AuthenticatedUser) -> Json<ThermalMetricsResource> {
     Json(ThermalMetricsResource {
         odata_id: "/redfish/v1/Chassis/1/ThermalSubsystem/ThermalMetrics",
         odata_type: "#ThermalMetrics.v1_3_0.ThermalMetrics",
@@ -282,7 +283,7 @@ pub async fn get_thermal_metrics() -> Json<ThermalMetricsResource> {
     })
 }
 
-pub async fn get_fans() -> Json<Collection<ODataId>> {
+pub async fn get_fans(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
     let members = vec![ODataId::new(
         "/redfish/v1/Chassis/1/ThermalSubsystem/Fans/0",
     )];
@@ -295,7 +296,7 @@ pub async fn get_fans() -> Json<Collection<ODataId>> {
     ))
 }
 
-pub async fn get_fan() -> Json<FanResource> {
+pub async fn get_fan(_user: AuthenticatedUser) -> Json<FanResource> {
     Json(FanResource {
         odata_id: "/redfish/v1/Chassis/1/ThermalSubsystem/Fans/0",
         odata_type: "#Fan.v1_5_0.Fan",
