@@ -47,6 +47,8 @@ fn make_system_config(name: &str) -> SystemConfig {
         hardware: HardwareConfig::default(),
         connection_uri: None,
         domain_name: None,
+        namespace: None,
+        vm_name: None,
         attestation: None,
     }
 }

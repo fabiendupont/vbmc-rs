@@ -23,7 +23,7 @@ default = ["cloud-hypervisor"]
 cloud-hypervisor = []
 qemu = []
 libvirt = ["dep:quick-xml", "dep:virt"]
-kubevirt = ["dep:kube", "dep:k8s-openapi"]
+kubevirt = ["dep:kube", "dep:k8s-openapi", "dep:schemars", "dep:http"]
 aggregator = ["dep:kube", "dep:k8s-openapi"]
 keylime = []
 trustee = []
@@ -63,6 +63,8 @@ quick-xml = { version = "0.37", optional = true }
 virt = { version = "0.4", optional = true }
 kube = { version = "4.2.0", features = ["client", "runtime", "derive"], optional = true }
 k8s-openapi = { version = "0.28.0", optional = true }
+schemars = { version = "1", features = ["derive"], optional = true }
+http = { version = "1", optional = true }
 
 [dev-dependencies]
 k8s-openapi = { version = "0.28.0", features = ["latest"] }

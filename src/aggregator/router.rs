@@ -1,0 +1,237 @@
+use std::sync::Arc;
+
+use axum::Json;
+use axum::body::Bytes;
+use axum::extract::{Path, State};
+use axum::http::{HeaderMap, Method, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::get;
+use axum::Router;
+use tracing::warn;
+
+use super::state::AggregatorState;
+
+pub fn aggregator_router(state: Arc<AggregatorState>) -> Router {
+    Router::new()
+        .route("/redfish", get(get_redfish_root))
+        .route("/redfish/v1", get(get_service_root))
+        .route("/redfish/v1/", get(get_service_root))
+        .route("/redfish/v1/$metadata", get(get_metadata))
+        .route("/redfish/v1/odata", get(get_odata_service_document))
+        .route("/redfish/v1/Systems", get(get_aggregated_systems))
+        .route(
+            "/redfish/v1/Systems/{system_id}",
+            get(proxy_system_get)
+                .post(proxy_system_mutate)
+                .patch(proxy_system_mutate)
+                .delete(proxy_system_mutate),
+        )
+        .route(
+            "/redfish/v1/Systems/{system_id}/{*rest}",
+            get(proxy_system_sub_get)
+                .post(proxy_system_sub_mutate)
+                .patch(proxy_system_sub_mutate)
+                .delete(proxy_system_sub_mutate),
+        )
+        .route(
+            "/redfish/v1/Chassis/{system_id}",
+            get(proxy_chassis_get)
+                .post(proxy_chassis_mutate)
+                .patch(proxy_chassis_mutate)
+                .delete(proxy_chassis_mutate),
+        )
+        .route(
+            "/redfish/v1/Chassis/{system_id}/{*rest}",
+            get(proxy_chassis_sub_get)
+                .post(proxy_chassis_sub_mutate)
+                .patch(proxy_chassis_sub_mutate)
+                .delete(proxy_chassis_sub_mutate),
+        )
+        .with_state(state)
+}
+
+async fn get_redfish_root() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "v1": "/redfish/v1/"
+    }))
+}
+
+async fn get_service_root(
+    State(state): State<Arc<AggregatorState>>,
+) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "@odata.id": "/redfish/v1",
+        "@odata.type": "#ServiceRoot.v1_17_0.ServiceRoot",
+        "Id": "RootService",
+        "Name": "vbmc-rs Aggregator Redfish Service",
+        "Description": "vbmc-rs Redfish Aggregator Service Root",
+        "RedfishVersion": "1.21.0",
+        "UUID": state.instance_uuid,
+        "Systems": { "@odata.id": "/redfish/v1/Systems" },
+        "Chassis": { "@odata.id": "/redfish/v1/Chassis" },
+        "Vendor": "vbmc-rs",
+        "Product": "Virtual BMC Aggregator",
+        "Links": {
+            "Sessions": { "@odata.id": "/redfish/v1/SessionService/Sessions" }
+        }
+    }))
+}
+
+static METADATA_XML: &str = include_str!("../../data/metadata.xml");
+
+async fn get_metadata() -> Response {
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/xml")],
+        METADATA_XML,
+    )
+        .into_response()
+}
+
+async fn get_odata_service_document() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "@odata.context": "/redfish/v1/$metadata",
+        "value": [
+            { "name": "Systems", "kind": "Singleton", "url": "/redfish/v1/Systems" },
+            { "name": "Chassis", "kind": "Singleton", "url": "/redfish/v1/Chassis" },
+        ]
+    }))
+}
+
+async fn get_aggregated_systems(
+    State(state): State<Arc<AggregatorState>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let endpoints = state.registry.list();
+    let mut all_members = Vec::new();
+
+    for endpoint in &endpoints {
+        match state
+            .proxy
+            .forward(
+                endpoint,
+                Method::GET,
+                "/redfish/v1/Systems",
+                HeaderMap::new(),
+                None,
+            )
+            .await
+        {
+            Ok(resp) => {
+                let (parts, body) = resp.into_parts();
+                if parts.status.is_success()
+                    && let Ok(body_bytes) = axum::body::to_bytes(body, 1024 * 1024).await
+                    && let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&body_bytes)
+                    && let Some(members) = parsed.get("Members").and_then(|m| m.as_array())
+                {
+                    all_members.extend(members.iter().cloned());
+                }
+            }
+            Err(status) => {
+                warn!(
+                    system_id = %endpoint.system_id,
+                    status = %status,
+                    "Failed to fetch Systems from sidecar"
+                );
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "@odata.id": "/redfish/v1/Systems",
+        "@odata.type": "#ComputerSystemCollection.ComputerSystemCollection",
+        "Name": "Computer System Collection",
+        "Members": all_members,
+        "Members@odata.count": all_members.len(),
+    })))
+}
+
+async fn proxy_system_get(
+    State(state): State<Arc<AggregatorState>>,
+    Path(system_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let path = format!("/redfish/v1/Systems/{system_id}");
+    state.proxy.forward(&endpoint, Method::GET, &path, headers, None).await
+}
+
+async fn proxy_system_mutate(
+    State(state): State<Arc<AggregatorState>>,
+    method: Method,
+    Path(system_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, StatusCode> {
+    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let path = format!("/redfish/v1/Systems/{system_id}");
+    let body_opt = if body.is_empty() { None } else { Some(body) };
+    state.proxy.forward(&endpoint, method, &path, headers, body_opt).await
+}
+
+async fn proxy_system_sub_get(
+    State(state): State<Arc<AggregatorState>>,
+    Path((system_id, rest)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let path = format!("/redfish/v1/Systems/{system_id}/{rest}");
+    state.proxy.forward(&endpoint, Method::GET, &path, headers, None).await
+}
+
+async fn proxy_system_sub_mutate(
+    State(state): State<Arc<AggregatorState>>,
+    method: Method,
+    Path((system_id, rest)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, StatusCode> {
+    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let path = format!("/redfish/v1/Systems/{system_id}/{rest}");
+    let body_opt = if body.is_empty() { None } else { Some(body) };
+    state.proxy.forward(&endpoint, method, &path, headers, body_opt).await
+}
+
+async fn proxy_chassis_get(
+    State(state): State<Arc<AggregatorState>>,
+    Path(system_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let path = format!("/redfish/v1/Chassis/{system_id}");
+    state.proxy.forward(&endpoint, Method::GET, &path, headers, None).await
+}
+
+async fn proxy_chassis_mutate(
+    State(state): State<Arc<AggregatorState>>,
+    method: Method,
+    Path(system_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, StatusCode> {
+    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let path = format!("/redfish/v1/Chassis/{system_id}");
+    let body_opt = if body.is_empty() { None } else { Some(body) };
+    state.proxy.forward(&endpoint, method, &path, headers, body_opt).await
+}
+
+async fn proxy_chassis_sub_get(
+    State(state): State<Arc<AggregatorState>>,
+    Path((system_id, rest)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let path = format!("/redfish/v1/Chassis/{system_id}/{rest}");
+    state.proxy.forward(&endpoint, Method::GET, &path, headers, None).await
+}
+
+async fn proxy_chassis_sub_mutate(
+    State(state): State<Arc<AggregatorState>>,
+    method: Method,
+    Path((system_id, rest)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, StatusCode> {
+    let endpoint = state.registry.get(&system_id).ok_or(StatusCode::NOT_FOUND)?;
+    let path = format!("/redfish/v1/Chassis/{system_id}/{rest}");
+    let body_opt = if body.is_empty() { None } else { Some(body) };
+    state.proxy.forward(&endpoint, method, &path, headers, body_opt).await
+}

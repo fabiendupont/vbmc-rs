@@ -1,4 +1,6 @@
 pub mod cloud_hypervisor;
+#[cfg(feature = "kubevirt")]
+pub mod kubevirt;
 #[cfg(feature = "libvirt")]
 pub mod libvirt;
 #[cfg(feature = "qemu")]
@@ -134,6 +136,8 @@ pub trait VmmBackend: Send + Sync {
 
 pub enum Backend {
     CloudHypervisor(cloud_hypervisor::CloudHypervisorBackend),
+    #[cfg(feature = "kubevirt")]
+    KubeVirt(kubevirt::KubeVirtBackend),
     #[cfg(feature = "qemu")]
     Qemu(qemu::QemuBackend),
     #[cfg(feature = "libvirt")]
@@ -246,6 +250,8 @@ impl VmmBackend for Backend {
     async fn vm_info(&self, system_id: &str) -> Result<VmInfo, BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_info(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_info(system_id).await,
             #[cfg(feature = "qemu")]
             Self::Qemu(b) => b.vm_info(system_id).await,
             #[cfg(feature = "libvirt")]
@@ -258,6 +264,8 @@ impl VmmBackend for Backend {
     async fn vm_create(&self, system_id: &str, config: VmCreateConfig) -> Result<(), BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_create(system_id, config).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_create(system_id, config).await,
             #[cfg(feature = "qemu")]
             Self::Qemu(b) => b.vm_create(system_id, config).await,
             #[cfg(feature = "libvirt")]
@@ -270,6 +278,8 @@ impl VmmBackend for Backend {
     async fn vm_boot(&self, system_id: &str) -> Result<(), BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_boot(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_boot(system_id).await,
             #[cfg(feature = "qemu")]
             Self::Qemu(b) => b.vm_boot(system_id).await,
             #[cfg(feature = "libvirt")]
@@ -282,6 +292,8 @@ impl VmmBackend for Backend {
     async fn vm_shutdown(&self, system_id: &str) -> Result<(), BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_shutdown(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_shutdown(system_id).await,
             #[cfg(feature = "qemu")]
             Self::Qemu(b) => b.vm_shutdown(system_id).await,
             #[cfg(feature = "libvirt")]
@@ -294,6 +306,8 @@ impl VmmBackend for Backend {
     async fn vm_delete(&self, system_id: &str) -> Result<(), BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_delete(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_delete(system_id).await,
             #[cfg(feature = "qemu")]
             Self::Qemu(b) => b.vm_delete(system_id).await,
             #[cfg(feature = "libvirt")]
@@ -306,6 +320,8 @@ impl VmmBackend for Backend {
     async fn vm_power_button(&self, system_id: &str) -> Result<(), BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_power_button(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_power_button(system_id).await,
             #[cfg(feature = "qemu")]
             Self::Qemu(b) => b.vm_power_button(system_id).await,
             #[cfg(feature = "libvirt")]
@@ -318,6 +334,8 @@ impl VmmBackend for Backend {
     async fn vm_reboot(&self, system_id: &str) -> Result<(), BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_reboot(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_reboot(system_id).await,
             #[cfg(feature = "qemu")]
             Self::Qemu(b) => b.vm_reboot(system_id).await,
             #[cfg(feature = "libvirt")]
@@ -334,6 +352,8 @@ impl VmmBackend for Backend {
     ) -> Result<(), BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_add_disk(system_id, disk).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_add_disk(system_id, disk).await,
             #[cfg(feature = "qemu")]
             Self::Qemu(b) => b.vm_add_disk(system_id, disk).await,
             #[cfg(feature = "libvirt")]
@@ -346,6 +366,8 @@ impl VmmBackend for Backend {
     async fn vm_remove_device(&self, system_id: &str, device_id: &str) -> Result<(), BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_remove_device(system_id, device_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_remove_device(system_id, device_id).await,
             #[cfg(feature = "qemu")]
             Self::Qemu(b) => b.vm_remove_device(system_id, device_id).await,
             #[cfg(feature = "libvirt")]
@@ -358,6 +380,8 @@ impl VmmBackend for Backend {
     async fn vmm_ping(&self, system_id: &str) -> Result<VmmPingResponse, BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vmm_ping(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vmm_ping(system_id).await,
             #[cfg(feature = "qemu")]
             Self::Qemu(b) => b.vmm_ping(system_id).await,
             #[cfg(feature = "libvirt")]
@@ -370,6 +394,8 @@ impl VmmBackend for Backend {
     async fn vm_counters(&self, system_id: &str) -> Result<VmCounters, BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_counters(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_counters(system_id).await,
             #[cfg(feature = "qemu")]
             Self::Qemu(b) => b.vm_counters(system_id).await,
             #[cfg(feature = "libvirt")]
@@ -386,6 +412,8 @@ impl VmmBackend for Backend {
     ) -> Result<(), BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_set_secure_boot(system_id, enabled).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_set_secure_boot(system_id, enabled).await,
             #[cfg(feature = "qemu")]
             Self::Qemu(b) => b.vm_set_secure_boot(system_id, enabled).await,
             #[cfg(feature = "libvirt")]

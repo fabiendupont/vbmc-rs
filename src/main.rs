@@ -57,6 +57,12 @@ async fn main() -> anyhow::Result<()> {
         config::BackendType::Qemu => backend::qemu::build_backend(&config),
         #[cfg(feature = "libvirt")]
         config::BackendType::Libvirt => backend::libvirt::build_backend(&config)?,
+        #[cfg(feature = "kubevirt")]
+        config::BackendType::KubeVirt => {
+            backend::kubevirt::build_backend(&config)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+        }
     };
 
     // Load accounts

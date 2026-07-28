@@ -11,6 +11,8 @@ pub enum BackendType {
     Qemu,
     #[cfg(feature = "libvirt")]
     Libvirt,
+    #[cfg(feature = "kubevirt")]
+    KubeVirt,
 }
 
 impl BackendType {
@@ -21,6 +23,8 @@ impl BackendType {
             Self::Qemu => "QEMU",
             #[cfg(feature = "libvirt")]
             Self::Libvirt => "Libvirt",
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt => "KubeVirt",
         }
     }
 }
@@ -146,6 +150,10 @@ pub struct SystemConfig {
     pub connection_uri: Option<String>,
     #[serde(default)]
     pub domain_name: Option<String>,
+    #[serde(default)]
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub vm_name: Option<String>,
     #[serde(default)]
     pub attestation: Option<AttestationConfig>,
 }
