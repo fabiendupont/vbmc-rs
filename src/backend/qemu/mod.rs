@@ -125,6 +125,17 @@ impl VmmBackend for QemuBackend {
             (Vec::new(), Vec::new())
         };
 
+        let secure_boot = client
+            .execute::<bool>(
+                "qom-get",
+                Some(serde_json::json!({
+                    "path": "/machine/pflash0",
+                    "property": "secure"
+                })),
+            )
+            .await
+            .ok();
+
         Ok(bt::VmInfo {
             power_state,
             cpu_count,
@@ -132,6 +143,7 @@ impl VmmBackend for QemuBackend {
             cpu_topology: None,
             memory_bytes,
             memory_actual_bytes: Some(memory_bytes),
+            secure_boot,
             disks,
             nics,
             pci_devices,
@@ -234,6 +246,16 @@ impl VmmBackend for QemuBackend {
         }
 
         Ok(counters)
+    }
+
+    async fn vm_set_secure_boot(
+        &self,
+        _system_id: &str,
+        _enabled: bool,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::NotSupported(
+            "QEMU secure boot is a command-line setting and cannot be changed via QMP".to_string(),
+        ))
     }
 }
 

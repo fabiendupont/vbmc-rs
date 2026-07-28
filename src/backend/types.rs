@@ -81,6 +81,7 @@ pub struct VmInfo {
     pub cpu_topology: Option<CpuTopologyInfo>,
     pub memory_bytes: u64,
     pub memory_actual_bytes: Option<u64>,
+    pub secure_boot: Option<bool>,
     pub disks: Vec<DiskInfo>,
     pub nics: Vec<NicInfo>,
     pub pci_devices: Vec<PciDeviceInfo>,
@@ -97,6 +98,7 @@ pub struct VmCreateConfig {
     pub cpu_count: u8,
     pub max_cpu_count: u8,
     pub memory_bytes: u64,
+    pub secure_boot: bool,
     pub disks: Vec<DiskCreateConfig>,
     pub nics: Vec<NicCreateConfig>,
     pub platform: Option<PlatformConfig>,
@@ -224,6 +226,7 @@ mod tests {
             }),
             memory_bytes: 4 * 1024 * 1024 * 1024,
             memory_actual_bytes: Some(4 * 1024 * 1024 * 1024),
+            secure_boot: None,
             disks: vec![DiskInfo {
                 id: "vda".to_string(),
                 path: Some("/tmp/disk.qcow2".to_string()),

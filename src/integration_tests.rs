@@ -59,6 +59,7 @@ fn make_running_vm() -> VmInfo {
         cpu_topology: None,
         memory_bytes: 4 * 1024 * 1024 * 1024,
         memory_actual_bytes: Some(4 * 1024 * 1024 * 1024),
+        secure_boot: None,
         disks: vec![DiskInfo {
             id: "vda".to_string(),
             path: Some("/tmp/disk.qcow2".to_string()),

@@ -149,6 +149,7 @@ fn ch_vm_info_to_vm_info(ch_info: types::VmInfo) -> bt::VmInfo {
         cpu_topology,
         memory_bytes,
         memory_actual_bytes: ch_info.memory_actual_size,
+        secure_boot: None,
         disks,
         nics,
         pci_devices: Vec::new(),
@@ -394,6 +395,16 @@ impl VmmBackend for CloudHypervisorBackend {
         let raw: serde_json::Value = Self::parse_response(status, &body)?;
         Ok(parse_ch_counters(&raw))
     }
+
+    // Secure boot is handled at VM creation time via firmware selection;
+    // Cloud Hypervisor has no runtime API to toggle it on an existing VM.
+    async fn vm_set_secure_boot(
+        &self,
+        _system_id: &str,
+        _enabled: bool,
+    ) -> Result<(), BackendError> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -532,6 +543,7 @@ mod tests {
             cpu_count: 2,
             max_cpu_count: 4,
             memory_bytes: 1024 * 1024 * 1024,
+            secure_boot: false,
             disks: vec![bt::DiskCreateConfig {
                 path: Some("/tmp/disk.raw".to_string()),
                 id: Some("root".to_string()),

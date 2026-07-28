@@ -64,6 +64,7 @@ impl VmmBackend for LibvirtBackend {
             cpu_topology: None,
             memory_bytes: parsed.memory_bytes,
             memory_actual_bytes: Some(info.memory * 1024), // memory is in KiB
+            secure_boot: parsed.secure_boot,
             disks: parsed.disks,
             nics: parsed.nics,
             pci_devices: parsed.pci_devices,
@@ -213,6 +214,30 @@ impl VmmBackend for LibvirtBackend {
         }
 
         Ok(counters)
+    }
+
+    async fn vm_set_secure_boot(
+        &self,
+        system_id: &str,
+        enabled: bool,
+    ) -> Result<(), BackendError> {
+        let domain = self.domain_for(system_id)?;
+        let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
+
+        let sb_config = if enabled {
+            Some(xml::SecureBootConfig {
+                firmware_path: "/usr/share/OVMF/OVMF_CODE.secboot.fd".to_string(),
+                nvram_template: Some("/usr/share/OVMF/OVMF_VARS.secboot.fd".to_string()),
+            })
+        } else {
+            None
+        };
+
+        let new_xml = xml::set_secure_boot_xml(&domain_xml, enabled, sb_config.as_ref())
+            .map_err(BackendError::NotSupported)?;
+
+        Domain::define_xml(&self.conn, &new_xml).map_err(map_virt_error)?;
+        Ok(())
     }
 }
 

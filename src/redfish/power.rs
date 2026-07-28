@@ -24,10 +24,14 @@ fn build_vm_config(state: &AppState, system_id: &str) -> VmCreateConfig {
     let sys_config = &state.config.systems[system_id];
     let vm_state = state.get_vm_state(system_id);
 
-    let firmware = sys_config
-        .firmware_path
-        .clone()
-        .unwrap_or_else(|| state.config.defaults.firmware_path.clone());
+    let firmware = if vm_state.secure_boot_enabled {
+        state.config.defaults.secure_boot_firmware_path.clone()
+    } else {
+        sys_config
+            .firmware_path
+            .clone()
+            .unwrap_or_else(|| state.config.defaults.firmware_path.clone())
+    };
 
     let mut disks: Vec<DiskCreateConfig> = Vec::new();
 
@@ -68,6 +72,7 @@ fn build_vm_config(state: &AppState, system_id: &str) -> VmCreateConfig {
         cpu_count,
         max_cpu_count,
         memory_bytes,
+        secure_boot: vm_state.secure_boot_enabled,
         disks,
         nics: Vec::new(),
         platform: None,

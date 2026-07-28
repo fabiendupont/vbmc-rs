@@ -8,6 +8,7 @@ use crate::backend::types as bt;
 pub struct DomainInfo {
     pub vcpu_count: u32,
     pub memory_bytes: u64,
+    pub secure_boot: Option<bool>,
     pub disks: Vec<bt::DiskInfo>,
     pub nics: Vec<bt::NicInfo>,
     pub pci_devices: Vec<bt::PciDeviceInfo>,
@@ -28,6 +29,7 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
         in_memory: false,
         memory_unit: String::from("KiB"),
         in_devices: false,
+        secure_boot: None,
         current_disk: None,
         current_nic: None,
         current_hostdev: None,
@@ -133,6 +135,7 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
         buf.clear();
     }
 
+    info.secure_boot = ps.secure_boot;
     info
 }
 
@@ -141,6 +144,7 @@ struct ParseState {
     in_memory: bool,
     memory_unit: String,
     in_devices: bool,
+    secure_boot: Option<bool>,
     current_disk: Option<DiskBuilder>,
     current_nic: Option<NicBuilder>,
     current_hostdev: Option<HostdevBuilder>,
@@ -154,6 +158,14 @@ fn handle_open_tag(name: &str, e: &quick_xml::events::BytesStart<'_>, ps: &mut P
             for attr in e.attributes().flatten() {
                 if attr.key.as_ref() == b"unit" {
                     ps.memory_unit = String::from_utf8_lossy(&attr.value).to_string();
+                }
+            }
+        }
+        "loader" => {
+            for attr in e.attributes().flatten() {
+                if attr.key.as_ref() == b"secure" {
+                    let val = String::from_utf8_lossy(&attr.value);
+                    ps.secure_boot = Some(val == "yes");
                 }
             }
         }
@@ -292,6 +304,142 @@ struct HostdevBuilder {
 fn parse_hex(s: &str) -> u32 {
     let s = s.strip_prefix("0x").unwrap_or(s);
     u32::from_str_radix(s, 16).unwrap_or(0)
+}
+
+#[derive(Debug)]
+pub struct SecureBootConfig {
+    pub firmware_path: String,
+    pub nvram_template: Option<String>,
+}
+
+/// Validate domain XML preconditions and apply secure boot changes.
+///
+/// Returns the modified XML or an error describing what's incompatible.
+/// When disabling, removes SMM and the secure attribute but leaves the
+/// loader type and firmware path unchanged (the caller can supply a
+/// non-secboot firmware via `config` if desired).
+pub fn set_secure_boot_xml(
+    xml: &str,
+    enabled: bool,
+    config: Option<&SecureBootConfig>,
+) -> Result<String, String> {
+    // Validate machine type is Q35
+    if !xml.contains("machine='q35'")
+        && !xml.contains("machine=\"q35\"")
+        && !xml.contains("machine='pc-q35")
+        && !xml.contains("machine=\"pc-q35")
+    {
+        return Err(
+            "secure boot requires Q35 machine type; domain uses a different chipset".to_string(),
+        );
+    }
+
+    // Validate loader element exists and is pflash type
+    if !xml.contains("<loader") {
+        return Err("domain XML has no <loader> element; UEFI firmware is required".to_string());
+    }
+    if !xml.contains("type='pflash'") && !xml.contains("type=\"pflash\"") {
+        return Err(
+            "secure boot requires pflash loader type; domain uses a different loader".to_string(),
+        );
+    }
+
+    let mut result = xml.to_string();
+
+    if enabled {
+        // Set secure='yes' on the loader element
+        result = set_loader_secure_attr(&result, "yes");
+
+        // Ensure SMM is enabled in <features>
+        if !result.contains("<smm") {
+            if result.contains("</features>") {
+                result = result.replace("</features>", "  <smm state='on'/>\n  </features>");
+            } else if result.contains("<features/>") {
+                result = result.replace(
+                    "<features/>",
+                    "<features>\n    <smm state='on'/>\n  </features>",
+                );
+            } else {
+                // No <features> block — insert before <os> or <devices>
+                let insert_before = if result.contains("<os>") || result.contains("<os ") {
+                    "<os"
+                } else {
+                    "<devices"
+                };
+                result = result.replacen(
+                    insert_before,
+                    &format!("<features>\n    <smm state='on'/>\n  </features>\n  {insert_before}"),
+                    1,
+                );
+            }
+        } else if result.contains("<smm state='off'/>") || result.contains("<smm state=\"off\"/>")
+        {
+            result = result
+                .replace("<smm state='off'/>", "<smm state='on'/>")
+                .replace("<smm state=\"off\"/>", "<smm state='on'/>");
+        }
+
+        // Update firmware path if config provides one
+        if let Some(cfg) = config {
+            result = replace_loader_path(&result, &cfg.firmware_path);
+            if let Some(nvram_tmpl) = &cfg.nvram_template {
+                result = set_nvram_template(&result, nvram_tmpl);
+            }
+        }
+    } else {
+        // Disable: remove secure attribute, disable SMM
+        result = set_loader_secure_attr(&result, "no");
+        result = result
+            .replace("<smm state='on'/>", "<smm state='off'/>")
+            .replace("<smm state=\"on\"/>", "<smm state='off'/>");
+    }
+
+    Ok(result)
+}
+
+fn set_loader_secure_attr(xml: &str, value: &str) -> String {
+    if xml.contains("secure='") || xml.contains("secure=\"") {
+        xml.replace("secure='yes'", &format!("secure='{value}'"))
+            .replace("secure=\"yes\"", &format!("secure='{value}'"))
+            .replace("secure='no'", &format!("secure='{value}'"))
+            .replace("secure=\"no\"", &format!("secure='{value}'"))
+    } else {
+        xml.replacen("<loader", &format!("<loader secure='{value}'"), 1)
+    }
+}
+
+fn replace_loader_path(xml: &str, new_path: &str) -> String {
+    if let Some(start) = xml.find("<loader")
+        && let Some(gt) = xml[start..].find('>')
+        && let Some(end_tag) = xml[start + gt + 1..].find("</loader>")
+    {
+        let content_start = start + gt + 1;
+        let content_end = content_start + end_tag;
+        let mut result = String::with_capacity(xml.len());
+        result.push_str(&xml[..content_start]);
+        result.push_str(new_path);
+        result.push_str(&xml[content_end..]);
+        return result;
+    }
+    xml.to_string()
+}
+
+fn set_nvram_template(xml: &str, template: &str) -> String {
+    if xml.contains("<nvram") {
+        if !xml.contains("template=") {
+            xml.replacen("<nvram", &format!("<nvram template='{template}'"), 1)
+        } else {
+            xml.to_string()
+        }
+    } else if xml.contains("</os>") {
+        xml.replacen(
+            "</os>",
+            &format!("  <nvram template='{template}'/>\n  </os>"),
+            1,
+        )
+    } else {
+        xml.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -478,5 +626,100 @@ mod tests {
         assert_eq!(parse_hex("0xff"), 255);
         assert_eq!(parse_hex("10"), 16);
         assert_eq!(parse_hex(""), 0);
+    }
+
+    #[test]
+    fn test_set_secure_boot_enable_on_q35_pflash() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <type machine='q35'>hvm</type>
+    <loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+  </os>
+  <features>
+    <acpi/>
+  </features>
+  <devices></devices>
+</domain>"#;
+        let cfg = SecureBootConfig {
+            firmware_path: "/usr/share/OVMF/OVMF_CODE.secboot.fd".to_string(),
+            nvram_template: Some("/usr/share/OVMF/OVMF_VARS.secboot.fd".to_string()),
+        };
+        let result = set_secure_boot_xml(xml, true, Some(&cfg)).unwrap();
+        assert!(result.contains("secure='yes'"));
+        assert!(result.contains("<smm state='on'/>"));
+        assert!(result.contains("OVMF_CODE.secboot.fd"));
+        assert!(result.contains("OVMF_VARS.secboot.fd"));
+    }
+
+    #[test]
+    fn test_set_secure_boot_rejects_non_q35() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <type machine='i440fx'>hvm</type>
+    <loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+  </os>
+</domain>"#;
+        let err = set_secure_boot_xml(xml, true, None).unwrap_err();
+        assert!(err.contains("Q35"));
+    }
+
+    #[test]
+    fn test_set_secure_boot_rejects_no_loader() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <type machine='q35'>hvm</type>
+  </os>
+</domain>"#;
+        let err = set_secure_boot_xml(xml, true, None).unwrap_err();
+        assert!(err.contains("loader"));
+    }
+
+    #[test]
+    fn test_set_secure_boot_rejects_non_pflash() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <type machine='q35'>hvm</type>
+    <loader type='rom'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+  </os>
+</domain>"#;
+        let err = set_secure_boot_xml(xml, true, None).unwrap_err();
+        assert!(err.contains("pflash"));
+    }
+
+    #[test]
+    fn test_set_secure_boot_disable() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <type machine='q35'>hvm</type>
+    <loader readonly='yes' secure='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.secboot.fd</loader>
+  </os>
+  <features>
+    <acpi/>
+    <smm state='on'/>
+  </features>
+</domain>"#;
+        let result = set_secure_boot_xml(xml, false, None).unwrap();
+        assert!(result.contains("secure='no'"));
+        assert!(result.contains("<smm state='off'/>"));
+    }
+
+    #[test]
+    fn test_set_secure_boot_already_enabled_updates_firmware() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <type machine='q35'>hvm</type>
+    <loader readonly='yes' secure='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+  </os>
+  <features>
+    <smm state='on'/>
+  </features>
+</domain>"#;
+        let cfg = SecureBootConfig {
+            firmware_path: "/usr/share/OVMF/OVMF_CODE.secboot.fd".to_string(),
+            nvram_template: None,
+        };
+        let result = set_secure_boot_xml(xml, true, Some(&cfg)).unwrap();
+        assert!(result.contains("OVMF_CODE.secboot.fd"));
+        assert!(result.contains("secure='yes'"));
     }
 }

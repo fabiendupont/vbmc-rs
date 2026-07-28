@@ -8,6 +8,7 @@ use super::error::RedfishApiError;
 use crate::app_state::AppState;
 use crate::auth::AuthenticatedUser;
 use crate::auth::rbac::{Privilege, has_privilege};
+use crate::backend::VmmBackend;
 
 #[derive(Debug, Serialize)]
 pub struct SecureBootResource {
@@ -42,6 +43,27 @@ pub async fn get_secure_boot(
 
     let vm_state = state.get_vm_state(&system_id);
 
+    let current_boot = match state.backend.vm_info(&system_id).await {
+        Ok(info) => match info.secure_boot {
+            Some(true) => "Enabled",
+            Some(false) => "Disabled",
+            None => {
+                if vm_state.secure_boot_enabled {
+                    "Enabled"
+                } else {
+                    "Disabled"
+                }
+            }
+        },
+        Err(_) => {
+            if vm_state.secure_boot_enabled {
+                "Enabled"
+            } else {
+                "Disabled"
+            }
+        }
+    };
+
     Ok(Json(SecureBootResource {
         odata_id: format!("/redfish/v1/Systems/{system_id}/SecureBoot"),
         odata_type: "#SecureBoot.v1_1_0.SecureBoot",
@@ -49,11 +71,7 @@ pub async fn get_secure_boot(
         name: "UEFI Secure Boot",
         description: "UEFI Secure Boot settings",
         secure_boot_enable: vm_state.secure_boot_enabled,
-        secure_boot_current_boot: if vm_state.secure_boot_enabled {
-            "Enabled"
-        } else {
-            "Disabled"
-        },
+        secure_boot_current_boot: current_boot,
         secure_boot_mode: "UserMode",
     }))
 }
@@ -83,6 +101,11 @@ pub async fn patch_secure_boot(
     }
 
     if let Some(enabled) = body.secure_boot_enable {
+        // Stage the change in the backend (takes effect on next boot)
+        if let Err(e) = state.backend.vm_set_secure_boot(&system_id, enabled).await {
+            tracing::warn!("Backend could not stage secure boot change for '{system_id}': {e}");
+        }
+
         let mut vm_state = state.get_vm_state(&system_id);
         vm_state.secure_boot_enabled = enabled;
         state.save_vm_state(&system_id, &vm_state);

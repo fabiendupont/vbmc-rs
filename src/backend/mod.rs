@@ -124,6 +124,12 @@ pub trait VmmBackend: Send + Sync {
         &self,
         system_id: &str,
     ) -> impl std::future::Future<Output = Result<VmCounters, BackendError>> + Send;
+
+    fn vm_set_secure_boot(
+        &self,
+        system_id: &str,
+        enabled: bool,
+    ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send;
 }
 
 pub enum Backend {
@@ -224,6 +230,14 @@ pub mod mock {
 
         async fn vm_counters(&self, _system_id: &str) -> Result<bt::VmCounters, BackendError> {
             Ok(bt::VmCounters::default())
+        }
+
+        async fn vm_set_secure_boot(
+            &self,
+            _system_id: &str,
+            _enabled: bool,
+        ) -> Result<(), BackendError> {
+            Ok(())
         }
     }
 }
@@ -362,6 +376,22 @@ impl VmmBackend for Backend {
             Self::Libvirt(b) => b.vm_counters(system_id).await,
             #[cfg(test)]
             Self::Mock(b) => b.vm_counters(system_id).await,
+        }
+    }
+
+    async fn vm_set_secure_boot(
+        &self,
+        system_id: &str,
+        enabled: bool,
+    ) -> Result<(), BackendError> {
+        match self {
+            Self::CloudHypervisor(b) => b.vm_set_secure_boot(system_id, enabled).await,
+            #[cfg(feature = "qemu")]
+            Self::Qemu(b) => b.vm_set_secure_boot(system_id, enabled).await,
+            #[cfg(feature = "libvirt")]
+            Self::Libvirt(b) => b.vm_set_secure_boot(system_id, enabled).await,
+            #[cfg(test)]
+            Self::Mock(b) => b.vm_set_secure_boot(system_id, enabled).await,
         }
     }
 }

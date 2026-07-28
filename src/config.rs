@@ -77,6 +77,8 @@ pub struct AuthConfig {
 pub struct DefaultsConfig {
     #[serde(default = "default_firmware_path")]
     pub firmware_path: String,
+    #[serde(default = "default_secure_boot_firmware_path")]
+    pub secure_boot_firmware_path: String,
     #[serde(default = "default_boot_source")]
     pub boot_source: String,
 }
@@ -188,6 +190,10 @@ fn default_lockout_duration() -> u64 {
 
 fn default_firmware_path() -> String {
     "/usr/share/OVMF/OVMF_CODE.fd".to_string()
+}
+
+fn default_secure_boot_firmware_path() -> String {
+    "/usr/share/OVMF/OVMF_CODE.secboot.fd".to_string()
 }
 
 fn default_boot_source() -> String {
