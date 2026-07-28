@@ -1,0 +1,60 @@
+name: Container Images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BASE: ghcr.io/${{ github.repository_owner }}/vbmc-rs
+
+jobs:
+  build:
+    name: Build ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - variant: default
+            containerfile: Containerfile
+            image_suffix: ""
+          - variant: libvirt
+            containerfile: Containerfile.libvirt
+            image_suffix: "-libvirt"
+          - variant: kubevirt
+            containerfile: Containerfile.kubevirt
+            image_suffix: "-kubevirt"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image tags
+        id: tags
+        run: |
+          IMAGE="${IMAGE_BASE}${{ matrix.image_suffix }}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            echo "tags=${IMAGE}:${VERSION},${IMAGE}:latest" >> "$GITHUB_OUTPUT"
+          else
+            SHA=$(git rev-parse --short HEAD)
+            echo "tags=${IMAGE}:${SHA},${IMAGE}:main" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.containerfile }}
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
