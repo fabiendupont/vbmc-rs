@@ -332,6 +332,14 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/redfish/v1/CertificateService/CertificateLocations",
             get(certificate_service::get_certificate_locations),
         )
+        .route(
+            "/redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR",
+            post(certificate_service::generate_csr),
+        )
+        .route(
+            "/redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate",
+            post(certificate_service::replace_certificate),
+        )
         // Security Policy
         .route(
             "/redfish/v1/SecurityPolicy",

@@ -85,6 +85,7 @@ fn make_app_state(mock: MockBackend, systems: HashMap<String, SystemConfig>) -> 
         config,
         Backend::Mock(mock),
         AccountStore::default(),
+        None,
     ))
 }
 
@@ -941,7 +942,7 @@ fn make_auth_app_state(mock: MockBackend, systems: HashMap<String, SystemConfig>
     accounts
         .add_account("viewer", "view123", "ReadOnly")
         .unwrap();
-    Arc::new(AppState::new(config, Backend::Mock(mock), accounts))
+    Arc::new(AppState::new(config, Backend::Mock(mock), accounts, None))
 }
 
 fn basic_auth_header(username: &str, password: &str) -> String {

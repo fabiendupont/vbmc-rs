@@ -37,6 +37,12 @@ impl AttestationCoordinator {
     }
 
     async fn poll_all(state: &Arc<AppState>) {
+        if let Ok(policy) = state.security_policy.read()
+            && !policy.spdm_enabled
+        {
+            return;
+        }
+
         for (system_id, sys_config) in &state.config.systems {
             if sys_config.attestation.is_none() {
                 continue;

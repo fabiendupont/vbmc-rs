@@ -22,12 +22,18 @@ pub struct AppState {
     pub account_store: std::sync::Mutex<AccountStore>,
     pub subscription_store: SubscriptionStore,
     pub security_policy: std::sync::RwLock<SecurityPolicyConfig>,
+    pub tls_config: Option<axum_server::tls_rustls::RustlsConfig>,
     pub instance_uuid: String,
     system_locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
 impl AppState {
-    pub fn new(config: AppConfig, backend: Backend, account_store: AccountStore) -> Self {
+    pub fn new(
+        config: AppConfig,
+        backend: Backend,
+        account_store: AccountStore,
+        tls_config: Option<axum_server::tls_rustls::RustlsConfig>,
+    ) -> Self {
         let vm_states: DashMap<String, VmState> = DashMap::new();
 
         for system_id in config.systems.keys() {
@@ -52,6 +58,7 @@ impl AppState {
             session_store,
             account_store: std::sync::Mutex::new(account_store),
             security_policy,
+            tls_config,
             subscription_store: SubscriptionStore::new(),
             instance_uuid: uuid::Uuid::new_v4().to_string(),
             system_locks: DashMap::new(),

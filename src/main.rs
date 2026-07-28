@@ -79,7 +79,19 @@ async fn main() -> anyhow::Result<()> {
         .transpose()?
         .unwrap_or_default();
 
-    let app_state = Arc::new(AppState::new(config.clone(), backend, account_store));
+    let tls_server_config = tls::build_tls_config(
+        &config.server,
+        config.security_policy.tls_minimum_version.as_deref(),
+    )?;
+    let rustls_config = tls_server_config
+        .map(|c| axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(c)));
+
+    let app_state = Arc::new(AppState::new(
+        config.clone(),
+        backend,
+        account_store,
+        rustls_config.clone(),
+    ));
 
     // Start audit log writer
     let audit_rx = app_state.event_bus.subscribe();
@@ -95,14 +107,13 @@ async fn main() -> anyhow::Result<()> {
     // Start session sweeper
     app_state.session_store.start_sweeper(cancel.clone());
 
-    // Auto-start attestation coordinator if any system has attestation configured
     let attestation_intervals: Vec<u64> = config
         .systems
         .values()
         .filter_map(|sys| sys.attestation.as_ref())
         .map(|att| att.poll_interval_seconds)
         .collect();
-    if !attestation_intervals.is_empty() {
+    if config.security_policy.spdm_enabled && !attestation_intervals.is_empty() {
         let interval_secs = attestation_intervals.into_iter().min().unwrap_or(30);
         info!(
             "Starting attestation coordinator (poll interval: {}s)",
@@ -125,14 +136,12 @@ async fn main() -> anyhow::Result<()> {
 
     let app = redfish::router(app_state.clone());
 
-    if let Some(tls_config) = tls::build_tls_config(&config.server)? {
+    if let Some(rustls_config) = rustls_config {
         if config.server.tls_client_ca.is_some() {
             info!("Listening on {} (TLS with mutual authentication)", addr);
         } else {
             info!("Listening on {} (TLS)", addr);
         }
-        let rustls_config =
-            axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config));
         let handle = axum_server::Handle::new();
         let handle_clone = handle.clone();
         tokio::spawn(async move {
