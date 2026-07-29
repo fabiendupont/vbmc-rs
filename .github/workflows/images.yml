@@ -22,12 +22,19 @@ jobs:
           - variant: default
             containerfile: Containerfile
             image_suffix: ""
+            target: ""
           - variant: libvirt
             containerfile: Containerfile.libvirt
             image_suffix: "-libvirt"
-          - variant: kubevirt
+            target: ""
+          - variant: kubevirt-sidecar
             containerfile: Containerfile.kubevirt
-            image_suffix: "-kubevirt"
+            image_suffix: "-kubevirt-sidecar"
+            target: sidecar
+          - variant: kubevirt-aggregator
+            containerfile: Containerfile.kubevirt
+            image_suffix: "-kubevirt-aggregator"
+            target: aggregator
 
     steps:
       - uses: actions/checkout@v4
@@ -56,5 +63,6 @@ jobs:
         with:
           context: .
           file: ${{ matrix.containerfile }}
+          target: ${{ matrix.target || '' }}
           push: true
           tags: ${{ steps.tags.outputs.tags }}

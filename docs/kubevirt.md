@@ -8,24 +8,46 @@ The KubeVirt backend maps Redfish operations to KubeVirt API subresource calls. 
 
 Two deployment models:
 
-| Model | Description | Use case |
-|-------|-------------|----------|
-| **Sidecar** | One vbmc-rs instance per VM, co-located in the virt-launcher pod | Per-VM isolation, no cross-VM access, Kubernetes-native lifecycle |
-| **API backend** | Single vbmc-rs instance managing multiple VMs via kubeconfig | Centralized management, fewer pods, simpler monitoring |
+| Model | Backend | Description | Use case |
+|-------|---------|-------------|----------|
+| **Sidecar** | libvirt | One vbmc-rs per VM in the virt-launcher pod, talks to the local libvirtd | Per-VM isolation, full metrics (block + network I/O), secure boot control |
+| **API backend** | kubevirt | Single instance managing multiple VMs via Kubernetes API | Centralized management, fewer pods, no libvirt dependency |
+
+The **sidecar model is recommended**. Each KubeVirt virt-launcher pod runs a local libvirtd that manages the QEMU process. The sidecar connects to this libvirtd via its Unix socket, giving access to the full feature set including network I/O counters that the KubeVirt API does not expose.
 
 The **aggregator** (`vbmc-rs-aggregator`) sits in front of sidecar instances, discovering them and presenting a unified Redfish interface.
 
 ## Build
 
 ```sh
+# Sidecar image (libvirt backend)
+podman build -f Containerfile.kubevirt --target sidecar -t vbmc-rs-kubevirt-sidecar .
+
+# Aggregator image (static binary)
+podman build -f Containerfile.kubevirt --target aggregator -t vbmc-rs-kubevirt-aggregator .
+
+# API backend (no libvirt needed)
 cargo build --release --features kubevirt
 ```
 
-No system dependencies beyond the Rust toolchain and network access to a Kubernetes API server.
-
 ## Sidecar deployment
 
-Deploy vbmc-rs as a container alongside the virt-launcher in each VM's pod. The sidecar uses the pod's service account to talk to the KubeVirt API.
+The sidecar runs alongside the VM in the virt-launcher pod. It uses the **libvirt backend** to connect to the local libvirtd socket, providing full BMC functionality including per-disk block I/O and per-NIC network counters.
+
+### Feature comparison: sidecar (libvirt) vs API backend
+
+| Feature | Sidecar (libvirt) | API backend (kubevirt) |
+|---------|-------------------|------------------------|
+| Power control | libvirt domain API | KubeVirt subresources |
+| CPU/memory info | domain XML + get_info | VMI spec |
+| Disk inventory | domain XML (path, bus, type) | VM spec (names only) |
+| NIC inventory + MACs | domain XML | VM spec |
+| Block I/O counters | get_block_stats per disk | Not available |
+| Network I/O counters | interface_stats per NIC | Not available |
+| PCI passthrough devices | domain XML hostdev | Not available |
+| Secure boot state | domain XML loader secure= | VM spec |
+| Secure boot toggle | domain XML redefine | spec patch |
+| Hot-plug disk | attach_device | addvolume subresource |
 
 ### Pod spec
 
@@ -62,7 +84,7 @@ spec:
             image: quay.io/containerdisks/fedora:latest
       containers:
         - name: vbmc-rs
-          image: vbmc-rs:latest
+          image: ghcr.io/fabiendupont/vbmc-rs-kubevirt-sidecar:latest
           args: ["-c", "/etc/vbmc-rs/config.toml"]
           ports:
             - containerPort: 8000
@@ -72,20 +94,26 @@ spec:
               readOnly: true
             - name: vbmc-state
               mountPath: /var/lib/vbmc-rs
+            - name: libvirt-sock
+              mountPath: /var/run/libvirt
       volumes:
         - name: vbmc-config
           configMap:
             name: vbmc-rs-my-vm
         - name: vbmc-state
           emptyDir: {}
+        - name: libvirt-sock
+          emptyDir: {}
 ```
+
+The `libvirt-sock` volume shares the libvirtd socket between the virt-launcher container and the vbmc-rs sidecar.
 
 ### Per-VM configuration
 
-Each sidecar manages a single system. The config maps the system ID to the VM's namespace and name:
+Each sidecar manages a single system using the libvirt backend. The `connection_uri` points to the local libvirtd socket, and `domain_name` matches the VM's libvirt domain:
 
 ```toml
-backend = "kube_virt"
+backend = "libvirt"
 
 [server]
 bind_address = "0.0.0.0"
@@ -93,15 +121,15 @@ port = 8000
 
 [systems.my-vm]
 name = "My VM"
-namespace = "default"
-vm_name = "my-vm"
+connection_uri = "qemu:///system"
+domain_name = "default_my-vm"
 
 [systems.my-vm.hardware]
 cpu_count = 2
 memory_mib = 2048
 ```
 
-The sidecar resolves the KubeVirt API via the in-cluster service account. No kubeconfig file is needed.
+KubeVirt names libvirt domains as `{namespace}_{vm-name}`. The `connection_uri` defaults to `qemu:///system` if omitted.
 
 ## API backend deployment
 
@@ -259,7 +287,7 @@ tls_client_ca = "/etc/vbmc-rs/sidecar-ca.crt"
 
 ### Per-VM isolation (sidecar)
 
-Each sidecar has access to exactly one VM. Compromise of a sidecar affects only that VM. The service account can be scoped to a single namespace. mTLS between aggregator and sidecar ensures only authorized aggregators can send commands.
+Each sidecar connects to the local libvirtd socket inside the virt-launcher pod. It has access to exactly one VM's domain — no Kubernetes API access needed, no service account required. Compromise of a sidecar affects only that VM. mTLS between aggregator and sidecar ensures only authorized aggregators can send commands.
 
 ### Service account RBAC (API backend)
 
@@ -286,7 +314,7 @@ rules:
 |----------|-------------|
 | Client to aggregator | Server TLS + Redfish auth (session/basic) |
 | Aggregator to sidecar | mTLS with shared CA |
-| Sidecar to Kubernetes API | Service account token (in-cluster) or kubeconfig |
+| Sidecar to libvirtd | Unix socket (pod-local, no network exposure) |
 
 ## Configuration reference
 

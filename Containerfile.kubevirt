@@ -1,6 +1,6 @@
 FROM registry.fedoraproject.org/fedora:latest AS builder
 
-RUN dnf install -y gcc musl-gcc musl-libc-static && dnf clean all
+RUN dnf install -y gcc libvirt-devel musl-gcc musl-libc-static && dnf clean all
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 RUN rustup target add x86_64-unknown-linux-musl
@@ -10,13 +10,23 @@ ENV K8S_OPENAPI_ENABLED_VERSION=1.32
 WORKDIR /build
 COPY . .
 
+RUN cargo build --release --features "cloud-hypervisor,qemu,libvirt,kubevirt"
 RUN cargo build --release --target x86_64-unknown-linux-musl --features "cloud-hypervisor,qemu,kubevirt,aggregator"
 
-FROM scratch
+FROM registry.fedoraproject.org/fedora-minimal:latest AS sidecar
 
-COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/vbmc-rs /vbmc-rs
-COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/vbmc-rs-aggregator /vbmc-rs-aggregator
+RUN microdnf install -y libvirt-libs && microdnf clean all
+
+COPY --from=builder /build/target/release/vbmc-rs /usr/local/bin/vbmc-rs
 
 EXPOSE 8000
-ENTRYPOINT ["/vbmc-rs"]
+ENTRYPOINT ["/usr/local/bin/vbmc-rs"]
 CMD ["-c", "/etc/vbmc-rs/config.toml"]
+
+FROM scratch AS aggregator
+
+COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/vbmc-rs-aggregator /vbmc-rs-aggregator
+
+EXPOSE 8443
+ENTRYPOINT ["/vbmc-rs-aggregator"]
+CMD ["-c", "/etc/vbmc-rs/aggregator.toml"]
