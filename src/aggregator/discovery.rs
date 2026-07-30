@@ -87,7 +87,7 @@ pub async fn start_kubernetes_watcher(
             }
             item = stream.next() => {
                 match item {
-                    Some(Ok(Event::Apply(pod))) => {
+                    Some(Ok(Event::Apply(pod) | Event::InitApply(pod))) => {
                         if let Some((system_id, url)) = extract_endpoint(&pod, sidecar_port)
                             && is_pod_ready(&pod)
                         {
@@ -101,7 +101,7 @@ pub async fn start_kubernetes_watcher(
                             registry.deregister(&system_id);
                         }
                     }
-                    Some(Ok(Event::Init | Event::InitApply(_) | Event::InitDone)) => {
+                    Some(Ok(Event::Init | Event::InitDone)) => {
                         debug!("Watcher init event");
                     }
                     Some(Err(e)) => {

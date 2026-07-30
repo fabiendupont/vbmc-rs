@@ -25,11 +25,18 @@ impl LibvirtBackend {
     }
 
     fn domain_for(&self, system_id: &str) -> Result<Domain, BackendError> {
-        let name = self
-            .domains
-            .get(system_id)
-            .ok_or(BackendError::VmNotFound)?;
-        Domain::lookup_by_name(&self.conn, name).map_err(map_virt_error)
+        if let Some(name) = self.domains.get(system_id) {
+            return Domain::lookup_by_name(&self.conn, name).map_err(map_virt_error);
+        }
+        // Auto-discover: if no domain_name is configured, use the only domain present
+        let domains = self.conn.list_all_domains(0).map_err(map_virt_error)?;
+        match domains.len() {
+            0 => Err(BackendError::VmNotFound),
+            1 => Ok(domains.into_iter().next().unwrap()),
+            _ => Err(BackendError::InvalidState(
+                "multiple domains found; set domain_name in config to disambiguate".to_string(),
+            )),
+        }
     }
 
     fn map_domain_state(state: u32) -> bt::VmPowerState {

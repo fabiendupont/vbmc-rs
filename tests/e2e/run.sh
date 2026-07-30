@@ -1,20 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CLUSTER_NAME="${CLUSTER_NAME:-vbmc-test}"
-KUBEVIRT_VERSION="${KUBEVIRT_VERSION:-$(curl -sL https://api.github.com/repos/kubevirt/kubevirt/releases/latest | grep tag_name | cut -d'"' -f4)}"
-SIDECAR_IMAGE="${SIDECAR_IMAGE:-localhost/vbmc-rs-kubevirt-sidecar:test}"
+PROVIDER="${E2E_PROVIDER:-crc}"
+VBMC_IMAGE="${VBMC_IMAGE:-localhost/vbmc-rs-kubevirt-sidecar:test}"
 NAMESPACE="${NAMESPACE:-default}"
 VM_NAME="${VM_NAME:-test-vm}"
 SYSTEM_ID="${SYSTEM_ID:-test-vm}"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 log() { echo "=== $1 ===" >&2; }
-
-cleanup() {
-    log "Cleanup"
-    kind delete cluster --name "$CLUSTER_NAME" 2>/dev/null || true
-}
 
 wait_for() {
     local desc="$1" cmd="$2" timeout="${3:-120}"
@@ -29,27 +22,89 @@ wait_for() {
     done
 }
 
-trap cleanup EXIT
+# --- Cluster setup ---
 
-log "Creating Kind cluster"
-kind create cluster --name "$CLUSTER_NAME" --wait 60s
+setup_crc() {
+    log "Using CRC (OpenShift Local)"
+    if ! crc status 2>&1 | grep -q "Running"; then
+        log "Starting CRC"
+        crc start
+    fi
+    eval "$(crc oc-env)"
+    local CRC_PASS
+    CRC_PASS=$(crc console --credentials 2>&1 | grep kubeadmin | grep -oP '(?<=-p )\S+')
+    oc login -u kubeadmin -p "$CRC_PASS" https://api.crc.testing:6443 --insecure-skip-tls-verify 2>/dev/null
 
-log "Installing KubeVirt $KUBEVIRT_VERSION"
-kubectl create -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml"
-kubectl create -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml"
+    log "Checking KubeVirt"
+    if ! oc get kv -A -o jsonpath='{.items[0].status.phase}' 2>/dev/null | grep -q Deployed; then
+        log "KubeVirt not found — CRC must have the OpenShift Virtualization operator installed"
+        exit 1
+    fi
 
-log "Enabling software emulation"
-kubectl -n kubevirt patch kubevirt kubevirt --type=merge \
-    --patch '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true}}}}'
+    log "Pushing images to CRC internal registry"
+    oc patch configs.imageregistry.operator.openshift.io/cluster \
+        --patch '{"spec":{"defaultRoute":true}}' --type=merge 2>/dev/null
+    sleep 3
+    local REGISTRY
+    REGISTRY=$(oc get route default-route -n openshift-image-registry \
+        -o jsonpath='{.spec.host}' 2>/dev/null)
+    oc whoami -t | podman login --tls-verify=false -u kubeadmin --password-stdin "$REGISTRY"
 
-log "Waiting for KubeVirt to be ready"
-wait_for "KubeVirt" "kubectl -n kubevirt get kv kubevirt -o jsonpath='{.status.phase}' | grep -q Deployed" 300
+    podman tag "$VBMC_IMAGE" "${REGISTRY}/${NAMESPACE}/vbmc-rs-sidecar:test"
+    podman push --tls-verify=false "${REGISTRY}/${NAMESPACE}/vbmc-rs-sidecar:test"
+    VBMC_IMAGE="image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/vbmc-rs-sidecar:test"
 
-log "Loading sidecar image into Kind"
-kind load docker-image "$SIDECAR_IMAGE" --name "$CLUSTER_NAME"
+    local WEBHOOK_LOCAL="${WEBHOOK_IMAGE:-localhost/vbmc-rs-webhook:test}"
+    podman tag "$WEBHOOK_LOCAL" "${REGISTRY}/${NAMESPACE}/vbmc-rs-webhook:test"
+    podman push --tls-verify=false "${REGISTRY}/${NAMESPACE}/vbmc-rs-webhook:test"
+    WEBHOOK_IMAGE="image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/vbmc-rs-webhook:test"
 
-log "Creating sidecar ConfigMap"
-kubectl create configmap "vbmc-rs-${VM_NAME}" --from-literal=config.toml="
+    KUBECTL="oc"
+}
+
+setup_kind() {
+    local CLUSTER_NAME="${CLUSTER_NAME:-vbmc-test}"
+    log "Using Kind cluster: $CLUSTER_NAME"
+    kind create cluster --name "$CLUSTER_NAME" --wait 60s
+
+    local KUBEVIRT_VERSION
+    KUBEVIRT_VERSION="${KUBEVIRT_VERSION:-$(curl -sL https://api.github.com/repos/kubevirt/kubevirt/releases/latest | grep tag_name | cut -d'"' -f4)}"
+
+    log "Installing KubeVirt $KUBEVIRT_VERSION"
+    kubectl create -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml"
+    wait_for "virt-operator" "kubectl -n kubevirt get deployment virt-operator -o jsonpath='{.status.readyReplicas}' | grep -q '[1-9]'" 120
+
+    log "Creating KubeVirt CR with emulation enabled"
+    curl -sL "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml" \
+        | kubectl apply -f - --dry-run=client -o json \
+        | jq '.spec.configuration.developerConfiguration.useEmulation = true' \
+        | kubectl apply -f -
+
+    log "Waiting for KubeVirt to be ready"
+    wait_for "KubeVirt" "kubectl -n kubevirt get kv kubevirt -o jsonpath='{.status.phase}' | grep -q Deployed" 600
+
+    log "Loading sidecar image into Kind"
+    if command -v docker &>/dev/null && docker info &>/dev/null; then
+        kind load docker-image "$VBMC_IMAGE" --name "$CLUSTER_NAME"
+    else
+        podman save "$VBMC_IMAGE" -o /tmp/vbmc-sidecar.tar
+        kind load image-archive /tmp/vbmc-sidecar.tar --name "$CLUSTER_NAME"
+        rm -f /tmp/vbmc-sidecar.tar
+    fi
+
+    KUBECTL="kubectl"
+}
+
+case "$PROVIDER" in
+    crc) setup_crc ;;
+    kind) setup_kind ;;
+    *) echo "Unknown provider: $PROVIDER (use 'crc' or 'kind')" >&2; exit 1 ;;
+esac
+
+# --- Deploy test VM with vbmc-rs sidecar ---
+
+log "Creating vbmc-rs ConfigMap"
+$KUBECTL create configmap "vbmc-rs-${VM_NAME}" -n "$NAMESPACE" --from-literal=config.toml="
 backend = \"libvirt\"
 
 [server]
@@ -58,29 +113,115 @@ port = 8000
 
 [systems.${SYSTEM_ID}]
 name = \"Test VM\"
-connection_uri = \"qemu:///system\"
+connection_uri = \"qemu:///session\"
 domain_name = \"${NAMESPACE}_${VM_NAME}\"
 
 [systems.${SYSTEM_ID}.hardware]
 cpu_count = 1
 memory_mib = 1024
-"
+" --dry-run=client -o yaml | $KUBECTL apply -f -
 
-log "Creating VirtualMachine with sidecar"
-kubectl apply -f - <<EOF
+log "Deploying vbmc-rs webhook"
+WEBHOOK_IMAGE="${WEBHOOK_IMAGE:-localhost/vbmc-rs-webhook:test}"
+# Generate self-signed cert for the webhook
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+    -keyout /tmp/webhook-key.pem -out /tmp/webhook-cert.pem -days 1 -nodes \
+    -subj "/CN=vbmc-rs-webhook.${NAMESPACE}.svc" \
+    -addext "subjectAltName=DNS:vbmc-rs-webhook.${NAMESPACE}.svc" 2>/dev/null
+CA_BUNDLE=$(base64 -w0 < /tmp/webhook-cert.pem)
+
+$KUBECTL create secret tls vbmc-rs-webhook-tls -n "$NAMESPACE" \
+    --cert=/tmp/webhook-cert.pem --key=/tmp/webhook-key.pem \
+    --dry-run=client -o yaml | $KUBECTL apply -f -
+rm -f /tmp/webhook-key.pem /tmp/webhook-cert.pem
+
+$KUBECTL apply -n "$NAMESPACE" -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vbmc-rs-webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vbmc-rs-webhook
+  template:
+    metadata:
+      labels:
+        app: vbmc-rs-webhook
+    spec:
+      containers:
+        - name: webhook
+          image: ${WEBHOOK_IMAGE}
+          command: ["/vbmc-rs-webhook"]
+          args:
+            - --cert=/etc/webhook/tls/tls.crt
+            - --key=/etc/webhook/tls/tls.key
+            - --sidecar-image=${VBMC_IMAGE}
+          ports:
+            - containerPort: 8443
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/webhook/tls
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: vbmc-rs-webhook-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vbmc-rs-webhook
+spec:
+  selector:
+    app: vbmc-rs-webhook
+  ports:
+    - port: 443
+      targetPort: 8443
+EOF
+
+wait_for "webhook ready" "$KUBECTL get deployment vbmc-rs-webhook -n ${NAMESPACE} -o jsonpath='{.status.readyReplicas}' | grep -q '[1-9]'" 120
+
+$KUBECTL apply -f - <<EOF
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: vbmc-rs-sidecar-injector
+webhooks:
+  - name: vbmc-rs-sidecar-injector.kubevirt.io
+    clientConfig:
+      service:
+        name: vbmc-rs-webhook
+        namespace: ${NAMESPACE}
+        path: /mutate
+      caBundle: ${CA_BUNDLE}
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+    objectSelector:
+      matchLabels:
+        kubevirt.io: virt-launcher
+    failurePolicy: Ignore
+    sideEffects: None
+    admissionReviewVersions: ["v1"]
+EOF
+
+log "Creating VirtualMachine"
+$KUBECTL apply -n "$NAMESPACE" -f - <<EOF
 apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
   name: ${VM_NAME}
   labels:
-    app.kubernetes.io/name: vbmc-rs-sidecar
     vbmc-rs/system-id: ${SYSTEM_ID}
 spec:
-  running: true
+  runStrategy: Always
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: vbmc-rs-sidecar
         vbmc-rs/system-id: ${SYSTEM_ID}
     spec:
       domain:
@@ -97,43 +238,23 @@ spec:
         - name: rootdisk
           containerDisk:
             image: quay.io/containerdisks/fedora:latest
-      containers:
-        - name: vbmc-rs
-          image: ${SIDECAR_IMAGE}
-          args: ["-c", "/etc/vbmc-rs/config.toml"]
-          ports:
-            - containerPort: 8000
-          volumeMounts:
-            - name: vbmc-config
-              mountPath: /etc/vbmc-rs
-              readOnly: true
-            - name: vbmc-state
-              mountPath: /var/lib/vbmc-rs
-            - name: libvirt-sock
-              mountPath: /var/run/libvirt
-      volumes:
-        - name: vbmc-config
-          configMap:
-            name: vbmc-rs-${VM_NAME}
-        - name: vbmc-state
-          emptyDir: {}
-        - name: libvirt-sock
-          emptyDir: {}
 EOF
 
 log "Waiting for VM to start"
-wait_for "VMI Running" "kubectl get vmi ${VM_NAME} -o jsonpath='{.status.phase}' | grep -q Running" 300
+wait_for "VMI Running" "$KUBECTL get vmi ${VM_NAME} -n ${NAMESPACE} -o jsonpath='{.status.phase}' | grep -q Running" 300
 
-log "Waiting for sidecar to be ready"
-wait_for "sidecar port" "kubectl exec deploy/${VM_NAME} -c vbmc-rs -- test -f /proc/1/status" 60
-
-SIDECAR_POD=$(kubectl get pods -l "vbmc-rs/system-id=${SYSTEM_ID}" -o jsonpath='{.items[0].metadata.name}')
-log "Sidecar pod: $SIDECAR_POD"
+log "Waiting for virt-launcher pod"
+LAUNCHER_POD=""
+wait_for "launcher pod" "$KUBECTL get pods -n ${NAMESPACE} -l 'kubevirt.io/domain=${VM_NAME}' -o jsonpath='{.items[0].metadata.name}' | grep -q ." 120
+LAUNCHER_POD=$($KUBECTL get pods -n "$NAMESPACE" -l "kubevirt.io/domain=${VM_NAME}" -o jsonpath='{.items[0].metadata.name}')
+log "Launcher pod: $LAUNCHER_POD"
 
 log "Port-forwarding to sidecar"
-kubectl port-forward "pod/${SIDECAR_POD}" 8000:8000 &
+$KUBECTL port-forward -n "$NAMESPACE" "pod/${LAUNCHER_POD}" 8000:8000 &
 PF_PID=$!
 sleep 3
+
+# --- Test Redfish endpoints ---
 
 BASE="http://localhost:8000"
 PASS=0
@@ -181,6 +302,16 @@ check "Power on" POST "/redfish/v1/Systems/${SYSTEM_ID}/Actions/ComputerSystem.R
     '{"ResetType":"On"}'
 
 kill $PF_PID 2>/dev/null || true
+
+# --- Cleanup test resources (leave cluster running) ---
+
+log "Cleaning up test resources"
+$KUBECTL delete mutatingwebhookconfiguration vbmc-rs-sidecar-injector --ignore-not-found
+$KUBECTL delete vm "$VM_NAME" -n "$NAMESPACE" --ignore-not-found
+$KUBECTL delete deployment vbmc-rs-webhook -n "$NAMESPACE" --ignore-not-found
+$KUBECTL delete service vbmc-rs-webhook -n "$NAMESPACE" --ignore-not-found
+$KUBECTL delete secret vbmc-rs-webhook-tls -n "$NAMESPACE" --ignore-not-found
+$KUBECTL delete configmap "vbmc-rs-${VM_NAME}" -n "$NAMESPACE" --ignore-not-found
 
 log "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

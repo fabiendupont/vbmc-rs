@@ -18,6 +18,11 @@ name = "vbmc-rs-aggregator"
 path = "src/aggregator/main.rs"
 required-features = ["aggregator"]
 
+[[bin]]
+name = "vbmc-rs-webhook"
+path = "src/webhook/main.rs"
+required-features = ["webhook"]
+
 [features]
 default = ["cloud-hypervisor"]
 cloud-hypervisor = []
@@ -25,6 +30,7 @@ qemu = []
 libvirt = ["dep:quick-xml", "dep:virt"]
 kubevirt = ["dep:kube", "dep:k8s-openapi", "dep:schemars", "dep:http"]
 aggregator = ["dep:kube", "dep:k8s-openapi"]
+webhook = []
 keylime = []
 trustee = []
 nvidia-cc = []

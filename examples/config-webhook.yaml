@@ -1,0 +1,84 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vbmc-rs
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vbmc-rs-webhook
+  namespace: vbmc-rs
+  labels:
+    app: vbmc-rs-webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vbmc-rs-webhook
+  template:
+    metadata:
+      labels:
+        app: vbmc-rs-webhook
+    spec:
+      containers:
+        - name: webhook
+          image: vbmc-rs-webhook:latest
+          args:
+            - --cert=/etc/webhook/tls/tls.crt
+            - --key=/etc/webhook/tls/tls.key
+            - --port=8443
+            - --sidecar-image=vbmc-rs-kubevirt-sidecar:latest
+          ports:
+            - containerPort: 8443
+              name: https
+          volumeMounts:
+            - name: webhook-tls
+              mountPath: /etc/webhook/tls
+              readOnly: true
+      volumes:
+        - name: webhook-tls
+          secret:
+            secretName: vbmc-rs-webhook-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vbmc-rs-webhook
+  namespace: vbmc-rs
+spec:
+  selector:
+    app: vbmc-rs-webhook
+  ports:
+    - port: 443
+      targetPort: 8443
+      protocol: TCP
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: vbmc-rs-sidecar-injector
+webhooks:
+  - name: vbmc-rs-sidecar-injector.kubevirt.io
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: vbmc-rs-webhook
+        namespace: vbmc-rs
+        path: /mutate
+      caBundle: <BASE64_CA_BUNDLE>
+    rules:
+      - operations:
+          - CREATE
+        apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        resources:
+          - pods
+    objectSelector:
+      matchLabels:
+        kubevirt.io: virt-launcher
+    failurePolicy: Ignore
+    sideEffects: None
