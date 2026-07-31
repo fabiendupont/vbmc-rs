@@ -28,8 +28,13 @@ impl LibvirtBackend {
         if let Some(name) = self.domains.get(system_id) {
             return Domain::lookup_by_name(&self.conn, name).map_err(map_virt_error);
         }
-        // Auto-discover: if no domain_name is configured, use the only domain present
         let domains = self.conn.list_all_domains(0).map_err(map_virt_error)?;
+        tracing::info!("Auto-discover: found {} domains", domains.len());
+        for d in &domains {
+            if let Ok(name) = d.get_name() {
+                tracing::info!("  domain: {name}");
+            }
+        }
         match domains.len() {
             0 => Err(BackendError::VmNotFound),
             1 => Ok(domains.into_iter().next().unwrap()),
@@ -257,10 +262,7 @@ pub fn build_backend(config: &AppConfig) -> Result<super::Backend, BackendError>
     let domains: HashMap<String, String> = config
         .systems
         .iter()
-        .map(|(id, sys)| {
-            let domain_name = sys.domain_name.clone().unwrap_or_else(|| id.clone());
-            (id.clone(), domain_name)
-        })
+        .filter_map(|(id, sys)| sys.domain_name.clone().map(|name| (id.clone(), name)))
         .collect();
 
     Ok(super::Backend::Libvirt(LibvirtBackend::new(conn, domains)))

@@ -6,6 +6,8 @@ use tracing::info;
 #[derive(Debug, Clone)]
 pub struct SidecarEndpoint {
     pub system_id: String,
+    pub namespace: String,
+    pub vm_name: String,
     pub url: String,
 }
 
@@ -20,9 +22,16 @@ impl SidecarRegistry {
         }
     }
 
-    pub fn register(&self, system_id: String, url: String) {
-        self.endpoints
-            .insert(system_id.clone(), SidecarEndpoint { system_id, url });
+    pub fn register(&self, system_id: String, namespace: String, vm_name: String, url: String) {
+        self.endpoints.insert(
+            system_id.clone(),
+            SidecarEndpoint {
+                system_id,
+                namespace,
+                vm_name,
+                url,
+            },
+        );
     }
 
     pub fn deregister(&self, system_id: &str) {
@@ -44,7 +53,12 @@ pub fn register_static_endpoints(
 ) {
     for ep in endpoints {
         info!(system_id = %ep.system_id, url = %ep.url, "Registering static sidecar endpoint");
-        registry.register(ep.system_id.clone(), ep.url.clone());
+        registry.register(
+            ep.system_id.clone(),
+            String::new(),
+            ep.system_id.clone(),
+            ep.url.clone(),
+        );
     }
 }
 
@@ -54,6 +68,7 @@ pub async fn start_kubernetes_watcher(
     namespace: Option<String>,
     label_selector: String,
     sidecar_port: u16,
+    bmc_network: Option<String>,
     cancel: tokio_util::sync::CancellationToken,
 ) {
     use k8s_openapi::api::core::v1::Pod;
@@ -88,17 +103,17 @@ pub async fn start_kubernetes_watcher(
             item = stream.next() => {
                 match item {
                     Some(Ok(Event::Apply(pod) | Event::InitApply(pod))) => {
-                        if let Some((system_id, url)) = extract_endpoint(&pod, sidecar_port)
+                        if let Some(ep) = extract_endpoint(&pod, sidecar_port, bmc_network.as_deref())
                             && is_pod_ready(&pod)
                         {
-                            info!(system_id = %system_id, url = %url, "Discovered sidecar pod");
-                            registry.register(system_id, url);
+                            info!(system_id = %ep.system_id, url = %ep.url, "Discovered sidecar pod");
+                            registry.register(ep.system_id, ep.namespace, ep.vm_name, ep.url);
                         }
                     }
                     Some(Ok(Event::Delete(pod))) => {
-                        if let Some((system_id, _)) = extract_endpoint(&pod, sidecar_port) {
-                            info!(system_id = %system_id, "Sidecar pod removed");
-                            registry.deregister(&system_id);
+                        if let Some(ep) = extract_endpoint(&pod, sidecar_port, bmc_network.as_deref()) {
+                            info!(system_id = %ep.system_id, "Sidecar pod removed");
+                            registry.deregister(&ep.system_id);
                         }
                     }
                     Some(Ok(Event::Init | Event::InitDone)) => {
@@ -118,25 +133,57 @@ pub async fn start_kubernetes_watcher(
 fn extract_endpoint(
     pod: &k8s_openapi::api::core::v1::Pod,
     sidecar_port: u16,
-) -> Option<(String, String)> {
+    bmc_network: Option<&str>,
+) -> Option<SidecarEndpoint> {
     let metadata = &pod.metadata;
-    let system_id = metadata
-        .labels
-        .as_ref()?
+    let labels = metadata.labels.as_ref()?;
+
+    let system_id = labels
         .get("vbmc-rs/system-id")
         .cloned()
         .or_else(|| metadata.name.clone())?;
 
-    let status = pod.status.as_ref()?;
-    let pod_ip = status.pod_ip.as_ref()?;
+    let namespace = metadata.namespace.clone().unwrap_or_default();
+
+    let vm_name = labels
+        .get("vm.kubevirt.io/name")
+        .cloned()
+        .unwrap_or_else(|| system_id.clone());
+
+    let bmc_ip = bmc_network.and_then(|net| {
+        let annotations = metadata.annotations.as_ref()?;
+        let network_status = annotations.get("k8s.v1.cni.cncf.io/network-status")?;
+        let status: Vec<serde_json::Value> = serde_json::from_str(network_status).ok()?;
+        status.iter().find_map(|entry| {
+            let name = entry.get("name")?.as_str()?;
+            if name.contains(net) {
+                entry
+                    .get("ips")?
+                    .as_array()?
+                    .first()?
+                    .as_str()
+                    .map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+    });
+
+    let ip = bmc_ip.or_else(|| pod.status.as_ref()?.pod_ip.clone())?;
 
     let scheme = if sidecar_port == 443 || sidecar_port == 8443 {
         "https"
     } else {
         "http"
     };
-    let url = format!("{scheme}://{pod_ip}:{sidecar_port}");
-    Some((system_id, url))
+    let url = format!("{scheme}://{ip}:{sidecar_port}");
+
+    Some(SidecarEndpoint {
+        system_id,
+        namespace,
+        vm_name,
+        url,
+    })
 }
 
 #[cfg(feature = "aggregator")]
@@ -156,14 +203,25 @@ fn is_pod_ready(pod: &k8s_openapi::api::core::v1::Pod) -> bool {
 mod tests {
     use super::*;
 
+    fn register_simple(registry: &SidecarRegistry, system_id: &str, url: &str) {
+        registry.register(
+            system_id.to_string(),
+            "default".to_string(),
+            system_id.to_string(),
+            url.to_string(),
+        );
+    }
+
     #[test]
     fn test_register_and_get() {
         let registry = SidecarRegistry::new();
-        registry.register("vm1".to_string(), "http://10.0.0.1:8000".to_string());
+        register_simple(&registry, "vm1", "http://10.0.0.1:8000");
 
         let ep = registry.get("vm1").unwrap();
         assert_eq!(ep.system_id, "vm1");
         assert_eq!(ep.url, "http://10.0.0.1:8000");
+        assert_eq!(ep.namespace, "default");
+        assert_eq!(ep.vm_name, "vm1");
     }
 
     #[test]
@@ -175,7 +233,7 @@ mod tests {
     #[test]
     fn test_deregister() {
         let registry = SidecarRegistry::new();
-        registry.register("vm1".to_string(), "http://10.0.0.1:8000".to_string());
+        register_simple(&registry, "vm1", "http://10.0.0.1:8000");
         registry.deregister("vm1");
         assert!(registry.get("vm1").is_none());
     }
@@ -183,7 +241,7 @@ mod tests {
     #[test]
     fn test_deregister_nonexistent() {
         let registry = SidecarRegistry::new();
-        registry.deregister("missing"); // should not panic
+        registry.deregister("missing");
     }
 
     #[test]
@@ -195,8 +253,8 @@ mod tests {
     #[test]
     fn test_list_multiple() {
         let registry = SidecarRegistry::new();
-        registry.register("vm1".to_string(), "http://10.0.0.1:8000".to_string());
-        registry.register("vm2".to_string(), "http://10.0.0.2:8000".to_string());
+        register_simple(&registry, "vm1", "http://10.0.0.1:8000");
+        register_simple(&registry, "vm2", "http://10.0.0.2:8000");
 
         let list = registry.list();
         assert_eq!(list.len(), 2);
@@ -209,8 +267,8 @@ mod tests {
     #[test]
     fn test_register_overwrites() {
         let registry = SidecarRegistry::new();
-        registry.register("vm1".to_string(), "http://10.0.0.1:8000".to_string());
-        registry.register("vm1".to_string(), "http://10.0.0.99:8000".to_string());
+        register_simple(&registry, "vm1", "http://10.0.0.1:8000");
+        register_simple(&registry, "vm1", "http://10.0.0.99:8000");
 
         let ep = registry.get("vm1").unwrap();
         assert_eq!(ep.url, "http://10.0.0.99:8000");

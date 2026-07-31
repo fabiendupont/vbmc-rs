@@ -33,6 +33,10 @@ struct Cli {
     /// Sidecar container image to inject
     #[arg(long)]
     sidecar_image: String,
+
+    /// Name of the BMC network-attachment-definition for UDN
+    #[arg(long, default_value = "vbmc-bmc")]
+    bmc_network: String,
 }
 
 #[tokio::main]
@@ -52,6 +56,7 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Arc::new(WebhookConfig {
         sidecar_image: cli.sidecar_image,
+        bmc_network: cli.bmc_network,
     });
 
     let app = Router::new()

@@ -9,6 +9,7 @@ use tracing::{info, warn};
 
 pub struct WebhookConfig {
     pub sidecar_image: String,
+    pub bmc_network: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -103,7 +104,12 @@ pub async fn handle_mutate(
         "Injecting vbmc-rs sidecar into virt-launcher pod"
     );
 
-    let patch = build_patch(&config.sidecar_image, &system_id_value, &request.object);
+    let patch = build_patch(
+        &config.sidecar_image,
+        &config.bmc_network,
+        &system_id_value,
+        &request.object,
+    );
     let patch_json = serde_json::to_string(&patch).expect("patch serialization cannot fail");
     let patch_base64 = BASE64.encode(patch_json.as_bytes());
 
@@ -150,10 +156,35 @@ fn has_libvirt_volume(pod: &serde_json::Value) -> Option<String> {
 
 fn build_patch(
     sidecar_image: &str,
+    bmc_network: &str,
     system_id: &str,
     pod: &serde_json::Value,
 ) -> Vec<serde_json::Value> {
     let mut patch = Vec::new();
+
+    let has_annotations = pod.pointer("/metadata/annotations").is_some();
+    if !has_annotations {
+        patch.push(serde_json::json!({
+            "op": "add",
+            "path": "/metadata/annotations",
+            "value": {}
+        }));
+    }
+
+    let existing_networks = pod
+        .pointer("/metadata/annotations/k8s.v1.cni.cncf.io~1networks")
+        .and_then(|v| v.as_str());
+
+    let network_value = match existing_networks {
+        Some(existing) => format!("{existing},{bmc_network}"),
+        None => bmc_network.to_string(),
+    };
+
+    patch.push(serde_json::json!({
+        "op": "add",
+        "path": "/metadata/annotations/k8s.v1.cni.cncf.io~1networks",
+        "value": network_value
+    }));
 
     let libvirt_volume_name = has_libvirt_volume(pod);
 
@@ -168,12 +199,11 @@ fn build_patch(
          \n\
          [systems.{system_id}]\n\
          name = \"{system_id}\"\n\
-         connection_uri = \"qemu:///session\"\n"
+         connection_uri = \"qemu+unix:///session?socket=/var/run/libvirt/virtqemud-sock\"\n"
     );
 
     let startup_script = format!(
         "while [ ! -S /var/run/libvirt/virtqemud-sock ]; do sleep 1; done; \
-         nft insert rule ip nat KUBEVIRT_PREINBOUND tcp dport 8000 counter return 2>/dev/null || true; \
          printf '%s' '{}' > /tmp/vbmc-config.toml; \
          exec /usr/local/bin/vbmc-rs -c /tmp/vbmc-config.toml",
         inline_config.replace('\'', "'\\''")
@@ -190,11 +220,6 @@ fn build_patch(
             {"name": "HOME", "value": "/var/run/kubevirt-private"}
         ],
         "ports": [{"containerPort": 8000, "name": "redfish"}],
-        "securityContext": {
-            "capabilities": {
-                "add": ["NET_ADMIN"]
-            }
-        },
         "volumeMounts": [
             {"name": libvirt_mount_name, "mountPath": "/var/run/libvirt"}
         ]
@@ -265,6 +290,7 @@ mod tests {
     async fn test_non_matching_pod_allowed_without_patch() {
         let config = Arc::new(WebhookConfig {
             sidecar_image: "vbmc-rs-sidecar:latest".to_string(),
+            bmc_network: "vbmc-bmc".to_string(),
         });
 
         let pod = make_pod(serde_json::json!({"app": "nginx"}), None);
@@ -280,6 +306,7 @@ mod tests {
     async fn test_virt_launcher_without_system_id_not_patched() {
         let config = Arc::new(WebhookConfig {
             sidecar_image: "vbmc-rs-sidecar:latest".to_string(),
+            bmc_network: "vbmc-bmc".to_string(),
         });
 
         let pod = make_pod(serde_json::json!({"kubevirt.io": "virt-launcher"}), None);
@@ -295,6 +322,7 @@ mod tests {
     async fn test_matching_pod_gets_sidecar_injected() {
         let config = Arc::new(WebhookConfig {
             sidecar_image: "vbmc-rs-sidecar:latest".to_string(),
+            bmc_network: "vbmc-bmc".to_string(),
         });
 
         let pod = make_pod(
@@ -314,20 +342,32 @@ mod tests {
         let patch_bytes = BASE64.decode(resp.patch.unwrap()).unwrap();
         let patch: Vec<serde_json::Value> = serde_json::from_slice(&patch_bytes).unwrap();
 
-        assert_eq!(patch.len(), 2);
+        assert_eq!(patch.len(), 4);
         assert_eq!(patch[0]["op"], "add");
-        assert_eq!(patch[0]["path"], "/spec/containers/-");
-        assert_eq!(patch[0]["value"]["name"], "vbmc-rs");
-        assert_eq!(patch[0]["value"]["image"], "vbmc-rs-sidecar:latest");
+        assert_eq!(patch[0]["path"], "/metadata/annotations");
 
         assert_eq!(patch[1]["op"], "add");
-        assert_eq!(patch[1]["value"]["name"], "libvirt-runtime");
+        assert_eq!(
+            patch[1]["path"],
+            "/metadata/annotations/k8s.v1.cni.cncf.io~1networks"
+        );
+        assert_eq!(patch[1]["value"], "vbmc-bmc");
+
+        assert_eq!(patch[2]["op"], "add");
+        assert_eq!(patch[2]["path"], "/spec/containers/-");
+        assert_eq!(patch[2]["value"]["name"], "vbmc-rs");
+        assert_eq!(patch[2]["value"]["image"], "vbmc-rs-sidecar:latest");
+        assert!(patch[2]["value"].get("securityContext").is_none());
+
+        assert_eq!(patch[3]["op"], "add");
+        assert_eq!(patch[3]["value"]["name"], "libvirt-runtime");
     }
 
     #[tokio::test]
     async fn test_existing_libvirt_volume_reused() {
         let config = Arc::new(WebhookConfig {
             sidecar_image: "vbmc-rs-sidecar:latest".to_string(),
+            bmc_network: "vbmc-bmc".to_string(),
         });
 
         let pod = make_pod(
@@ -358,9 +398,14 @@ mod tests {
         let patch_bytes = BASE64.decode(resp.patch.unwrap()).unwrap();
         let patch: Vec<serde_json::Value> = serde_json::from_slice(&patch_bytes).unwrap();
 
-        assert_eq!(patch.len(), 1);
+        // annotations (add empty + set network) + container = 3 ops (no volume add)
+        assert_eq!(patch.len(), 3);
 
-        let sidecar_mounts = patch[0]["value"]["volumeMounts"].as_array().unwrap();
+        let container_patch = patch
+            .iter()
+            .find(|p| p["path"] == "/spec/containers/-")
+            .unwrap();
+        let sidecar_mounts = container_patch["value"]["volumeMounts"].as_array().unwrap();
         let libvirt_mount = sidecar_mounts
             .iter()
             .find(|m| m["mountPath"] == "/var/run/libvirt")

@@ -9,6 +9,8 @@ use tracing::info;
 
 mod config;
 mod discovery;
+mod k8s_auth;
+mod k8s_authz;
 mod proxy;
 mod router;
 mod state;
@@ -61,8 +63,9 @@ async fn main() -> anyhow::Result<()> {
             let selector = config.discovery.label_selector.clone();
             let port = config.sidecar.port;
             let token = cancel.clone();
+            let bmc_net = config.discovery.bmc_network.clone();
             tokio::spawn(async move {
-                discovery::start_kubernetes_watcher(reg, ns, selector, port, token).await;
+                discovery::start_kubernetes_watcher(reg, ns, selector, port, bmc_net, token).await;
             });
         }
         other => {
@@ -86,6 +89,20 @@ async fn main() -> anyhow::Result<()> {
     );
     session_store.start_sweeper(cancel.clone());
 
+    let kube_client = if config.auth_mode == "kubernetes" {
+        match kube::Client::try_default().await {
+            Ok(c) => {
+                info!("Kubernetes auth mode: created kube client");
+                Some(c)
+            }
+            Err(e) => {
+                anyhow::bail!("Failed to create Kubernetes client for auth: {e}");
+            }
+        }
+    } else {
+        None
+    };
+
     let app_state = Arc::new(state::AggregatorState {
         config: config.clone(),
         registry,
@@ -93,6 +110,9 @@ async fn main() -> anyhow::Result<()> {
         session_store,
         account_store: std::sync::Mutex::new(account_store),
         instance_uuid: uuid::Uuid::new_v4().to_string(),
+        kube_client,
+        token_cache: dashmap::DashMap::new(),
+        authz_cache: dashmap::DashMap::new(),
     });
 
     let app = router::aggregator_router(app_state);

@@ -9,6 +9,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use tracing::warn;
 
+use super::k8s_auth::KubernetesUser;
+use super::k8s_authz;
 use super::state::AggregatorState;
 
 pub fn aggregator_router(state: Arc<AggregatorState>) -> Router {
@@ -95,13 +97,45 @@ async fn get_odata_service_document() -> Json<serde_json::Value> {
     }))
 }
 
+async fn check_endpoint_access(
+    state: &AggregatorState,
+    user: &KubernetesUser,
+    endpoint: &super::discovery::SidecarEndpoint,
+) -> bool {
+    if let Some(client) = &state.kube_client
+        && !endpoint.namespace.is_empty()
+    {
+        return k8s_authz::can_access_vm(
+            client,
+            user,
+            &endpoint.namespace,
+            &endpoint.vm_name,
+            &state.authz_cache,
+        )
+        .await;
+    }
+    true
+}
+
+fn strip_auth_headers(headers: &HeaderMap) -> HeaderMap {
+    let mut proxy_headers = headers.clone();
+    proxy_headers.remove("authorization");
+    proxy_headers.remove("x-auth-token");
+    proxy_headers
+}
+
 async fn get_aggregated_systems(
     State(state): State<Arc<AggregatorState>>,
+    user: KubernetesUser,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let endpoints = state.registry.list();
     let mut all_members = Vec::new();
 
     for endpoint in &endpoints {
+        if !check_endpoint_access(&state, &user, endpoint).await {
+            continue;
+        }
+
         match state
             .proxy
             .forward(
@@ -144,6 +178,7 @@ async fn get_aggregated_systems(
 
 async fn proxy_system_get(
     State(state): State<Arc<AggregatorState>>,
+    user: KubernetesUser,
     Path(system_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
@@ -151,15 +186,25 @@ async fn proxy_system_get(
         .registry
         .get(&system_id)
         .ok_or(StatusCode::NOT_FOUND)?;
+    if !check_endpoint_access(&state, &user, &endpoint).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let path = format!("/redfish/v1/Systems/{system_id}");
     state
         .proxy
-        .forward(&endpoint, Method::GET, &path, headers, None)
+        .forward(
+            &endpoint,
+            Method::GET,
+            &path,
+            strip_auth_headers(&headers),
+            None,
+        )
         .await
 }
 
 async fn proxy_system_mutate(
     State(state): State<Arc<AggregatorState>>,
+    user: KubernetesUser,
     method: Method,
     Path(system_id): Path<String>,
     headers: HeaderMap,
@@ -169,16 +214,26 @@ async fn proxy_system_mutate(
         .registry
         .get(&system_id)
         .ok_or(StatusCode::NOT_FOUND)?;
+    if !check_endpoint_access(&state, &user, &endpoint).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let path = format!("/redfish/v1/Systems/{system_id}");
     let body_opt = if body.is_empty() { None } else { Some(body) };
     state
         .proxy
-        .forward(&endpoint, method, &path, headers, body_opt)
+        .forward(
+            &endpoint,
+            method,
+            &path,
+            strip_auth_headers(&headers),
+            body_opt,
+        )
         .await
 }
 
 async fn proxy_system_sub_get(
     State(state): State<Arc<AggregatorState>>,
+    user: KubernetesUser,
     Path((system_id, rest)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
@@ -186,15 +241,25 @@ async fn proxy_system_sub_get(
         .registry
         .get(&system_id)
         .ok_or(StatusCode::NOT_FOUND)?;
+    if !check_endpoint_access(&state, &user, &endpoint).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let path = format!("/redfish/v1/Systems/{system_id}/{rest}");
     state
         .proxy
-        .forward(&endpoint, Method::GET, &path, headers, None)
+        .forward(
+            &endpoint,
+            Method::GET,
+            &path,
+            strip_auth_headers(&headers),
+            None,
+        )
         .await
 }
 
 async fn proxy_system_sub_mutate(
     State(state): State<Arc<AggregatorState>>,
+    user: KubernetesUser,
     method: Method,
     Path((system_id, rest)): Path<(String, String)>,
     headers: HeaderMap,
@@ -204,16 +269,26 @@ async fn proxy_system_sub_mutate(
         .registry
         .get(&system_id)
         .ok_or(StatusCode::NOT_FOUND)?;
+    if !check_endpoint_access(&state, &user, &endpoint).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let path = format!("/redfish/v1/Systems/{system_id}/{rest}");
     let body_opt = if body.is_empty() { None } else { Some(body) };
     state
         .proxy
-        .forward(&endpoint, method, &path, headers, body_opt)
+        .forward(
+            &endpoint,
+            method,
+            &path,
+            strip_auth_headers(&headers),
+            body_opt,
+        )
         .await
 }
 
 async fn proxy_chassis_get(
     State(state): State<Arc<AggregatorState>>,
+    user: KubernetesUser,
     Path(system_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
@@ -221,15 +296,25 @@ async fn proxy_chassis_get(
         .registry
         .get(&system_id)
         .ok_or(StatusCode::NOT_FOUND)?;
+    if !check_endpoint_access(&state, &user, &endpoint).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let path = format!("/redfish/v1/Chassis/{system_id}");
     state
         .proxy
-        .forward(&endpoint, Method::GET, &path, headers, None)
+        .forward(
+            &endpoint,
+            Method::GET,
+            &path,
+            strip_auth_headers(&headers),
+            None,
+        )
         .await
 }
 
 async fn proxy_chassis_mutate(
     State(state): State<Arc<AggregatorState>>,
+    user: KubernetesUser,
     method: Method,
     Path(system_id): Path<String>,
     headers: HeaderMap,
@@ -239,16 +324,26 @@ async fn proxy_chassis_mutate(
         .registry
         .get(&system_id)
         .ok_or(StatusCode::NOT_FOUND)?;
+    if !check_endpoint_access(&state, &user, &endpoint).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let path = format!("/redfish/v1/Chassis/{system_id}");
     let body_opt = if body.is_empty() { None } else { Some(body) };
     state
         .proxy
-        .forward(&endpoint, method, &path, headers, body_opt)
+        .forward(
+            &endpoint,
+            method,
+            &path,
+            strip_auth_headers(&headers),
+            body_opt,
+        )
         .await
 }
 
 async fn proxy_chassis_sub_get(
     State(state): State<Arc<AggregatorState>>,
+    user: KubernetesUser,
     Path((system_id, rest)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
@@ -256,15 +351,25 @@ async fn proxy_chassis_sub_get(
         .registry
         .get(&system_id)
         .ok_or(StatusCode::NOT_FOUND)?;
+    if !check_endpoint_access(&state, &user, &endpoint).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let path = format!("/redfish/v1/Chassis/{system_id}/{rest}");
     state
         .proxy
-        .forward(&endpoint, Method::GET, &path, headers, None)
+        .forward(
+            &endpoint,
+            Method::GET,
+            &path,
+            strip_auth_headers(&headers),
+            None,
+        )
         .await
 }
 
 async fn proxy_chassis_sub_mutate(
     State(state): State<Arc<AggregatorState>>,
+    user: KubernetesUser,
     method: Method,
     Path((system_id, rest)): Path<(String, String)>,
     headers: HeaderMap,
@@ -274,10 +379,19 @@ async fn proxy_chassis_sub_mutate(
         .registry
         .get(&system_id)
         .ok_or(StatusCode::NOT_FOUND)?;
+    if !check_endpoint_access(&state, &user, &endpoint).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let path = format!("/redfish/v1/Chassis/{system_id}/{rest}");
     let body_opt = if body.is_empty() { None } else { Some(body) };
     state
         .proxy
-        .forward(&endpoint, method, &path, headers, body_opt)
+        .forward(
+            &endpoint,
+            method,
+            &path,
+            strip_auth_headers(&headers),
+            body_opt,
+        )
         .await
 }

@@ -5,6 +5,9 @@ port = 8443
 [auth]
 enabled = false
 
+# auth_mode = "kubernetes"  # Use Kubernetes TokenReview/SubjectAccessReview
+# auth_mode = "local"       # Use local session/account stores (default)
+
 [discovery]
 mode = "static"
 

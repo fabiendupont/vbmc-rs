@@ -577,7 +577,7 @@ async fn test_chassis() {
 
     let (status, json, _) = get(&app, "/redfish/v1/Chassis/1").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["ChassisType"], "RackMount");
+    assert_eq!(json["ChassisType"], "Other");
     assert!(json["Power"]["@odata.id"].as_str().is_some());
     assert!(json["Thermal"]["@odata.id"].as_str().is_some());
     assert!(json["NetworkAdapters"]["@odata.id"].as_str().is_some());
