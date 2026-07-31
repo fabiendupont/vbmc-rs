@@ -10,6 +10,7 @@ use tracing::{info, warn};
 pub struct WebhookConfig {
     pub sidecar_image: String,
     pub bmc_network: String,
+    pub tls_secret: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -107,6 +108,7 @@ pub async fn handle_mutate(
     let patch = build_patch(
         &config.sidecar_image,
         &config.bmc_network,
+        config.tls_secret.as_deref(),
         &system_id_value,
         &request.object,
     );
@@ -157,6 +159,7 @@ fn has_libvirt_volume(pod: &serde_json::Value) -> Option<String> {
 fn build_patch(
     sidecar_image: &str,
     bmc_network: &str,
+    tls_secret: Option<&str>,
     system_id: &str,
     pod: &serde_json::Value,
 ) -> Vec<serde_json::Value> {
@@ -190,12 +193,29 @@ fn build_patch(
 
     let libvirt_mount_name = libvirt_volume_name.as_deref().unwrap_or("libvirt-runtime");
 
+    let tls_config = if tls_secret.is_some() {
+        "tls_cert = \"/etc/vbmc-tls/tls.crt\"\n\
+         tls_key = \"/etc/vbmc-tls/tls.key\"\n\
+         tls_client_ca = \"/etc/vbmc-tls/ca.crt\"\n"
+    } else {
+        ""
+    };
+
     let inline_config = format!(
         "backend = \"libvirt\"\n\
+         state_directory = \"/tmp/vbmc-state\"\n\
+         audit_log = \"/tmp/vbmc-audit.jsonl\"\n\
          \n\
          [server]\n\
          bind_address = \"0.0.0.0\"\n\
          port = 8000\n\
+         {tls_config}\
+         \n\
+         [auth]\n\
+         enabled = false\n\
+         \n\
+         [metrics]\n\
+         enabled = false\n\
          \n\
          [systems.{system_id}]\n\
          name = \"{system_id}\"\n\
@@ -209,6 +229,14 @@ fn build_patch(
         inline_config.replace('\'', "'\\''")
     );
 
+    let mut volume_mounts =
+        vec![serde_json::json!({"name": libvirt_mount_name, "mountPath": "/var/run/libvirt"})];
+    if tls_secret.is_some() {
+        volume_mounts.push(
+            serde_json::json!({"name": "vbmc-tls", "mountPath": "/etc/vbmc-tls", "readOnly": true}),
+        );
+    }
+
     let container = serde_json::json!({
         "name": "vbmc-rs",
         "image": sidecar_image,
@@ -220,9 +248,7 @@ fn build_patch(
             {"name": "HOME", "value": "/var/run/kubevirt-private"}
         ],
         "ports": [{"containerPort": 8000, "name": "redfish"}],
-        "volumeMounts": [
-            {"name": libvirt_mount_name, "mountPath": "/var/run/libvirt"}
-        ]
+        "volumeMounts": volume_mounts
     });
 
     patch.push(serde_json::json!({
@@ -230,6 +256,19 @@ fn build_patch(
         "path": "/spec/containers/-",
         "value": container
     }));
+
+    if let Some(secret_name) = tls_secret {
+        patch.push(serde_json::json!({
+            "op": "add",
+            "path": "/spec/volumes/-",
+            "value": {
+                "name": "vbmc-tls",
+                "secret": {
+                    "secretName": secret_name
+                }
+            }
+        }));
+    }
 
     if libvirt_volume_name.is_none() {
         patch.push(serde_json::json!({
@@ -291,6 +330,7 @@ mod tests {
         let config = Arc::new(WebhookConfig {
             sidecar_image: "vbmc-rs-sidecar:latest".to_string(),
             bmc_network: "vbmc-bmc".to_string(),
+            tls_secret: None,
         });
 
         let pod = make_pod(serde_json::json!({"app": "nginx"}), None);
@@ -307,6 +347,7 @@ mod tests {
         let config = Arc::new(WebhookConfig {
             sidecar_image: "vbmc-rs-sidecar:latest".to_string(),
             bmc_network: "vbmc-bmc".to_string(),
+            tls_secret: None,
         });
 
         let pod = make_pod(serde_json::json!({"kubevirt.io": "virt-launcher"}), None);
@@ -323,6 +364,7 @@ mod tests {
         let config = Arc::new(WebhookConfig {
             sidecar_image: "vbmc-rs-sidecar:latest".to_string(),
             bmc_network: "vbmc-bmc".to_string(),
+            tls_secret: None,
         });
 
         let pod = make_pod(
@@ -368,6 +410,7 @@ mod tests {
         let config = Arc::new(WebhookConfig {
             sidecar_image: "vbmc-rs-sidecar:latest".to_string(),
             bmc_network: "vbmc-bmc".to_string(),
+            tls_secret: None,
         });
 
         let pod = make_pod(

@@ -103,6 +103,34 @@ esac
 
 # --- Deploy test VM with vbmc-rs sidecar ---
 
+log "Generating mTLS certificates"
+# BMC CA — signs both sidecar server certs and aggregator client cert
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+    -keyout /tmp/bmc-ca.key -out /tmp/bmc-ca.crt -days 1 -nodes \
+    -subj "/CN=vbmc-rs BMC CA" 2>/dev/null
+
+# Sidecar server cert (wildcard for any pod IP)
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+    -keyout /tmp/sidecar.key -out /tmp/sidecar.csr -nodes \
+    -subj "/CN=vbmc-rs-sidecar" 2>/dev/null
+openssl x509 -req -in /tmp/sidecar.csr -CA /tmp/bmc-ca.crt -CAkey /tmp/bmc-ca.key \
+    -CAcreateserial -out /tmp/sidecar.crt -days 1 2>/dev/null
+
+# Aggregator client cert
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+    -keyout /tmp/agg-client.key -out /tmp/agg-client.csr -nodes \
+    -subj "/CN=vbmc-rs-aggregator" 2>/dev/null
+openssl x509 -req -in /tmp/agg-client.csr -CA /tmp/bmc-ca.crt -CAkey /tmp/bmc-ca.key \
+    -CAcreateserial -out /tmp/agg-client.crt -days 1 2>/dev/null
+
+$KUBECTL create secret generic vbmc-rs-bmc-tls -n "$NAMESPACE" \
+    --from-file=ca.crt=/tmp/bmc-ca.crt \
+    --from-file=tls.crt=/tmp/sidecar.crt \
+    --from-file=tls.key=/tmp/sidecar.key \
+    --from-file=client.crt=/tmp/agg-client.crt \
+    --from-file=client.key=/tmp/agg-client.key \
+    --dry-run=client -o yaml | $KUBECTL apply -f -
+
 log "Creating vbmc-rs ConfigMap"
 $KUBECTL create configmap "vbmc-rs-${VM_NAME}" -n "$NAMESPACE" --from-literal=config.toml="
 backend = \"libvirt\"

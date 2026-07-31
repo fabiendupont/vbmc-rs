@@ -37,6 +37,10 @@ struct Cli {
     /// Name of the BMC network-attachment-definition for UDN
     #[arg(long, default_value = "vbmc-bmc")]
     bmc_network: String,
+
+    /// Secret name containing TLS certs for sidecar mTLS (optional)
+    #[arg(long)]
+    tls_secret: Option<String>,
 }
 
 #[tokio::main]
@@ -57,6 +61,7 @@ async fn main() -> anyhow::Result<()> {
     let config = Arc::new(WebhookConfig {
         sidecar_image: cli.sidecar_image,
         bmc_network: cli.bmc_network,
+        tls_secret: cli.tls_secret,
     });
 
     let app = Router::new()

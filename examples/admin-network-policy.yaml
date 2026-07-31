@@ -1,0 +1,89 @@
+# AdminNetworkPolicy for the vbmc-rs BMC network (CUDN).
+#
+# Restricts traffic on the BMC network so that only the aggregator
+# can reach sidecar pods on port 8000. Other pods attached to the
+# BMC CUDN cannot initiate connections to sidecars.
+#
+# This is cluster-admin controlled and cannot be overridden by
+# namespace-scoped NetworkPolicies.
+#
+# Prerequisites:
+#   - ClusterUserDefinedNetwork "vbmc-bmc" created
+#   - Aggregator deployed in namespace "vbmc-system" with label
+#     app=vbmc-rs-aggregator (adjust namespace/labels as needed)
+#
+# Apply with: oc apply -f admin-network-policy.yaml
+
+apiVersion: policy.networking.k8s.io/v1alpha1
+kind: AdminNetworkPolicy
+metadata:
+  name: vbmc-bmc-isolation
+spec:
+  priority: 10
+  subject:
+    pods:
+      namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          vbmc-rs/system-id: ""
+        matchExpressions:
+          - key: vbmc-rs/system-id
+            operator: Exists
+  ingress:
+    # Allow aggregator to reach sidecars on the Redfish port
+    - name: allow-aggregator
+      action: Allow
+      from:
+        - pods:
+            namespaceSelector: {}
+            podSelector:
+              matchLabels:
+                app: vbmc-rs-aggregator
+      ports:
+        - portNumber:
+            port: 8000
+            protocol: TCP
+    # Deny all other ingress to sidecar pods
+    - name: deny-other-ingress
+      action: Deny
+      from:
+        - namespaces:
+            namespaceSelector: {}
+  egress:
+    # Sidecars don't need to initiate connections on the BMC network
+    # (they only listen). Allow DNS and block everything else.
+    - name: allow-dns
+      action: Allow
+      to:
+        - namespaces:
+            namespaceSelector: {}
+      ports:
+        - portNumber:
+            port: 53
+            protocol: UDP
+        - portNumber:
+            port: 53
+            protocol: TCP
+---
+# ClusterUserDefinedNetwork for the BMC management network.
+# Layer2 topology gives all pods a shared L2 segment on a
+# secondary interface (net1), isolated from the VM traffic
+# on the primary interface (eth0).
+
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
+metadata:
+  name: vbmc-bmc
+spec:
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+          - openshift-cnv
+  network:
+    topology: Layer2
+    layer2:
+      role: Secondary
+      subnets:
+        - "192.168.200.0/24"
