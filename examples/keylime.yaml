@@ -1,0 +1,119 @@
+# Keylime deployment for KubeVirt VM attestation.
+#
+# Deploys the Keylime verifier and registrar as pods.
+# The Keylime agent runs inside the guest VM (not managed here).
+#
+# VMs must have vTPM enabled:
+#   spec.template.spec.domain.devices.tpm: {}
+#
+# The Keylime agent in the guest registers with the registrar,
+# then the verifier polls the agent for TPM quotes.
+# vbmc-rs polls the verifier API for attestation status.
+#
+# Usage:
+#   oc apply -f keylime.yaml
+#   # Then deploy the webhook with:
+#   --keylime-url=http://keylime-verifier.keylime.svc:8080
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keylime
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keylime-verifier
+  namespace: keylime
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keylime-verifier
+  template:
+    metadata:
+      labels:
+        app: keylime-verifier
+    spec:
+      containers:
+        - name: verifier
+          image: quay.io/keylime/keylime_verifier:latest
+          ports:
+            - containerPort: 8080
+              name: api
+          env:
+            - name: KEYLIME_VERIFIER_IP
+              value: "0.0.0.0"
+            - name: KEYLIME_VERIFIER_PORT
+              value: "8080"
+            - name: KEYLIME_VERIFIER_TLS_DIR
+              value: "default"
+            - name: KEYLIME_VERIFIER_ENABLE_AGENT_MTLS
+              value: "false"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/keylime
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keylime-verifier
+  namespace: keylime
+spec:
+  selector:
+    app: keylime-verifier
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keylime-registrar
+  namespace: keylime
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keylime-registrar
+  template:
+    metadata:
+      labels:
+        app: keylime-registrar
+    spec:
+      containers:
+        - name: registrar
+          image: quay.io/keylime/keylime_registrar:latest
+          ports:
+            - containerPort: 8890
+              name: api
+          env:
+            - name: KEYLIME_REGISTRAR_IP
+              value: "0.0.0.0"
+            - name: KEYLIME_REGISTRAR_PORT
+              value: "8890"
+            - name: KEYLIME_REGISTRAR_TLS_DIR
+              value: "default"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/keylime
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keylime-registrar
+  namespace: keylime
+spec:
+  selector:
+    app: keylime-registrar
+  ports:
+    - port: 8890
+      targetPort: 8890
+      name: api

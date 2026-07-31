@@ -11,6 +11,7 @@ pub struct WebhookConfig {
     pub sidecar_image: String,
     pub bmc_network: String,
     pub tls_secret: Option<String>,
+    pub keylime_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -109,6 +110,7 @@ pub async fn handle_mutate(
         &config.sidecar_image,
         &config.bmc_network,
         config.tls_secret.as_deref(),
+        config.keylime_url.as_deref(),
         &system_id_value,
         &request.object,
     );
@@ -160,6 +162,7 @@ fn build_patch(
     sidecar_image: &str,
     bmc_network: &str,
     tls_secret: Option<&str>,
+    keylime_url: Option<&str>,
     system_id: &str,
     pod: &serde_json::Value,
 ) -> Vec<serde_json::Value> {
@@ -201,6 +204,8 @@ fn build_patch(
         ""
     };
 
+    let spdm_enabled = keylime_url.is_some();
+
     let inline_config = format!(
         "backend = \"libvirt\"\n\
          state_directory = \"/tmp/vbmc-state\"\n\
@@ -217,10 +222,26 @@ fn build_patch(
          [metrics]\n\
          enabled = false\n\
          \n\
+         [security_policy]\n\
+         spdm_enabled = {spdm_enabled}\n\
+         \n\
          [systems.{system_id}]\n\
          name = \"{system_id}\"\n\
          connection_uri = \"qemu+unix:///session?socket=/var/run/libvirt/virtqemud-sock\"\n"
     );
+
+    let attestation_config = keylime_url
+        .map(|url| {
+            format!(
+                "\n[systems.{system_id}.attestation]\n\
+                 provider = \"keylime\"\n\
+                 provider_url = \"{url}\"\n\
+                 poll_interval_seconds = 30\n"
+            )
+        })
+        .unwrap_or_default();
+
+    let inline_config = format!("{inline_config}{attestation_config}");
 
     let startup_script = format!(
         "while [ ! -S /var/run/libvirt/virtqemud-sock ]; do sleep 1; done; \
@@ -331,6 +352,7 @@ mod tests {
             sidecar_image: "vbmc-rs-sidecar:latest".to_string(),
             bmc_network: "vbmc-bmc".to_string(),
             tls_secret: None,
+            keylime_url: None,
         });
 
         let pod = make_pod(serde_json::json!({"app": "nginx"}), None);
@@ -348,6 +370,7 @@ mod tests {
             sidecar_image: "vbmc-rs-sidecar:latest".to_string(),
             bmc_network: "vbmc-bmc".to_string(),
             tls_secret: None,
+            keylime_url: None,
         });
 
         let pod = make_pod(serde_json::json!({"kubevirt.io": "virt-launcher"}), None);
@@ -365,6 +388,7 @@ mod tests {
             sidecar_image: "vbmc-rs-sidecar:latest".to_string(),
             bmc_network: "vbmc-bmc".to_string(),
             tls_secret: None,
+            keylime_url: None,
         });
 
         let pod = make_pod(
@@ -411,6 +435,7 @@ mod tests {
             sidecar_image: "vbmc-rs-sidecar:latest".to_string(),
             bmc_network: "vbmc-bmc".to_string(),
             tls_secret: None,
+            keylime_url: None,
         });
 
         let pod = make_pod(

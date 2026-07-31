@@ -41,6 +41,10 @@ struct Cli {
     /// Secret name containing TLS certs for sidecar mTLS (optional)
     #[arg(long)]
     tls_secret: Option<String>,
+
+    /// Keylime verifier URL for attestation (optional)
+    #[arg(long)]
+    keylime_url: Option<String>,
 }
 
 #[tokio::main]
@@ -62,6 +66,7 @@ async fn main() -> anyhow::Result<()> {
         sidecar_image: cli.sidecar_image,
         bmc_network: cli.bmc_network,
         tls_secret: cli.tls_secret,
+        keylime_url: cli.keylime_url,
     });
 
     let app = Router::new()
