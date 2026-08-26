@@ -68,6 +68,7 @@ pub async fn start_kubernetes_watcher(
     namespace: Option<String>,
     label_selector: String,
     sidecar_port: u16,
+    sidecar_tls: bool,
     bmc_network: Option<String>,
     cancel: tokio_util::sync::CancellationToken,
 ) {
@@ -88,7 +89,7 @@ pub async fn start_kubernetes_watcher(
 
     let pods: Api<Pod> = match &namespace {
         Some(ns) => Api::namespaced(client, ns),
-        None => Api::default_namespaced(client),
+        None => Api::all(client),
     };
 
     let watcher_config = watcher::Config::default().labels(&label_selector);
@@ -103,7 +104,7 @@ pub async fn start_kubernetes_watcher(
             item = stream.next() => {
                 match item {
                     Some(Ok(Event::Apply(pod) | Event::InitApply(pod))) => {
-                        if let Some(ep) = extract_endpoint(&pod, sidecar_port, bmc_network.as_deref())
+                        if let Some(ep) = extract_endpoint(&pod, sidecar_port, sidecar_tls, bmc_network.as_deref())
                             && is_pod_ready(&pod)
                         {
                             info!(system_id = %ep.system_id, url = %ep.url, "Discovered sidecar pod");
@@ -111,7 +112,7 @@ pub async fn start_kubernetes_watcher(
                         }
                     }
                     Some(Ok(Event::Delete(pod))) => {
-                        if let Some(ep) = extract_endpoint(&pod, sidecar_port, bmc_network.as_deref()) {
+                        if let Some(ep) = extract_endpoint(&pod, sidecar_port, sidecar_tls, bmc_network.as_deref()) {
                             info!(system_id = %ep.system_id, "Sidecar pod removed");
                             registry.deregister(&ep.system_id);
                         }
@@ -133,6 +134,7 @@ pub async fn start_kubernetes_watcher(
 fn extract_endpoint(
     pod: &k8s_openapi::api::core::v1::Pod,
     sidecar_port: u16,
+    sidecar_tls: bool,
     bmc_network: Option<&str>,
 ) -> Option<SidecarEndpoint> {
     let metadata = &pod.metadata;
@@ -171,7 +173,7 @@ fn extract_endpoint(
 
     let ip = bmc_ip.or_else(|| pod.status.as_ref()?.pod_ip.clone())?;
 
-    let scheme = if sidecar_port == 443 || sidecar_port == 8443 {
+    let scheme = if sidecar_tls || sidecar_port == 443 || sidecar_port == 8443 {
         "https"
     } else {
         "http"

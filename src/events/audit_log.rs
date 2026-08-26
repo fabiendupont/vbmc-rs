@@ -5,27 +5,44 @@ use tokio::sync::broadcast;
 use tracing::{error, info};
 
 use super::RedfishEvent;
+use crate::config::AuditLogTarget;
 
-pub async fn audit_log_writer(mut rx: broadcast::Receiver<RedfishEvent>, path: PathBuf) {
-    info!("Audit log writer started: {}", path.display());
+pub async fn audit_log_writer(
+    mut rx: broadcast::Receiver<RedfishEvent>,
+    target: AuditLogTarget,
+    path: PathBuf,
+) {
+    let mut file = match target {
+        AuditLogTarget::Stdout => {
+            info!("Audit log writer started: stdout");
+            None
+        }
+        AuditLogTarget::File | AuditLogTarget::Both => {
+            let label = match target {
+                AuditLogTarget::Both => "file + stdout",
+                _ => "file",
+            };
+            info!("Audit log writer started: {label} ({})", path.display());
 
-    if let Some(parent) = path.parent()
-        && let Err(e) = tokio::fs::create_dir_all(parent).await
-    {
-        error!("Failed to create audit log directory: {e}");
-        return;
-    }
+            if let Some(parent) = path.parent()
+                && let Err(e) = tokio::fs::create_dir_all(parent).await
+            {
+                error!("Failed to create audit log directory: {e}");
+                return;
+            }
 
-    let mut file = match tokio::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .await
-    {
-        Ok(f) => f,
-        Err(e) => {
-            error!("Failed to open audit log file: {e}");
-            return;
+            match tokio::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .await
+            {
+                Ok(f) => Some(f),
+                Err(e) => {
+                    error!("Failed to open audit log file: {e}");
+                    return;
+                }
+            }
         }
     };
 
@@ -41,11 +58,17 @@ pub async fn audit_log_writer(mut rx: broadcast::Receiver<RedfishEvent>, path: P
                 };
                 line.push('\n');
 
-                if let Err(e) = file.write_all(line.as_bytes()).await {
-                    error!("Failed to write audit log: {e}");
+                if matches!(target, AuditLogTarget::Stdout | AuditLogTarget::Both) {
+                    print!("{line}");
                 }
-                if let Err(e) = file.flush().await {
-                    error!("Failed to flush audit log: {e}");
+
+                if let Some(f) = file.as_mut() {
+                    if let Err(e) = f.write_all(line.as_bytes()).await {
+                        error!("Failed to write audit log: {e}");
+                    }
+                    if let Err(e) = f.flush().await {
+                        error!("Failed to flush audit log: {e}");
+                    }
                 }
             }
             Err(broadcast::error::RecvError::Lagged(n)) => {

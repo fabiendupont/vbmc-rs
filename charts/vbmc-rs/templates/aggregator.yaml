@@ -1,0 +1,93 @@
+{{- if .Values.aggregator.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vbmc-rs-aggregator
+  namespace: {{ include "vbmc-rs.namespace" . }}
+data:
+  aggregator.toml: |
+    auth_mode = {{ .Values.aggregator.authMode | quote }}
+
+    [server]
+    bind_address = "0.0.0.0"
+    port = {{ .Values.aggregator.port }}
+
+    [auth]
+    enabled = true
+
+    [discovery]
+    mode = {{ .Values.aggregator.discovery.mode | quote }}
+    label_selector = {{ .Values.aggregator.discovery.labelSelector | quote }}
+    {{- if .Values.bmcNetwork.cudn.enabled }}
+    bmc_network = {{ .Values.bmcNetwork.name | quote }}
+    {{- end }}
+
+    [sidecar]
+    port = {{ .Values.aggregator.sidecar.port }}
+    {{- if .Values.aggregator.mtls.enabled }}
+    tls_ca = "/etc/vbmc-mtls/ca.crt"
+    tls_cert = "/etc/vbmc-mtls/client.crt"
+    tls_key = "/etc/vbmc-mtls/client.key"
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vbmc-rs-aggregator
+  namespace: {{ include "vbmc-rs.namespace" . }}
+spec:
+  replicas: {{ .Values.aggregator.replicas }}
+  selector:
+    matchLabels:
+      app: vbmc-rs-aggregator
+  template:
+    metadata:
+      labels:
+        app: vbmc-rs-aggregator
+      annotations:
+        {{- if .Values.bmcNetwork.cudn.enabled }}
+        k8s.v1.cni.cncf.io/networks: {{ .Values.bmcNetwork.name }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ .Values.aggregator.serviceAccount.name }}
+      containers:
+        - name: aggregator
+          image: {{ include "vbmc-rs.aggregatorImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/vbmc-rs-aggregator"]
+          args: ["-c", "/etc/vbmc-rs/aggregator.toml"]
+          ports:
+            - containerPort: {{ .Values.aggregator.port }}
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vbmc-rs
+              readOnly: true
+            {{- if .Values.aggregator.mtls.enabled }}
+            - name: mtls
+              mountPath: /etc/vbmc-mtls
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: vbmc-rs-aggregator
+        {{- if .Values.aggregator.mtls.enabled }}
+        - name: mtls
+          secret:
+            secretName: {{ .Values.aggregator.mtls.existingSecret | default "vbmc-rs-bmc-tls" }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vbmc-rs-aggregator
+  namespace: {{ include "vbmc-rs.namespace" . }}
+spec:
+  selector:
+    app: vbmc-rs-aggregator
+  ports:
+    - port: {{ .Values.aggregator.port }}
+      targetPort: {{ .Values.aggregator.port }}
+      name: http
+{{- end }}

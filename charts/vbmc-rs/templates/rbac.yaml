@@ -1,0 +1,37 @@
+{{- if .Values.aggregator.enabled }}
+{{- if .Values.aggregator.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.aggregator.serviceAccount.name }}
+  namespace: {{ include "vbmc-rs.namespace" . }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vbmc-rs-aggregator
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vbmc-rs-aggregator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vbmc-rs-aggregator
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.aggregator.serviceAccount.name }}
+    namespace: {{ include "vbmc-rs.namespace" . }}
+{{- end }}

@@ -15,57 +15,156 @@ Two deployment models:
 
 The **sidecar model is recommended**. Each KubeVirt virt-launcher pod runs a local libvirtd that manages the QEMU process. The sidecar connects to this libvirtd via its Unix socket, giving access to the full feature set including network I/O counters that the KubeVirt API does not expose.
 
-The **aggregator** (`vbmc-rs-aggregator`) sits in front of sidecar instances, discovering them and presenting a unified Redfish interface.
+Three components work together in the sidecar model:
 
-## Build
+- **Webhook** (`vbmc-rs-webhook`) — a mutating admission webhook that automatically injects the vbmc-rs sidecar container into virt-launcher pods
+- **Aggregator** (`vbmc-rs-aggregator`) — discovers sidecars, authenticates clients via Kubernetes OAuth (TokenReview + SubjectAccessReview), and proxies Redfish requests
+- **Sidecar** — the vbmc-rs instance running inside the virt-launcher pod
 
-```sh
-# Sidecar image (libvirt backend)
-podman build -f Containerfile.kubevirt --target sidecar -t vbmc-rs-kubevirt-sidecar .
+## Architecture
 
-# Aggregator image (static binary)
-podman build -f Containerfile.kubevirt --target aggregator -t vbmc-rs-kubevirt-aggregator .
-
-# API backend (no libvirt needed)
-cargo build --release --features kubevirt
+```
+                       ┌─────────────────────┐
+                       │    Redfish Client    │
+                       │   (Bearer token)     │
+                       └──────────┬──────────┘
+                                  │
+                       ┌──────────▼──────────┐
+                       │     Aggregator      │
+                       │  (vbmc-system ns)   │
+                       │                     │
+                       │ • Kubernetes OAuth   │
+                       │   (TokenReview +     │
+                       │    SAR filtering)    │
+                       │ • Pod discovery      │
+                       │ • mTLS proxy         │
+                       └──────────┬──────────┘
+                                  │ BMC Network (CUDN)
+                  ┌───────────────┼───────────────┐
+                  │               │               │
+           ┌──────▼──────┐┌──────▼──────┐┌──────▼──────┐
+           │  Sidecar    ││  Sidecar    ││  Sidecar    │
+           │  (ns: prod) ││  (ns: dev)  ││  (ns: test) │
+           │  libvirtd   ││  libvirtd   ││  libvirtd   │
+           └─────────────┘└─────────────┘└─────────────┘
 ```
 
-## Sidecar deployment
+### BMC network isolation
 
-The sidecar runs alongside the VM in the virt-launcher pod. It uses the **libvirt backend** to connect to the local libvirtd socket, providing full BMC functionality including per-disk block I/O and per-NIC network counters.
+Sidecars communicate with the aggregator over a dedicated **ClusterUserDefinedNetwork** (CUDN) using OVN-Kubernetes. This gives each sidecar a secondary network interface on an isolated L2 segment (e.g., 192.168.200.0/24), separate from the VM's primary network.
 
-### Feature comparison: sidecar (libvirt) vs API backend
+An **AdminNetworkPolicy** restricts traffic on the BMC network so only the aggregator can reach sidecars — no pod-to-pod BMC traffic.
 
-| Feature | Sidecar (libvirt) | API backend (kubevirt) |
-|---------|-------------------|------------------------|
-| Power control | libvirt domain API | KubeVirt subresources |
-| CPU/memory info | domain XML + get_info | VMI spec |
-| Disk inventory | domain XML (path, bus, type) | VM spec (names only) |
-| NIC inventory + MACs | domain XML | VM spec |
-| Block I/O counters | get_block_stats per disk | Not available |
-| Network I/O counters | interface_stats per NIC | Not available |
-| PCI passthrough devices | domain XML hostdev | Not available |
-| Secure boot state | domain XML loader secure= | VM spec |
-| Secure boot toggle | domain XML redefine | spec patch |
-| Hot-plug disk | attach_device | addvolume subresource |
+### Kubernetes OAuth
 
-### Pod spec
+The aggregator authenticates clients using Kubernetes service account tokens:
+
+1. Client sends `Authorization: Bearer <token>` (a Kubernetes SA token)
+2. Aggregator validates the token via **TokenReview**
+3. For each system, aggregator checks access via **SubjectAccessReview** — the client must have `get` on `virtualmachines` in the system's namespace
+4. Only authorized systems are returned in the Systems collection
+
+This provides multi-tenant isolation using existing Kubernetes RBAC — no separate auth system.
+
+## Helm chart deployment (recommended)
+
+A Helm chart in `charts/vbmc-rs/` deploys all components:
+
+```sh
+# Build container images
+podman build -f Containerfile.kubevirt --target sidecar -t vbmc-rs-sidecar .
+podman build -f Containerfile.kubevirt --target aggregator -t vbmc-rs-aggregator .
+podman build -f Containerfile.kubevirt --target webhook -t vbmc-rs-webhook .
+
+# Install
+helm install vbmc-rs charts/vbmc-rs/ \
+    --set image.registry=ghcr.io/fabiendupont \
+    --set webhook.sidecarImage=ghcr.io/fabiendupont/vbmc-rs-sidecar:latest
+```
+
+The chart creates:
+
+| Resource | Description |
+|----------|-------------|
+| Namespace (`vbmc-system`) | Dedicated namespace for vbmc-rs components |
+| ServiceAccount + ClusterRole/Binding | Aggregator RBAC (TokenReview, SAR, pod watch) |
+| ConfigMap | Aggregator TOML configuration |
+| Deployments | Aggregator and webhook |
+| Services | Aggregator (HTTP) and webhook (HTTPS) |
+| Secret | Auto-generated webhook TLS certificate |
+| MutatingWebhookConfiguration | Sidecar injection into virt-launcher pods |
+| ClusterUserDefinedNetwork | BMC management network (CUDN) |
+| AdminNetworkPolicy | Restricts BMC traffic to aggregator only |
+
+### Key values
+
+```yaml
+# Container registry for aggregator and webhook images
+image:
+  registry: ghcr.io/fabiendupont
+
+# Sidecar image (fully qualified — injected into arbitrary namespaces)
+webhook:
+  sidecarImage: ghcr.io/fabiendupont/vbmc-rs-sidecar:latest
+  # Inject TLS secret into sidecars for mTLS
+  tlsSecret: ""
+  # swtpm socket path for vTPM attestation
+  swtpmSocket: ""
+  # Keylime verifier URL
+  keylimeUrl: ""
+
+# Aggregator mTLS to sidecars
+aggregator:
+  mtls:
+    enabled: false
+    existingSecret: ""
+
+# BMC network
+bmcNetwork:
+  name: vbmc-bmc
+  cudn:
+    enabled: true
+    subnet: "192.168.200.0/24"
+  adminNetworkPolicy:
+    enabled: true
+```
+
+### Webhook TLS
+
+The chart auto-generates self-signed TLS certificates for the webhook using Helm's `genCA`/`genSignedCert`. To provide your own:
+
+```yaml
+webhook:
+  tls:
+    certPEM: |
+      -----BEGIN CERTIFICATE-----
+      ...
+    keyPEM: |
+      -----BEGIN EC PRIVATE KEY-----
+      ...
+    caPEM: |
+      -----BEGIN CERTIFICATE-----
+      ...
+```
+
+## Sidecar injection
+
+The mutating webhook automatically injects the vbmc-rs sidecar into any virt-launcher pod that has both `kubevirt.io: virt-launcher` and `vbmc-rs/system-id` labels. No manual pod spec changes are needed.
+
+To enable vbmc-rs for a VM, add the `vbmc-rs/system-id` label:
 
 ```yaml
 apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
   name: my-vm
-  namespace: default
   labels:
-    app.kubernetes.io/name: vbmc-rs-sidecar
     vbmc-rs/system-id: my-vm
 spec:
-  running: true
+  runStrategy: Always
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: vbmc-rs-sidecar
         vbmc-rs/system-id: my-vm
     spec:
       domain:
@@ -82,58 +181,98 @@ spec:
         - name: rootdisk
           containerDisk:
             image: quay.io/containerdisks/fedora:latest
-      containers:
-        - name: vbmc-rs
-          image: ghcr.io/fabiendupont/vbmc-rs-kubevirt-sidecar:latest
-          args: ["-c", "/etc/vbmc-rs/config.toml"]
-          ports:
-            - containerPort: 8000
-          volumeMounts:
-            - name: vbmc-config
-              mountPath: /etc/vbmc-rs
-              readOnly: true
-            - name: vbmc-state
-              mountPath: /var/lib/vbmc-rs
-            - name: libvirt-sock
-              mountPath: /var/run/libvirt
-      volumes:
-        - name: vbmc-config
-          configMap:
-            name: vbmc-rs-my-vm
-        - name: vbmc-state
-          emptyDir: {}
-        - name: libvirt-sock
-          emptyDir: {}
 ```
 
-The `libvirt-sock` volume shares the libvirtd socket between the virt-launcher container and the vbmc-rs sidecar.
+The webhook injects:
 
-### Per-VM configuration
+- A `vbmc-rs` sidecar container with an inline TOML config
+- A BMC network annotation (`k8s.v1.cni.cncf.io/networks`)
+- The libvirt socket volume mount (reuses existing or creates one)
+- TLS cert volume (if `--tls-secret` is configured)
+- swtpm socket volume (if `--swtpm-socket` is configured)
 
-Each sidecar manages a single system using the libvirt backend. The `connection_uri` points to the local libvirtd socket, and `domain_name` matches the VM's libvirt domain:
+### Feature comparison: sidecar (libvirt) vs API backend
+
+| Feature | Sidecar (libvirt) | API backend (kubevirt) |
+|---------|-------------------|------------------------|
+| Power control | libvirt domain API | KubeVirt subresources |
+| CPU/memory info | domain XML + get_info | VMI spec |
+| Disk inventory | domain XML (path, bus, type) | VM spec (names only) |
+| NIC inventory + MACs | domain XML | VM spec |
+| Block I/O counters | get_block_stats per disk | Not available |
+| Network I/O counters | interface_stats per NIC | Not available |
+| PCI passthrough devices | domain XML hostdev | Not available |
+| Secure boot state | domain XML loader secure= | VM spec |
+| Secure boot toggle | domain XML redefine | spec patch |
+| Hot-plug disk | attach_device | addvolume subresource |
+| vTPM attestation | swtpm socket (direct) | Not available |
+
+## Aggregator
+
+The aggregator discovers sidecar instances across all namespaces and proxies Redfish requests to the correct sidecar based on system ID.
+
+### Discovery
+
+In Kubernetes mode, the aggregator watches pods cluster-wide matching the configured label selector. When `discovery.namespace` is omitted, it watches all namespaces. System ID is extracted from the `vbmc-rs/system-id` label. When a BMC network (CUDN) is configured, the aggregator uses the pod's BMC network IP from the `k8s.v1.cni.cncf.io/network-status` annotation instead of the pod IP.
+
+### Revocation webhook
+
+The aggregator exposes `POST /api/v1/revocation` for Keylime attestation revocation events. When Keylime detects an attestation failure, it calls this endpoint with `{"agent_id": "<system-id>"}`, and the aggregator proxies a `ForceOff` reset to the sidecar — closing the detect-to-remediate loop through the Redfish interface.
+
+### mTLS between aggregator and sidecars
+
+When sidecars are deployed with TLS (via the webhook's `--tls-secret` option), the aggregator needs mTLS client certificates. Enable via Helm:
+
+```sh
+helm upgrade vbmc-rs charts/vbmc-rs/ \
+    --set webhook.tlsSecret=vbmc-rs-bmc-tls \
+    --set aggregator.mtls.enabled=true
+```
+
+This requires a `vbmc-rs-bmc-tls` secret in the VM namespace (sidecar server cert) and in `vbmc-system` (aggregator client cert + CA). See `tests/e2e/mtls.sh` for a complete example.
+
+## Attestation
+
+The sidecar supports vTPM-based attestation by reading PCR values directly from the swtpm socket in the virt-launcher pod.
+
+### swtpm (local vTPM)
+
+PCRs 0-7 (firmware/boot chain) are read directly from the swtpm socket — no agent inside the guest is needed. Configure via Helm:
+
+```sh
+helm install vbmc-rs charts/vbmc-rs/ \
+    --set webhook.swtpmSocket=/var/run/swtpm/swtpm-sock
+```
+
+The webhook mounts the swtpm socket directory and generates attestation config in the sidecar's inline TOML. Results are exposed via the Redfish `ComponentIntegrity` resource.
+
+### Local policy validation
+
+PCR values can be validated against expected values from config:
 
 ```toml
-backend = "libvirt"
+[systems.my-vm.attestation]
+provider = "swtpm"
+swtpm_socket = "/var/run/swtpm/swtpm-sock"
+poll_interval_seconds = 30
 
-[server]
-bind_address = "0.0.0.0"
-port = 8000
-
-[systems.my-vm]
-name = "My VM"
-connection_uri = "qemu:///system"
-domain_name = "default_my-vm"
-
-[systems.my-vm.hardware]
-cpu_count = 2
-memory_mib = 2048
+[systems.my-vm.attestation.pcr_policy]
+0 = "expected_base64_value_for_pcr0"
+7 = "expected_base64_value_for_pcr7"
 ```
 
-KubeVirt names libvirt domains as `{namespace}_{vm-name}`. The `connection_uri` defaults to `qemu:///system` if omitted.
+### Dual-source attestation
+
+External (swtpm) and internal (Keylime agent) attestation are complementary:
+
+| Source | PCRs | What it attests |
+|--------|------|-----------------|
+| swtpm (sidecar) | 0-7 | Firmware, bootloader, kernel — boot chain integrity |
+| Keylime agent (guest) | 8-15 + IMA | Runtime OS integrity, file measurements |
 
 ## API backend deployment
 
-A single vbmc-rs instance manages multiple VMs. Each system section maps to a namespace/vm_name pair:
+A single vbmc-rs instance manages multiple VMs via the Kubernetes API. Each system section maps to a namespace/vm_name pair:
 
 ```toml
 backend = "kube_virt"
@@ -141,12 +280,6 @@ backend = "kube_virt"
 [server]
 bind_address = "0.0.0.0"
 port = 8000
-tls_cert = "/etc/vbmc-rs/server.crt"
-tls_key = "/etc/vbmc-rs/server.key"
-
-[auth]
-enabled = true
-accounts_file = "/etc/vbmc-rs/accounts.json"
 
 [systems.web-server]
 name = "Web Server"
@@ -156,165 +289,29 @@ vm_name = "web-server-vm"
 [systems.web-server.hardware]
 cpu_count = 4
 memory_mib = 8192
-
-[systems.db-server]
-name = "Database Server"
-namespace = "production"
-vm_name = "db-server-vm"
-
-[systems.db-server.hardware]
-cpu_count = 8
-memory_mib = 16384
-```
-
-The instance uses the default kubeconfig resolution order:
-
-1. `KUBECONFIG` environment variable
-2. `~/.kube/config`
-3. In-cluster service account (when running inside a pod)
-
-## Aggregator deployment
-
-The aggregator discovers sidecar instances and proxies Redfish requests to the correct sidecar based on system ID.
-
-### Configuration
-
-```toml
-[server]
-bind_address = "0.0.0.0"
-port = 8443
-tls_cert = "/etc/vbmc-rs/server.crt"
-tls_key = "/etc/vbmc-rs/server.key"
-
-[auth]
-enabled = true
-accounts_file = "/etc/vbmc-rs/accounts.json"
-
-[discovery]
-mode = "kubernetes"
-namespace = "default"
-label_selector = "app.kubernetes.io/name=vbmc-rs-sidecar"
-
-[sidecar]
-port = 8000
-tls_ca = "/etc/vbmc-rs/sidecar-ca.crt"
-tls_cert = "/etc/vbmc-rs/aggregator-client.crt"
-tls_key = "/etc/vbmc-rs/aggregator-client.key"
-```
-
-### Discovery modes
-
-**Static** — fixed endpoint list, no Kubernetes access required:
-
-```toml
-[discovery]
-mode = "static"
-
-[[discovery.endpoints]]
-system_id = "vm1"
-url = "http://10.0.0.1:8000"
-
-[[discovery.endpoints]]
-system_id = "vm2"
-url = "http://10.0.0.2:8000"
-```
-
-**Kubernetes** — watches pods matching label selector. System ID is extracted from the `vbmc-rs/system-id` label (falls back to pod name). URL is built from pod IP and `sidecar.port`. Only Ready pods are registered.
-
-### Kubernetes RBAC
-
-The aggregator needs pod list/watch permissions in the target namespace:
-
-```yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: vbmc-rs-aggregator
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-subjects:
-  - kind: ServiceAccount
-    name: vbmc-rs-aggregator
-roleRef:
-  kind: Role
-  name: vbmc-rs-aggregator
-  apiGroup: rbac.authorization.k8s.io
-```
-
-### mTLS between aggregator and sidecars
-
-Generate a shared CA and sign both the sidecar server certificates and the aggregator client certificate:
-
-```sh
-# Shared CA
-openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-  -keyout sidecar-ca.key -out sidecar-ca.crt -days 3650 -nodes \
-  -subj "/CN=vbmc-rs sidecar CA"
-
-# Sidecar server cert (one per sidecar, or wildcard)
-openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-  -keyout sidecar-server.key -out sidecar-server.csr -nodes \
-  -subj "/CN=vbmc-rs-sidecar"
-openssl x509 -req -in sidecar-server.csr -CA sidecar-ca.crt -CAkey sidecar-ca.key \
-  -CAcreateserial -out sidecar-server.crt -days 365
-
-# Aggregator client cert
-openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-  -keyout aggregator-client.key -out aggregator-client.csr -nodes \
-  -subj "/CN=vbmc-rs-aggregator"
-openssl x509 -req -in aggregator-client.csr -CA sidecar-ca.crt -CAkey sidecar-ca.key \
-  -CAcreateserial -out aggregator-client.crt -days 365
-```
-
-Configure each sidecar to require client certificates:
-
-```toml
-[server]
-tls_cert = "/etc/vbmc-rs/sidecar-server.crt"
-tls_key = "/etc/vbmc-rs/sidecar-server.key"
-tls_client_ca = "/etc/vbmc-rs/sidecar-ca.crt"
 ```
 
 ## Security model
 
-### Per-VM isolation (sidecar)
+### Multi-tenant isolation
 
-Each sidecar connects to the local libvirtd socket inside the virt-launcher pod. It has access to exactly one VM's domain — no Kubernetes API access needed, no service account required. Compromise of a sidecar affects only that VM. mTLS between aggregator and sidecar ensures only authorized aggregators can send commands.
+| Layer | Mechanism |
+|-------|-----------|
+| Client authentication | Kubernetes SA tokens via TokenReview |
+| Per-system authorization | SubjectAccessReview per namespace |
+| Network isolation | AdminNetworkPolicy on BMC CUDN |
+| Sidecar ↔ aggregator | mTLS with shared CA |
+| Sidecar ↔ libvirtd | Unix socket (pod-local) |
+| Attestation | swtpm PCR validation + Keylime revocation |
 
-### Service account RBAC (API backend)
-
-The API backend service account needs broader permissions:
-
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-rules:
-  - apiGroups: ["kubevirt.io"]
-    resources: ["virtualmachines", "virtualmachineinstances"]
-    verbs: ["get", "list", "patch", "delete"]
-  - apiGroups: ["kubevirt.io"]
-    resources: ["virtualmachines/start", "virtualmachines/stop", "virtualmachines/restart", "virtualmachines/addvolume", "virtualmachines/removevolume"]
-    verbs: ["update"]
-  - apiGroups: ["kubevirt.io"]
-    resources: ["virtualmachineinstances/softreboot"]
-    verbs: ["update"]
-```
-
-### mTLS trust boundaries
+### Trust boundaries
 
 | Boundary | Enforcement |
 |----------|-------------|
-| Client to aggregator | Server TLS + Redfish auth (session/basic) |
-| Aggregator to sidecar | mTLS with shared CA |
-| Sidecar to libvirtd | Unix socket (pod-local, no network exposure) |
+| Client → aggregator | Server TLS + Kubernetes OAuth |
+| Aggregator → sidecar | mTLS with shared CA |
+| Sidecar → libvirtd | Unix socket (pod-local, no network exposure) |
+| Keylime → aggregator | Revocation webhook → ForceOff |
 
 ## Configuration reference
 
@@ -325,14 +322,24 @@ rules:
 | `namespace` | string | `"default"` | Kubernetes namespace containing the VM |
 | `vm_name` | string | system ID | KubeVirt VirtualMachine resource name |
 
+### Attestation fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `attestation.provider` | string | — | Attestation provider: `"swtpm"`, `"keylime"`, `"trustee"` |
+| `attestation.swtpm_socket` | string | `/var/run/swtpm/swtpm-sock` | swtpm Unix socket path |
+| `attestation.provider_url` | string | — | Keylime/Trustee verifier URL |
+| `attestation.poll_interval_seconds` | u64 | `30` | Polling interval |
+| `attestation.pcr_policy` | map | — | Expected PCR values (base64) for local validation |
+
 ### Aggregator discovery fields
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `discovery.mode` | string | `"static"` | Discovery mode: `"static"` or `"kubernetes"` |
-| `discovery.namespace` | string | default namespace | Namespace to watch for sidecar pods |
-| `discovery.label_selector` | string | `"app.kubernetes.io/name=vbmc-rs-sidecar"` | Label selector for pod discovery |
-| `discovery.endpoints` | array | `[]` | Static endpoint list (static mode only) |
+| `discovery.namespace` | string | all namespaces | Namespace to watch (omit for cluster-wide) |
+| `discovery.label_selector` | string | `"vbmc-rs/system-id"` | Label selector for pod discovery |
+| `discovery.bmc_network` | string | — | CUDN name for BMC IP extraction |
 | `sidecar.port` | u16 | `8000` | Port to connect to on discovered sidecar pods |
 | `sidecar.tls_ca` | path | — | CA certificate to verify sidecar server certificates |
 | `sidecar.tls_cert` | path | — | Client certificate for mTLS to sidecars |

@@ -34,6 +34,7 @@ fn make_test_config(systems: HashMap<String, SystemConfig>) -> AppConfig {
         security_policy: SecurityPolicyConfig::default(),
         state_directory: std::env::temp_dir().join("vbmc-rs-test"),
         audit_log: Default::default(),
+        audit_log_target: Default::default(),
         metrics: MetricsConfig::default(),
         systems,
     }
@@ -578,8 +579,8 @@ async fn test_chassis() {
     let (status, json, _) = get(&app, "/redfish/v1/Chassis/1").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["ChassisType"], "Other");
-    assert!(json["Power"]["@odata.id"].as_str().is_some());
-    assert!(json["Thermal"]["@odata.id"].as_str().is_some());
+    assert!(json["PowerSubsystem"]["@odata.id"].as_str().is_some());
+    assert!(json["ThermalSubsystem"]["@odata.id"].as_str().is_some());
     assert!(json["NetworkAdapters"]["@odata.id"].as_str().is_some());
 }
 

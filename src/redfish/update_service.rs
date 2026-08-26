@@ -76,9 +76,9 @@ pub struct SoftwareInventoryResource {
 
 #[derive(Debug, Serialize)]
 pub struct FwAdditionalVersions {
-    #[serde(rename = "Bootloader")]
+    #[serde(rename = "Bootloader", skip_serializing_if = "str::is_empty")]
     pub bootloader: &'static str,
-    #[serde(rename = "Microcode")]
+    #[serde(rename = "Microcode", skip_serializing_if = "str::is_empty")]
     pub microcode: &'static str,
 }
 

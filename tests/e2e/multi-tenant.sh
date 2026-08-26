@@ -112,8 +112,8 @@ log "Waiting for VMs to start (120s)"
 wait_for "vm-a Running" "oc get vmi vm-a -n tenant-a -o jsonpath='{.status.phase}' | grep -q Running" 300
 wait_for "vm-b Running" "oc get vmi vm-b -n tenant-b -o jsonpath='{.status.phase}' | grep -q Running" 300
 
-log "Waiting for aggregator to discover both VMs (30s)"
-sleep 30
+log "Waiting for aggregator to discover both VMs (60s)"
+sleep 60
 
 log "Getting SA tokens"
 TOKEN_A=$(oc create token user-a -n tenant-a --duration=600s)

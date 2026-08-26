@@ -62,10 +62,12 @@ async fn main() -> anyhow::Result<()> {
             let ns = config.discovery.namespace.clone();
             let selector = config.discovery.label_selector.clone();
             let port = config.sidecar.port;
+            let tls = config.sidecar.tls_enabled();
             let token = cancel.clone();
             let bmc_net = config.discovery.bmc_network.clone();
             tokio::spawn(async move {
-                discovery::start_kubernetes_watcher(reg, ns, selector, port, bmc_net, token).await;
+                discovery::start_kubernetes_watcher(reg, ns, selector, port, tls, bmc_net, token)
+                    .await;
             });
         }
         other => {

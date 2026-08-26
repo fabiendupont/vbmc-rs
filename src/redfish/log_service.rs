@@ -37,8 +37,6 @@ pub struct LogServiceResource {
     pub log_entry_type: &'static str,
     #[serde(rename = "AutoDSTEnabled")]
     pub auto_dst_enabled: bool,
-    #[serde(rename = "OEMLogPurpose")]
-    pub oem_log_purpose: &'static str,
     #[serde(rename = "SyslogFilters")]
     pub syslog_filters: Vec<serde_json::Value>,
     #[serde(rename = "LogPurposes")]
@@ -129,7 +127,6 @@ pub async fn get_system_log_service(
         date_time_local_offset: "+00:00",
         log_entry_type: "Event",
         auto_dst_enabled: false,
-        oem_log_purpose: "",
         syslog_filters: Vec::new(),
         log_purposes: vec!["Diagnostic"],
         overflow: false,
@@ -199,7 +196,6 @@ pub async fn get_manager_log_service(
         date_time_local_offset: "+00:00",
         log_entry_type: "Event",
         auto_dst_enabled: false,
-        oem_log_purpose: "",
         syslog_filters: Vec::new(),
         log_purposes: vec!["Security", "Diagnostic"],
         overflow: false,

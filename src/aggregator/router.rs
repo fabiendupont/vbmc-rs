@@ -6,8 +6,8 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
-use tracing::warn;
+use axum::routing::{get, post};
+use tracing::{info, warn};
 
 use super::k8s_auth::KubernetesUser;
 use super::k8s_authz;
@@ -49,6 +49,7 @@ pub fn aggregator_router(state: Arc<AggregatorState>) -> Router {
                 .patch(proxy_chassis_sub_mutate)
                 .delete(proxy_chassis_sub_mutate),
         )
+        .route("/api/v1/revocation", post(handle_keylime_revocation))
         .with_state(state)
 }
 
@@ -394,4 +395,73 @@ async fn proxy_chassis_sub_mutate(
             body_opt,
         )
         .await
+}
+
+#[derive(serde::Deserialize)]
+struct RevocationPayload {
+    agent_id: String,
+}
+
+async fn handle_keylime_revocation(
+    State(state): State<Arc<AggregatorState>>,
+    Json(payload): Json<RevocationPayload>,
+) -> StatusCode {
+    info!(
+        agent_id = %payload.agent_id,
+        "Received Keylime revocation — triggering ForceOff"
+    );
+
+    let endpoint = match state.registry.get(&payload.agent_id) {
+        Some(ep) => ep,
+        None => {
+            warn!(
+                agent_id = %payload.agent_id,
+                "Revocation for unknown system"
+            );
+            return StatusCode::NOT_FOUND;
+        }
+    };
+
+    let reset_body = serde_json::json!({"ResetType": "ForceOff"});
+    let path = format!(
+        "/redfish/v1/Systems/{}/Actions/ComputerSystem.Reset",
+        payload.agent_id
+    );
+
+    match state
+        .proxy
+        .forward(
+            &endpoint,
+            Method::POST,
+            &path,
+            HeaderMap::new(),
+            Some(Bytes::from(
+                serde_json::to_vec(&reset_body).expect("json serialize"),
+            )),
+        )
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() {
+                info!(agent_id = %payload.agent_id, "ForceOff triggered successfully");
+                StatusCode::OK
+            } else {
+                warn!(
+                    agent_id = %payload.agent_id,
+                    status = %status,
+                    "ForceOff request returned non-success"
+                );
+                StatusCode::BAD_GATEWAY
+            }
+        }
+        Err(status) => {
+            warn!(
+                agent_id = %payload.agent_id,
+                status = %status,
+                "Failed to proxy ForceOff to sidecar"
+            );
+            status
+        }
+    }
 }

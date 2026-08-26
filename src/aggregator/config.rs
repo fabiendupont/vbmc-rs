@@ -47,6 +47,12 @@ pub struct SidecarConnectionConfig {
     pub tls_key: Option<PathBuf>,
 }
 
+impl SidecarConnectionConfig {
+    pub fn tls_enabled(&self) -> bool {
+        self.tls_ca.is_some() && self.tls_cert.is_some() && self.tls_key.is_some()
+    }
+}
+
 fn default_mode() -> String {
     "static".to_string()
 }

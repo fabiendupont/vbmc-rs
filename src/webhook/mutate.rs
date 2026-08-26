@@ -12,6 +12,7 @@ pub struct WebhookConfig {
     pub bmc_network: String,
     pub tls_secret: Option<String>,
     pub keylime_url: Option<String>,
+    pub swtpm_socket: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -111,6 +112,7 @@ pub async fn handle_mutate(
         &config.bmc_network,
         config.tls_secret.as_deref(),
         config.keylime_url.as_deref(),
+        config.swtpm_socket.as_deref(),
         &system_id_value,
         &request.object,
     );
@@ -163,6 +165,7 @@ fn build_patch(
     bmc_network: &str,
     tls_secret: Option<&str>,
     keylime_url: Option<&str>,
+    swtpm_socket: Option<&str>,
     system_id: &str,
     pod: &serde_json::Value,
 ) -> Vec<serde_json::Value> {
@@ -204,12 +207,13 @@ fn build_patch(
         ""
     };
 
-    let spdm_enabled = keylime_url.is_some();
+    let spdm_enabled = keylime_url.is_some() || swtpm_socket.is_some();
 
     let inline_config = format!(
         "backend = \"libvirt\"\n\
          state_directory = \"/tmp/vbmc-state\"\n\
          audit_log = \"/tmp/vbmc-audit.jsonl\"\n\
+         audit_log_target = \"stdout\"\n\
          \n\
          [server]\n\
          bind_address = \"0.0.0.0\"\n\
@@ -230,16 +234,23 @@ fn build_patch(
          connection_uri = \"qemu+unix:///session?socket=/var/run/libvirt/virtqemud-sock\"\n"
     );
 
-    let attestation_config = keylime_url
-        .map(|url| {
-            format!(
-                "\n[systems.{system_id}.attestation]\n\
-                 provider = \"keylime\"\n\
-                 provider_url = \"{url}\"\n\
-                 poll_interval_seconds = 30\n"
-            )
-        })
-        .unwrap_or_default();
+    let attestation_config = if let Some(url) = keylime_url {
+        format!(
+            "\n[systems.{system_id}.attestation]\n\
+             provider = \"keylime\"\n\
+             provider_url = \"{url}\"\n\
+             poll_interval_seconds = 30\n"
+        )
+    } else if let Some(socket) = swtpm_socket {
+        format!(
+            "\n[systems.{system_id}.attestation]\n\
+             provider = \"swtpm\"\n\
+             swtpm_socket = \"{socket}\"\n\
+             poll_interval_seconds = 30\n"
+        )
+    } else {
+        String::new()
+    };
 
     let inline_config = format!("{inline_config}{attestation_config}");
 
@@ -255,6 +266,11 @@ fn build_patch(
     if tls_secret.is_some() {
         volume_mounts.push(
             serde_json::json!({"name": "vbmc-tls", "mountPath": "/etc/vbmc-tls", "readOnly": true}),
+        );
+    }
+    if swtpm_socket.is_some() {
+        volume_mounts.push(
+            serde_json::json!({"name": "swtpm-sock", "mountPath": "/var/run/swtpm", "readOnly": true}),
         );
     }
 
@@ -286,6 +302,20 @@ fn build_patch(
                 "name": "vbmc-tls",
                 "secret": {
                     "secretName": secret_name
+                }
+            }
+        }));
+    }
+
+    if swtpm_socket.is_some() {
+        patch.push(serde_json::json!({
+            "op": "add",
+            "path": "/spec/volumes/-",
+            "value": {
+                "name": "swtpm-sock",
+                "hostPath": {
+                    "path": "/var/run/swtpm",
+                    "type": "Directory"
                 }
             }
         }));
@@ -353,6 +383,7 @@ mod tests {
             bmc_network: "vbmc-bmc".to_string(),
             tls_secret: None,
             keylime_url: None,
+            swtpm_socket: None,
         });
 
         let pod = make_pod(serde_json::json!({"app": "nginx"}), None);
@@ -371,6 +402,7 @@ mod tests {
             bmc_network: "vbmc-bmc".to_string(),
             tls_secret: None,
             keylime_url: None,
+            swtpm_socket: None,
         });
 
         let pod = make_pod(serde_json::json!({"kubevirt.io": "virt-launcher"}), None);
@@ -389,6 +421,7 @@ mod tests {
             bmc_network: "vbmc-bmc".to_string(),
             tls_secret: None,
             keylime_url: None,
+            swtpm_socket: None,
         });
 
         let pod = make_pod(
@@ -436,6 +469,7 @@ mod tests {
             bmc_network: "vbmc-bmc".to_string(),
             tls_secret: None,
             keylime_url: None,
+            swtpm_socket: None,
         });
 
         let pod = make_pod(

@@ -168,8 +168,6 @@ pub struct MemSecurityCapabilities {
     pub max_passphrase_count: u32,
     #[serde(rename = "PassphraseCapable")]
     pub passphrase_capable: bool,
-    #[serde(rename = "SecurityStates")]
-    pub security_states: Vec<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -307,7 +305,6 @@ pub async fn get_memory(
         security_capabilities: MemSecurityCapabilities {
             max_passphrase_count: 0,
             passphrase_capable: false,
-            security_states: vec!["Enabled"],
         },
         power_management_policy: MemPowerPolicy {
             policy_enabled: false,
@@ -337,7 +334,7 @@ pub async fn get_memory(
             memory_region_media_sources: Vec::new(),
             endpoints: Vec::new(),
         },
-        location: super::types::RedfishLocation::new("DIMM 0", "DIMM", "DIMM0", "Slot", 0),
+        location: super::types::RedfishLocation::new("DIMM0", "Slot", 0),
         status: Status::enabled_ok(),
     }))
 }

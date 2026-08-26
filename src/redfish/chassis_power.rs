@@ -136,8 +136,6 @@ pub struct PowerSupply {
     pub firmware_version: &'static str,
     #[serde(rename = "LineInputVoltage")]
     pub line_input_voltage: u32,
-    #[serde(rename = "LineInputVoltageType")]
-    pub line_input_voltage_type: &'static str,
     #[serde(rename = "LastPowerOutputWatts")]
     pub last_power_output_watts: u32,
     #[serde(rename = "PowerInputWatts")]
@@ -221,7 +219,6 @@ pub async fn get_power(_user: AuthenticatedUser) -> Json<PowerResource> {
             part_number: "VBMC-PSU",
             firmware_version: "1.0",
             line_input_voltage: 220,
-            line_input_voltage_type: "ACMidLine",
             last_power_output_watts: 50,
             power_input_watts: 55,
             power_output_watts: 50,
@@ -235,7 +232,7 @@ pub async fn get_power(_user: AuthenticatedUser) -> Json<PowerResource> {
                 maximum_frequency_hz: 60,
                 output_wattage: 500,
             }],
-            location: super::types::RedfishLocation::new("Bay 1", "Bay", "PSU 0", "Bay", 0),
+            location: super::types::RedfishLocation::new("PSU 0", "Bay", 0),
             hot_pluggable: false,
             indicator_led: "Off",
             related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],

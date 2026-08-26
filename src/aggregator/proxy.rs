@@ -24,6 +24,8 @@ impl ProxyClient {
             let key_pem = std::fs::read(key)?;
             let identity = reqwest::Identity::from_pem(&[cert_pem, key_pem].concat())?;
             builder = builder.identity(identity);
+            // Sidecar IPs are dynamic (CUDN-assigned); CA validation authenticates the sidecar
+            builder = builder.danger_accept_invalid_hostnames(true);
         }
 
         Ok(Self {

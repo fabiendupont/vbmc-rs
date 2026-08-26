@@ -187,7 +187,7 @@ pub async fn get_thermal(_user: AuthenticatedUser) -> Json<ThermalResource> {
             lower_threshold_non_critical: 1000,
             related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
             spare_part_number: "VBMC-FAN-SPARE",
-            location: super::types::RedfishLocation::new("Bay 1", "Bay", "Fan 0", "Bay", 0),
+            location: super::types::RedfishLocation::new("Fan 0", "Bay", 0),
             hot_pluggable: false,
             indicator_led: "Off",
             redundancy: Vec::new(),

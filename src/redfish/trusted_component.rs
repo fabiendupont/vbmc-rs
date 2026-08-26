@@ -27,10 +27,6 @@ pub struct ChassisResource {
     pub status: Status,
     #[serde(rename = "TrustedComponents")]
     pub trusted_components: ODataId,
-    #[serde(rename = "Power")]
-    pub power: ODataId,
-    #[serde(rename = "Thermal")]
-    pub thermal: ODataId,
     #[serde(rename = "PowerSubsystem")]
     pub power_subsystem: ODataId,
     #[serde(rename = "ThermalSubsystem")]
@@ -99,8 +95,6 @@ pub struct ChassisResource {
 
 #[derive(Debug, Serialize)]
 pub struct PhysicalSecurity {
-    #[serde(rename = "IntrusionSensorNumber")]
-    pub intrusion_sensor_number: u32,
     #[serde(rename = "IntrusionSensor")]
     pub intrusion_sensor: &'static str,
     #[serde(rename = "IntrusionSensorReArm")]
@@ -159,8 +153,6 @@ pub async fn get_chassis(
         chassis_type: "Other",
         status: Status::enabled_ok(),
         trusted_components: ODataId::new("/redfish/v1/Chassis/1/TrustedComponents"),
-        power: ODataId::new("/redfish/v1/Chassis/1/Power"),
-        thermal: ODataId::new("/redfish/v1/Chassis/1/Thermal"),
         power_subsystem: ODataId::new("/redfish/v1/Chassis/1/PowerSubsystem"),
         thermal_subsystem: ODataId::new("/redfish/v1/Chassis/1/ThermalSubsystem"),
         sensors: ODataId::new("/redfish/v1/Chassis/1/Sensors"),
@@ -190,15 +182,8 @@ pub async fn get_chassis(
         powered_by_parent: true,
         electrical_source_manager_uris: Vec::new(),
         electrical_source_names: Vec::new(),
-        location: super::types::RedfishLocation::new(
-            "Virtual",
-            "Virtual",
-            "Virtual Chassis",
-            "Embedded",
-            0,
-        ),
+        location: super::types::RedfishLocation::new("Virtual Chassis", "Embedded", 0),
         physical_security: PhysicalSecurity {
-            intrusion_sensor_number: 1,
             intrusion_sensor: "Normal",
             intrusion_sensor_re_arm: "Manual",
         },

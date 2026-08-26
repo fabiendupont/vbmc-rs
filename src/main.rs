@@ -97,7 +97,11 @@ async fn main() -> anyhow::Result<()> {
     } else {
         config.audit_log.clone()
     };
-    tokio::spawn(events::audit_log::audit_log_writer(audit_rx, audit_path));
+    tokio::spawn(events::audit_log::audit_log_writer(
+        audit_rx,
+        config.audit_log_target,
+        audit_path,
+    ));
 
     let cancel = CancellationToken::new();
 

@@ -24,8 +24,6 @@ pub struct StorageResource {
     pub name: String,
     #[serde(rename = "Description")]
     pub description: &'static str,
-    #[serde(rename = "StorageControllers")]
-    pub storage_controllers: Vec<StorageControllerEntry>,
     #[serde(rename = "Controllers")]
     pub controllers: ODataId,
     #[serde(rename = "Drives")]
@@ -40,8 +38,6 @@ pub struct StorageResource {
     pub auto_volume_create: &'static str,
     #[serde(rename = "HotspareActivationPolicy")]
     pub hotspare_activation_policy: &'static str,
-    #[serde(rename = "LocalEncryptionKeyIdentifier")]
-    pub local_encryption_key_identifier: &'static str,
     #[serde(rename = "Links")]
     pub links: StorageLinks,
     #[serde(rename = "Status")]
@@ -68,52 +64,6 @@ pub struct StorageLinks {
     pub hosting_storage_systems: Vec<ODataId>,
     #[serde(rename = "StorageServices")]
     pub storage_services: Vec<ODataId>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct StorageControllerEntry {
-    #[serde(rename = "@odata.id")]
-    pub odata_id: String,
-    #[serde(rename = "MemberId")]
-    pub member_id: String,
-    #[serde(rename = "Name")]
-    pub name: String,
-    #[serde(rename = "SupportedDeviceProtocols")]
-    pub supported_device_protocols: Vec<String>,
-    #[serde(rename = "SupportedControllerProtocols")]
-    pub supported_controller_protocols: Vec<&'static str>,
-    #[serde(rename = "SupportedRAIDTypes")]
-    pub supported_raid_types: Vec<&'static str>,
-    #[serde(rename = "FirmwareVersion")]
-    pub firmware_version: &'static str,
-    #[serde(rename = "Manufacturer")]
-    pub manufacturer: &'static str,
-    #[serde(rename = "Model")]
-    pub model: String,
-    #[serde(rename = "SerialNumber")]
-    pub serial_number: String,
-    #[serde(rename = "SpeedGbps")]
-    pub speed_gbps: f64,
-    #[serde(rename = "AssetTag")]
-    pub asset_tag: &'static str,
-    #[serde(rename = "PartNumber")]
-    pub part_number: &'static str,
-    #[serde(rename = "SKU")]
-    pub sku: &'static str,
-    #[serde(rename = "Identifiers")]
-    pub identifiers: Vec<StorageIdentifier>,
-    #[serde(rename = "CacheSummary")]
-    pub cache_summary: CtrlCacheSummary,
-    #[serde(rename = "ControllerRates")]
-    pub controller_rates: CtrlRates,
-    #[serde(rename = "PCIeInterface")]
-    pub pcie_interface: CtrlPcieInterface,
-    #[serde(rename = "Location")]
-    pub location: super::types::RedfishLocation,
-    #[serde(rename = "Links")]
-    pub ctrl_links: CtrlLinks,
-    #[serde(rename = "Status")]
-    pub status: Status,
 }
 
 #[derive(Debug, Serialize)]
@@ -309,60 +259,6 @@ pub async fn get_storage(
         id: ctrl_id.clone(),
         name: format!("{ctrl_id} Storage Controller"),
         description: "Storage controller",
-        storage_controllers: vec![StorageControllerEntry {
-            odata_id: format!(
-                "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}#/StorageControllers/0"
-            ),
-            member_id: "0".to_string(),
-            name: format!("{ctrl_id} Controller"),
-            supported_device_protocols: vec![protocol_to_redfish_standard(&ctrl_id)],
-            supported_controller_protocols: vec!["PCIe"],
-            supported_raid_types: vec!["None"],
-            firmware_version: "1.0",
-            manufacturer: "vbmc-rs",
-            model: format!("Virtual {ctrl_id} Controller"),
-            serial_number: format!("VBMC-STOR-{ctrl_id}"),
-            speed_gbps: 16.0,
-            asset_tag: "",
-            part_number: "VBMC-STOR",
-            sku: "VBMC-VIRTUAL",
-            identifiers: vec![StorageIdentifier {
-                durable_name: uuid::Uuid::new_v5(
-                    &uuid::Uuid::NAMESPACE_URL,
-                    format!("vbmc-rs:ctrl:{system_id}:{ctrl_id}").as_bytes(),
-                )
-                .to_string(),
-                durable_name_format: "UUID",
-            }],
-            cache_summary: CtrlCacheSummary {
-                total_cache_size_mib: 0,
-                persistent_cache_size_mib: 0,
-                status: Status::enabled_ok(),
-            },
-            controller_rates: CtrlRates {
-                consistency_check_rate_percent: 0,
-                rebuild_rate_percent: 0,
-                transformation_rate_percent: 0,
-            },
-            pcie_interface: CtrlPcieInterface {
-                max_pcie_type: "Gen4",
-                max_lanes: 4,
-                pcie_type: "Gen4",
-                lanes_in_use: 4,
-            },
-            location: super::types::RedfishLocation::new(
-                format!("Controller {ctrl_id}"),
-                "Embedded",
-                format!("Storage {ctrl_id}"),
-                "Embedded",
-                0,
-            ),
-            ctrl_links: CtrlLinks {
-                endpoints: Vec::new(),
-                pcie_functions: Vec::new(),
-            },
-            status: Status::enabled_ok(),
-        }],
         controllers: ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Controllers"
         )),
@@ -382,7 +278,6 @@ pub async fn get_storage(
         encryption_mode: "Disabled",
         auto_volume_create: "Disabled",
         hotspare_activation_policy: "OEM",
-        local_encryption_key_identifier: "",
         links: StorageLinks {
             enclosures: vec![ODataId::new("/redfish/v1/Chassis/1")],
             simple_storage: ODataId::new(format!(
@@ -641,8 +536,6 @@ pub async fn get_controller(
             lanes_in_use: 4,
         },
         sc_location: super::types::RedfishLocation::new(
-            format!("Controller {ctrl_id}"),
-            "Embedded",
             format!("Storage {ctrl_id}"),
             "Embedded",
             0,

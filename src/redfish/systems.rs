@@ -180,10 +180,6 @@ pub struct ConsoleProtocol {
     pub service_enabled: bool,
     #[serde(rename = "Port")]
     pub port: u32,
-    #[serde(rename = "ConsoleEntryCommand")]
-    pub console_entry_command: &'static str,
-    #[serde(rename = "HotKeySequenceDisplay")]
-    pub hot_key_sequence_display: &'static str,
     #[serde(rename = "SharedWithManagerCLI")]
     pub shared_with_manager_cli: bool,
 }
@@ -268,8 +264,6 @@ pub struct ProcessorSummary {
     pub logical_processor_count: u32,
     #[serde(rename = "ThreadingEnabled")]
     pub threading_enabled: bool,
-    #[serde(rename = "Status")]
-    pub status: Status,
 }
 
 #[derive(Debug, Serialize)]
@@ -280,8 +274,6 @@ pub struct MemorySummary {
     pub total_system_persistent_memory_gib: f64,
     #[serde(rename = "MemoryMirroring")]
     pub memory_mirroring: &'static str,
-    #[serde(rename = "Status")]
-    pub status: Status,
 }
 
 #[derive(Debug, Serialize)]
@@ -477,13 +469,11 @@ pub async fn get_system(
             core_count: cpu_count,
             logical_processor_count: max_cpu_count,
             threading_enabled: max_cpu_count > cpu_count,
-            status: Status::enabled_ok(),
         },
         memory_summary: MemorySummary {
             total_system_memory_gib: memory_gib,
             total_system_persistent_memory_gib: 0.0,
             memory_mirroring: "None",
-            status: Status::enabled_ok(),
         },
         actions: SystemActions {
             reset: ResetAction {
@@ -558,22 +548,16 @@ pub async fn get_system(
             ipmi: ConsoleProtocol {
                 service_enabled: false,
                 port: 0,
-                console_entry_command: "",
-                hot_key_sequence_display: "",
                 shared_with_manager_cli: false,
             },
             ssh: ConsoleProtocol {
                 service_enabled: false,
                 port: 0,
-                console_entry_command: "",
-                hot_key_sequence_display: "",
                 shared_with_manager_cli: false,
             },
             telnet: ConsoleProtocol {
                 service_enabled: false,
                 port: 0,
-                console_entry_command: "",
-                hot_key_sequence_display: "",
                 shared_with_manager_cli: false,
             },
         },

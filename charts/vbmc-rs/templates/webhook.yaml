@@ -1,0 +1,114 @@
+{{- if .Values.webhook.enabled }}
+{{- $ns := include "vbmc-rs.namespace" . -}}
+{{- $svcName := "vbmc-rs-webhook" -}}
+{{- $certProvided := and .Values.webhook.tls.certPEM .Values.webhook.tls.keyPEM -}}
+{{- $ca := "" -}}
+{{- $cert := "" -}}
+{{- $key := "" -}}
+{{- if $certProvided -}}
+  {{- $ca = .Values.webhook.tls.caPEM | default .Values.webhook.tls.certPEM -}}
+  {{- $cert = .Values.webhook.tls.certPEM -}}
+  {{- $key = .Values.webhook.tls.keyPEM -}}
+{{- else -}}
+  {{- $altNames := list (printf "%s.%s.svc" $svcName $ns) (printf "%s.%s.svc.cluster.local" $svcName $ns) -}}
+  {{- $genCA := genCA "vbmc-rs-webhook-ca" 365 -}}
+  {{- $genCert := genSignedCert (printf "%s.%s.svc" $svcName $ns) nil $altNames 365 $genCA -}}
+  {{- $ca = $genCA.Cert -}}
+  {{- $cert = $genCert.Cert -}}
+  {{- $key = $genCert.Key -}}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vbmc-rs-webhook-tls
+  namespace: {{ $ns }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $cert | b64enc }}
+  tls.key: {{ $key | b64enc }}
+  ca.crt: {{ $ca | b64enc }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $svcName }}
+  namespace: {{ $ns }}
+spec:
+  replicas: {{ .Values.webhook.replicas }}
+  selector:
+    matchLabels:
+      app: {{ $svcName }}
+  template:
+    metadata:
+      labels:
+        app: {{ $svcName }}
+    spec:
+      containers:
+        - name: webhook
+          image: {{ include "vbmc-rs.webhookImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/vbmc-rs-webhook"]
+          args:
+            - --cert=/tls/tls.crt
+            - --key=/tls/tls.key
+            - --sidecar-image={{ include "vbmc-rs.sidecarImage" . }}
+            - --bmc-network={{ .Values.bmcNetwork.name }}
+            {{- if .Values.webhook.tlsSecret }}
+            - --tls-secret={{ .Values.webhook.tlsSecret }}
+            {{- end }}
+            {{- if .Values.webhook.swtpmSocket }}
+            - --swtpm-socket={{ .Values.webhook.swtpmSocket }}
+            {{- end }}
+            {{- if .Values.webhook.keylimeUrl }}
+            - --keylime-url={{ .Values.webhook.keylimeUrl }}
+            {{- end }}
+          ports:
+            - containerPort: {{ .Values.webhook.port }}
+              name: https
+          volumeMounts:
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: vbmc-rs-webhook-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svcName }}
+  namespace: {{ $ns }}
+spec:
+  selector:
+    app: {{ $svcName }}
+  ports:
+    - port: 443
+      targetPort: {{ .Values.webhook.port }}
+      name: https
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: vbmc-rs-sidecar-injector
+webhooks:
+  - name: vbmc-rs-sidecar-injector.kubevirt.io
+    clientConfig:
+      service:
+        name: {{ $svcName }}
+        namespace: {{ $ns }}
+        path: /mutate
+      caBundle: {{ $ca | b64enc }}
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+        scope: "*"
+    objectSelector:
+      matchLabels:
+        kubevirt.io: virt-launcher
+    failurePolicy: Ignore
+    sideEffects: None
+    admissionReviewVersions: ["v1"]
+{{- end }}

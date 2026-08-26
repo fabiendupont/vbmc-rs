@@ -332,7 +332,7 @@ pub async fn get_fan(_user: AuthenticatedUser) -> Json<FanResource> {
         fan_links: FanLinks {
             cooling_chassis: vec![super::types::ODataId::new("/redfish/v1/Chassis/1")],
         },
-        location: super::types::RedfishLocation::new("Bay 1", "Bay", "Fan 0", "Bay", 0),
+        location: super::types::RedfishLocation::new("Fan 0", "Bay", 0),
         part_number: "VBMC-FAN",
         replaceable: false,
         status: Status::enabled_ok(),

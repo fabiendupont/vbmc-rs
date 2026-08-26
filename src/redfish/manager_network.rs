@@ -145,8 +145,8 @@ pub struct EthernetInterfaceResource {
     pub ipv6_addresses: Vec<serde_json::Value>,
     #[serde(rename = "IPv6StaticAddresses")]
     pub ipv6_static_addresses: Vec<serde_json::Value>,
-    #[serde(rename = "IPv6DefaultGateway")]
-    pub ipv6_default_gateway: &'static str,
+    #[serde(rename = "IPv6DefaultGateway", skip_serializing_if = "Option::is_none")]
+    pub ipv6_default_gateway: Option<&'static str>,
     #[serde(rename = "IPv6StaticDefaultGateways")]
     pub ipv6_static_default_gateways: Vec<serde_json::Value>,
     #[serde(rename = "IPv6AddressPolicyTable")]
@@ -403,7 +403,7 @@ pub async fn get_manager_ethernet_interface(
         ipv6_enabled: false,
         ipv6_addresses: Vec::new(),
         ipv6_static_addresses: Vec::new(),
-        ipv6_default_gateway: "",
+        ipv6_default_gateway: None,
         ipv6_static_default_gateways: Vec::new(),
         ipv6_address_policy_table: Vec::new(),
         dhcpv4: DhcpV4Config {

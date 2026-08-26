@@ -45,6 +45,10 @@ struct Cli {
     /// Keylime verifier URL for attestation (optional)
     #[arg(long)]
     keylime_url: Option<String>,
+
+    /// Path to swtpm socket for vTPM PCR attestation (optional)
+    #[arg(long)]
+    swtpm_socket: Option<String>,
 }
 
 #[tokio::main]
@@ -67,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
         bmc_network: cli.bmc_network,
         tls_secret: cli.tls_secret,
         keylime_url: cli.keylime_url,
+        swtpm_socket: cli.swtpm_socket,
     });
 
     let app = Router::new()

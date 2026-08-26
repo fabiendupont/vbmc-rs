@@ -1,0 +1,59 @@
+namespace: vbmc-system
+
+image:
+  registry: ghcr.io/fabiendupont
+  pullPolicy: IfNotPresent
+
+aggregator:
+  enabled: true
+  image:
+    repository: vbmc-rs-aggregator
+    tag: latest
+  replicas: 1
+  port: 8080
+  authMode: kubernetes
+  discovery:
+    mode: kubernetes
+    labelSelector: "vbmc-rs/system-id"
+  sidecar:
+    port: 8000
+  serviceAccount:
+    create: true
+    name: vbmc-rs-aggregator
+  # mTLS client certs for aggregator -> sidecar communication
+  mtls:
+    enabled: false
+    # Provide existing secret name, or leave empty to use auto-generated certs
+    existingSecret: ""
+
+webhook:
+  enabled: true
+  image:
+    repository: vbmc-rs-webhook
+    tag: latest
+  replicas: 1
+  port: 8443
+  sidecarImage: ghcr.io/fabiendupont/vbmc-rs-sidecar:latest
+  # TLS for the webhook server (API server -> webhook)
+  tls:
+    # Auto-generate self-signed certs if not provided
+    certPEM: ""
+    keyPEM: ""
+    caPEM: ""
+  # TLS secret name injected into sidecars for mTLS
+  tlsSecret: ""
+  # swtpm socket path injected into sidecars for vTPM attestation
+  swtpmSocket: ""
+  # Keylime verifier URL injected into sidecars
+  keylimeUrl: ""
+
+bmcNetwork:
+  name: vbmc-bmc
+  # Create the ClusterUserDefinedNetwork
+  cudn:
+    enabled: true
+    subnet: "192.168.200.0/24"
+  # Create the AdminNetworkPolicy
+  adminNetworkPolicy:
+    enabled: true
+    priority: 10

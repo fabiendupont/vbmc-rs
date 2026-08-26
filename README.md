@@ -29,9 +29,17 @@ cargo build --release --features kubevirt
 
 # Aggregator binary
 cargo build --release --features aggregator
+
+# Webhook binary
+cargo build --release --features webhook
+
+# KubeVirt container images (sidecar, aggregator, webhook)
+podman build -f Containerfile.kubevirt --target sidecar -t vbmc-rs-sidecar .
+podman build -f Containerfile.kubevirt --target aggregator -t vbmc-rs-aggregator .
+podman build -f Containerfile.kubevirt --target webhook -t vbmc-rs-webhook .
 ```
 
-`--all-features` pulls in all backends plus the aggregator.
+`--all-features` pulls in all backends plus the aggregator and webhook.
 
 ## Configuration
 
@@ -163,6 +171,7 @@ See `examples/` for complete annotated configuration files for each backend.
 | `[defaults]` | `boot_source` | `Hdd` | Default boot device |
 | (top) | `state_directory` | (empty) | Directory for persistent VM state |
 | (top) | `audit_log` | (empty) | Audit log path (JSONL) |
+| (top) | `audit_log_target` | `file` | Audit log destination: `file`, `stdout`, or `both` |
 | `[metrics]` | `enabled` | `true` | Enable Prometheus metrics endpoint |
 | `[metrics]` | `port` | `9090` | Metrics server port |
 | `[systems.<id>]` | `name` | — | Display name |
@@ -179,6 +188,11 @@ See `examples/` for complete annotated configuration files for each backend.
 | `[[systems.<id>.hardware.disks]]` | `path` | — | Disk image path |
 | `[[systems.<id>.hardware.disks]]` | `id` | — | Disk identifier |
 | `[[systems.<id>.hardware.disks]]` | `readonly` | `false` | Read-only flag |
+| `[systems.<id>.attestation]` | `provider` | — | Attestation provider: `swtpm`, `keylime`, `trustee` |
+| `[systems.<id>.attestation]` | `swtpm_socket` | `/var/run/swtpm/swtpm-sock` | swtpm Unix socket path |
+| `[systems.<id>.attestation]` | `provider_url` | — | Keylime/Trustee verifier URL |
+| `[systems.<id>.attestation]` | `poll_interval_seconds` | `30` | Attestation polling interval |
+| `[systems.<id>.attestation]` | `pcr_policy` | — | Expected PCR values (map of index to base64) |
 | `[security_policy]` | `tls_minimum_version` | — | Minimum TLS version (`tls12` or `tls13`); constrains rustls protocol |
 | `[security_policy]` | `spdm_enabled` | `false` | Enable SPDM attestation coordinator |
 
@@ -267,9 +281,10 @@ vbmc-rs implements the following Redfish resources:
 |----------|-------------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Internal structure and design decisions for contributors |
 | [docs/conformance.md](docs/conformance.md) | Redfish conformance profile: which properties are live, persisted, or static; backend capability matrix |
+| [docs/kubevirt.md](docs/kubevirt.md) | KubeVirt deployment: Helm chart, webhook injection, OAuth, UDN, mTLS, attestation |
 | [docs/deployment.md](docs/deployment.md) | Auth setup, TLS, state directory, systemd, containers, logging |
 | [docs/observability.md](docs/observability.md) | Events, audit log, webhooks, SSE, Prometheus metrics |
-| [docs/attestation.md](docs/attestation.md) | Keylime and Trustee integration for remote attestation |
+| [docs/attestation.md](docs/attestation.md) | Keylime, Trustee, and swtpm integration for remote attestation |
 
 ## Testing
 

@@ -1,0 +1,64 @@
+{{- if .Values.bmcNetwork.cudn.enabled }}
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
+metadata:
+  name: {{ .Values.bmcNetwork.name }}
+spec:
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+          - openshift-cnv
+  network:
+    topology: Layer2
+    layer2:
+      role: Secondary
+      subnets:
+        - {{ .Values.bmcNetwork.cudn.subnet | quote }}
+{{- end }}
+---
+{{- if .Values.bmcNetwork.adminNetworkPolicy.enabled }}
+apiVersion: policy.networking.k8s.io/v1alpha1
+kind: AdminNetworkPolicy
+metadata:
+  name: vbmc-bmc-isolation
+spec:
+  priority: {{ .Values.bmcNetwork.adminNetworkPolicy.priority }}
+  subject:
+    pods:
+      namespaceSelector: {}
+      podSelector:
+        matchExpressions:
+          - key: vbmc-rs/system-id
+            operator: Exists
+  ingress:
+    - name: allow-aggregator
+      action: Allow
+      from:
+        - pods:
+            namespaceSelector: {}
+            podSelector:
+              matchLabels:
+                app: vbmc-rs-aggregator
+      ports:
+        - portNumber:
+            port: {{ .Values.aggregator.sidecar.port }}
+            protocol: TCP
+    - name: deny-other-ingress
+      action: Deny
+      from:
+        - namespaces: {}
+  egress:
+    - name: allow-dns
+      action: Allow
+      to:
+        - namespaces: {}
+      ports:
+        - portNumber:
+            port: 53
+            protocol: UDP
+        - portNumber:
+            port: 53
+            protocol: TCP
+{{- end }}

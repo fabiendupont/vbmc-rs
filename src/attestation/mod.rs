@@ -1,5 +1,6 @@
 #[cfg(feature = "keylime")]
 pub mod keylime;
+pub mod swtpm;
 pub mod trust_chain;
 #[cfg(feature = "trustee")]
 pub mod trustee;
@@ -119,6 +120,22 @@ impl AttestationCoordinator {
         let agent_id = att_config.agent_id.as_deref().unwrap_or(system_id);
 
         match att_config.provider.as_str() {
+            "swtpm" => {
+                let socket = att_config
+                    .swtpm_socket
+                    .as_deref()
+                    .unwrap_or("/var/run/swtpm/swtpm-sock");
+                let pcr_indices: Vec<u32> = (0..=7).collect();
+                let client = swtpm::SwtpmClient::new(socket);
+                let mut evidence = client.read_pcrs(&pcr_indices).await?;
+
+                if let Some(ref policy) = att_config.pcr_policy {
+                    let status = swtpm::validate_pcrs_against_policy(&evidence, policy);
+                    evidence.responder_verification = Some(status);
+                }
+
+                Ok(evidence)
+            }
             #[cfg(feature = "keylime")]
             "keylime" => {
                 let client = keylime::KeylimeClient::new(&att_config.provider_url);

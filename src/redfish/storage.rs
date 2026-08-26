@@ -24,8 +24,6 @@ pub struct SimpleStorage {
     pub description: &'static str,
     #[serde(rename = "Devices")]
     pub devices: Vec<StorageDevice>,
-    #[serde(rename = "UefiDevicePath")]
-    pub uefi_device_path: &'static str,
     #[serde(rename = "Links")]
     pub links: SimpleStorageLinks,
     #[serde(rename = "Status")]
@@ -108,7 +106,6 @@ pub async fn get_simple_storage(
         name: "Simple Storage Controller".to_string(),
         description: "Simple storage view",
         devices,
-        uefi_device_path: "",
         links: SimpleStorageLinks {
             chassis: ODataId::new("/redfish/v1/Chassis/1"),
             storage: ODataId::new(format!("/redfish/v1/Systems/{system_id}/Storage/Virtio")),

@@ -89,10 +89,6 @@ impl Status {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RedfishLocation {
-    #[serde(rename = "Info")]
-    pub info: String,
-    #[serde(rename = "InfoFormat")]
-    pub info_format: &'static str,
     #[serde(rename = "Placement")]
     pub placement: Placement,
     #[serde(rename = "PostalAddress")]
@@ -101,8 +97,6 @@ pub struct RedfishLocation {
     pub physical_address: PhysicalAddress,
     #[serde(rename = "PartLocation")]
     pub part_location: PartLocation,
-    #[serde(rename = "PartLocationContext")]
-    pub part_location_context: String,
     #[serde(rename = "Contacts")]
     pub contacts: Vec<serde_json::Value>,
     #[serde(rename = "AltitudeMeters")]
@@ -231,15 +225,11 @@ pub struct PartLocation {
 
 impl RedfishLocation {
     pub fn new(
-        info: impl Into<String>,
-        info_format: &'static str,
         service_label: impl Into<String>,
         location_type: &'static str,
         ordinal: u32,
     ) -> Self {
         Self {
-            info: info.into(),
-            info_format,
             placement: Placement {
                 row: "1",
                 rack: "1",
@@ -298,7 +288,6 @@ impl RedfishLocation {
                 reference: "Top",
                 orientation: "FrontToBack",
             },
-            part_location_context: String::new(),
             contacts: Vec::new(),
             altitude_meters: 0.0,
             latitude: 0.0,

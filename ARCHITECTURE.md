@@ -135,12 +135,13 @@ src/
 ├── events/
 │   ├── mod.rs               EventBus (tokio broadcast channel)
 │   ├── subscriptions.rs     SubscriptionStore + webhook delivery
-│   ├── audit_log.rs         JSONL audit log writer
+│   ├── audit_log.rs         JSONL audit log writer (file, stdout, or both)
 │   └── registry.rs          Event message ID constants
 │
 ├── attestation/
 │   ├── mod.rs               Attestation polling coordinator
 │   ├── trust_chain.rs       Verification status types
+│   ├── swtpm.rs             swtpm client (TPM2 PCR read over Unix socket)
 │   ├── keylime.rs           Keylime agent client
 │   └── trustee.rs           Trustee attestation client
 │
@@ -148,10 +149,16 @@ src/
 │   ├── mod.rs               Aggregator module root
 │   ├── main.rs              vbmc-rs-aggregator binary entry point
 │   ├── config.rs            Aggregator-specific configuration
-│   ├── discovery.rs         Sidecar discovery (static + Kubernetes pod watcher)
-│   ├── proxy.rs             Request proxying to sidecar instances
-│   ├── router.rs            Aggregated Redfish Systems router
+│   ├── discovery.rs         Sidecar discovery (static + cluster-wide Kubernetes pod watcher)
+│   ├── k8s_auth.rs          Kubernetes TokenReview extractor
+│   ├── k8s_authz.rs         SubjectAccessReview per-system filtering
+│   ├── proxy.rs             Request proxying to sidecar instances (mTLS)
+│   ├── router.rs            Aggregated Redfish Systems + revocation webhook
 │   └── state.rs             Aggregator state management
+│
+├── webhook/
+│   ├── main.rs              vbmc-rs-webhook binary entry point
+│   └── mutate.rs            Sidecar injection into virt-launcher pods
 │
 ├── integration_tests.rs     HTTP-level tests with MockBackend
 │
@@ -163,7 +170,20 @@ examples/
 ├── config-qemu.toml         QEMU example config
 ├── config-libvirt.toml      Libvirt example config
 ├── config-kubevirt.toml     KubeVirt example config
-└── config-aggregator.toml   Aggregator example config
+├── config-aggregator.toml   Aggregator example config
+├── admin-network-policy.yaml  AdminNetworkPolicy + CUDN manifests
+└── keylime.yaml             Keylime verifier + registrar deployment
+
+charts/vbmc-rs/              Helm chart for KubeVirt deployment
+├── Chart.yaml
+├── values.yaml
+└── templates/
+    ├── _helpers.tpl
+    ├── namespace.yaml
+    ├── rbac.yaml
+    ├── aggregator.yaml
+    ├── webhook.yaml
+    └── network.yaml
 ```
 
 ## Key design decisions
@@ -182,10 +202,11 @@ Each backend is behind a compile-time feature flag:
 - `qemu` — QMP client compiled in
 - `libvirt` — adds `virt` (libvirt C bindings) and `quick-xml` dependencies; requires `libvirt-dev`/`libvirt-devel` at build time
 - `kubevirt` — adds `kube` and `k8s-openapi` dependencies for Kubernetes API access
-- `aggregator` — builds the `vbmc-rs-aggregator` binary (separate from the main `vbmc-rs` binary)
+- `aggregator` — builds the `vbmc-rs-aggregator` binary with Kubernetes OAuth (TokenReview + SubjectAccessReview)
+- `webhook` — builds the `vbmc-rs-webhook` binary (mutating admission webhook for sidecar injection)
 - `test-support` — exposes `MockBackend` for use in external test harnesses
 
-The `Backend` enum variants and their match arms use `#[cfg(feature = "...")]`. The crate is structured as `lib.rs` + two binaries (`main.rs` for vbmc-rs, `aggregator/main.rs` for vbmc-rs-aggregator).
+The `Backend` enum variants and their match arms use `#[cfg(feature = "...")]`. The crate is structured as `lib.rs` + three binaries (`main.rs` for vbmc-rs, `aggregator/main.rs` for vbmc-rs-aggregator, `webhook/main.rs` for vbmc-rs-webhook).
 
 ### Multi-system model
 

@@ -165,7 +165,7 @@ pub async fn get_power_supply(_user: AuthenticatedUser) -> Json<PowerSupplyResou
         firmware_version: "1.0",
         input_nominal_voltage_type: "AC240V",
         hot_pluggable: false,
-        location: super::types::RedfishLocation::new("Bay 1", "Bay", "PSU 0", "Bay", 0),
+        location: super::types::RedfishLocation::new("PSU 0", "Bay", 0),
         line_input_status: "Normal",
         output_nominal_voltage_type: "DC12V",
         phase_wiring_type: "OnePhase3Wire",
