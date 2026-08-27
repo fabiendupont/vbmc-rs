@@ -38,7 +38,7 @@ pub struct NetworkProtocolResource {
     #[serde(rename = "DHCPv6")]
     pub dhcpv6_proto: ProtocolEntry,
     #[serde(rename = "SNMP")]
-    pub snmp: ProtocolEntry,
+    pub snmp: SnmpConfig,
     #[serde(rename = "HTTP")]
     pub http: ProtocolEntry,
     #[serde(rename = "Telnet")]
@@ -93,6 +93,48 @@ pub struct ProtocolEntry {
     pub protocol_enabled: bool,
     #[serde(rename = "Port")]
     pub port: u16,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SnmpConfig {
+    #[serde(rename = "ProtocolEnabled")]
+    pub protocol_enabled: bool,
+    #[serde(rename = "Port")]
+    pub port: u16,
+    #[serde(rename = "EnableSNMPv1")]
+    pub enable_snmpv1: bool,
+    #[serde(rename = "EnableSNMPv2c")]
+    pub enable_snmpv2c: bool,
+    #[serde(rename = "EnableSNMPv3")]
+    pub enable_snmpv3: bool,
+    #[serde(rename = "EngineId")]
+    pub engine_id: SnmpEngineId,
+    #[serde(rename = "AuthenticationProtocol")]
+    pub authentication_protocol: &'static str,
+    #[serde(rename = "EncryptionProtocol")]
+    pub encryption_protocol: &'static str,
+    #[serde(rename = "HideCommunityStrings")]
+    pub hide_community_strings: bool,
+    #[serde(rename = "CommunityStrings")]
+    pub community_strings: Vec<SnmpCommunityString>,
+    #[serde(rename = "TrapPort")]
+    pub trap_port: u16,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SnmpEngineId {
+    #[serde(rename = "EnterpriseSpecificMethod")]
+    pub enterprise_specific_method: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SnmpCommunityString {
+    #[serde(rename = "CommunityString")]
+    pub community_string: &'static str,
+    #[serde(rename = "AccessMode")]
+    pub access_mode: &'static str,
+    #[serde(rename = "Name")]
+    pub name: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -244,7 +286,7 @@ pub async fn get_network_protocol(
 
     Json(NetworkProtocolResource {
         odata_id: "/redfish/v1/Managers/vbmc/NetworkProtocol",
-        odata_type: "#ManagerNetworkProtocol.v1_10_0.ManagerNetworkProtocol",
+        odata_type: "#ManagerNetworkProtocol.v1_13_0.ManagerNetworkProtocol",
         id: "NetworkProtocol",
         name: "Manager Network Protocol",
         description: "Manager network protocol settings",
@@ -274,9 +316,24 @@ pub async fn get_network_protocol(
             protocol_enabled: false,
             port: 547,
         },
-        snmp: ProtocolEntry {
+        snmp: SnmpConfig {
             protocol_enabled: false,
             port: 161,
+            enable_snmpv1: false,
+            enable_snmpv2c: false,
+            enable_snmpv3: false,
+            engine_id: SnmpEngineId {
+                enterprise_specific_method: "76 62 6D 63 2D 72 73 00",
+            },
+            authentication_protocol: "None",
+            encryption_protocol: "CBC_DES",
+            hide_community_strings: true,
+            community_strings: vec![SnmpCommunityString {
+                community_string: "public",
+                access_mode: "Limited",
+                name: "default",
+            }],
+            trap_port: 162,
         },
         http: ProtocolEntry {
             protocol_enabled: false,

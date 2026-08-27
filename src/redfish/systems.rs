@@ -180,6 +180,10 @@ pub struct ConsoleProtocol {
     pub service_enabled: bool,
     #[serde(rename = "Port")]
     pub port: u32,
+    #[serde(rename = "ConsoleEntryCommand")]
+    pub console_entry_command: &'static str,
+    #[serde(rename = "HotKeySequenceDisplay")]
+    pub hot_key_sequence_display: &'static str,
     #[serde(rename = "SharedWithManagerCLI")]
     pub shared_with_manager_cli: bool,
 }
@@ -556,20 +560,26 @@ pub async fn get_system(
             port: 0,
         },
         serial_console: HostSerialConsole {
-            max_concurrent_sessions: 0,
+            max_concurrent_sessions: 1,
             ipmi: ConsoleProtocol {
                 service_enabled: false,
-                port: 0,
+                port: 623,
+                console_entry_command: "IPMI SOL",
+                hot_key_sequence_display: "Esc (",
                 shared_with_manager_cli: false,
             },
             ssh: ConsoleProtocol {
                 service_enabled: false,
-                port: 0,
+                port: 22,
+                console_entry_command: "ssh",
+                hot_key_sequence_display: "~.",
                 shared_with_manager_cli: false,
             },
             telnet: ConsoleProtocol {
                 service_enabled: false,
-                port: 0,
+                port: 23,
+                console_entry_command: "connect",
+                hot_key_sequence_display: "Ctrl+]",
                 shared_with_manager_cli: false,
             },
         },
