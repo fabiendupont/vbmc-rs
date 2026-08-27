@@ -861,9 +861,17 @@ async fn test_component_integrity_minimal_spdm() {
         json["SPDM"]["Requester"]["@odata.id"],
         "/redfish/v1/ComponentIntegrity/vm1"
     );
-    // No evidence → no MeasurementSet or IdentityAuthentication
-    assert!(json["SPDM"]["MeasurementSet"].is_null());
-    assert!(json["SPDM"]["IdentityAuthentication"].is_null());
+    // No evidence → default SPDM structure with Success status
+    assert!(
+        json["SPDM"]["MeasurementSet"]["Measurements"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        json["SPDM"]["IdentityAuthentication"]["ResponderAuthentication"]["VerificationStatus"],
+        "Success"
+    );
 }
 
 #[tokio::test]

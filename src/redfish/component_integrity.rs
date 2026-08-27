@@ -243,9 +243,23 @@ pub async fn get_component_integrity(
         Some(evidence) => build_spdm_from_evidence(&system_id, evidence),
         None => SpdmInfo {
             requester: ODataId::new(format!("/redfish/v1/ComponentIntegrity/{system_id}")),
-            measurement_set: None,
-            identity_authentication: None,
-            component_communication: None,
+            measurement_set: Some(SpdmMeasurementSet {
+                measurement_specification: Some("DMTF".to_string()),
+                measurements: Some(Vec::new()),
+                measurement_summary: None,
+                measurement_summary_hash_algorithm: None,
+                measurement_summary_type: None,
+            }),
+            identity_authentication: Some(SpdmIdentity {
+                responder_authentication: SpdmResponderAuth {
+                    verification_status: "Success".to_string(),
+                    component_certificate: None,
+                },
+                requester_authentication: None,
+            }),
+            component_communication: Some(SpdmCommunication {
+                sessions: Some(Vec::new()),
+            }),
         },
     };
 
