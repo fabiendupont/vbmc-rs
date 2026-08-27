@@ -437,6 +437,8 @@ pub struct StorageControllerResource {
     pub sc_pcie_interface: CtrlPcieInterface,
     #[serde(rename = "Location")]
     pub sc_location: super::types::RedfishLocation,
+    #[serde(rename = "Assembly")]
+    pub assembly: ODataId,
     #[serde(rename = "Links")]
     pub sc_links: ScLinks,
     #[serde(rename = "Status")]
@@ -540,6 +542,9 @@ pub async fn get_controller(
             "Embedded",
             0,
         ),
+        assembly: ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Controllers/0/Assembly"
+        )),
         sc_links: ScLinks {
             endpoints: Vec::new(),
             pcie_functions: Vec::new(),

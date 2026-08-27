@@ -130,6 +130,8 @@ pub struct MemoryResource {
     pub links: MemoryLinks,
     #[serde(rename = "Location")]
     pub location: super::types::RedfishLocation,
+    #[serde(rename = "Assembly")]
+    pub assembly: ODataId,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -335,6 +337,9 @@ pub async fn get_memory(
             endpoints: Vec::new(),
         },
         location: super::types::RedfishLocation::new("DIMM0", "Slot", 0),
+        assembly: ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/Memory/DIMM0/Assembly"
+        )),
         status: Status::enabled_ok(),
     }))
 }

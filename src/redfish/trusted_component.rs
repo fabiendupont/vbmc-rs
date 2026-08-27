@@ -35,6 +35,10 @@ pub struct ChassisResource {
     pub sensors: ODataId,
     #[serde(rename = "NetworkAdapters")]
     pub network_adapters: ODataId,
+    #[serde(rename = "Assembly")]
+    pub assembly: ODataId,
+    #[serde(rename = "EnvironmentMetrics")]
+    pub environment_metrics: ODataId,
     #[serde(rename = "PowerState")]
     pub power_state: &'static str,
     #[serde(rename = "Manufacturer")]
@@ -157,6 +161,8 @@ pub async fn get_chassis(
         thermal_subsystem: ODataId::new("/redfish/v1/Chassis/1/ThermalSubsystem"),
         sensors: ODataId::new("/redfish/v1/Chassis/1/Sensors"),
         network_adapters: ODataId::new("/redfish/v1/Chassis/1/NetworkAdapters"),
+        assembly: ODataId::new("/redfish/v1/Chassis/1/Assembly"),
+        environment_metrics: ODataId::new("/redfish/v1/Chassis/1/EnvironmentMetrics"),
         power_state: "On",
         manufacturer: "vbmc-rs",
         model: "Virtual Chassis",

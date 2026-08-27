@@ -29,8 +29,16 @@ pub struct BiosResource {
     pub reset_bios_to_defaults_pending: bool,
     #[serde(rename = "Links")]
     pub links: BiosLinks,
+    #[serde(rename = "Actions")]
+    pub actions: BiosActions,
     #[serde(rename = "@Redfish.Settings")]
     pub settings: SettingsObject,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BiosActions {
+    #[serde(rename = "#Bios.ResetBios")]
+    pub reset_bios: super::systems::ActionTarget,
 }
 
 #[derive(Debug, Serialize)]
@@ -76,6 +84,11 @@ pub async fn get_bios(
         attributes: attrs,
         attribute_registry: "BiosAttributeRegistryVbmc.1.0",
         reset_bios_to_defaults_pending: false,
+        actions: BiosActions {
+            reset_bios: super::systems::ActionTarget {
+                target: format!("/redfish/v1/Systems/{system_id}/Bios/Actions/Bios.ResetBios"),
+            },
+        },
         links: BiosLinks {
             active_software_image: super::types::ODataId::new(
                 "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
@@ -158,5 +171,31 @@ pub async fn patch_bios_settings(
 
     Ok(Json(
         serde_json::json!({"message": "BIOS settings updated"}),
+    ))
+}
+
+pub async fn reset_bios(
+    State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
+    Path(system_id): Path<String>,
+) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    if !has_privilege(&user.role, Privilege::ConfigureComponents) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
+    if !state.config.systems.contains_key(&system_id) {
+        return Err(RedfishApiError::NotFound(format!(
+            "System '{system_id}' not found"
+        )));
+    }
+
+    let mut vm_state = state.get_vm_state(&system_id);
+    vm_state.bios_settings = Some(BiosAttributes::default());
+    state.save_vm_state(&system_id, &vm_state);
+
+    Ok(Json(
+        serde_json::json!({"message": "BIOS settings reset to defaults"}),
     ))
 }

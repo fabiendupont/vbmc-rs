@@ -26,6 +26,8 @@ pub struct NetworkAdapterResource {
     pub manufacturer: &'static str,
     #[serde(rename = "NetworkDeviceFunctions")]
     pub network_device_functions: ODataId,
+    #[serde(rename = "Assembly")]
+    pub assembly: ODataId,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -157,6 +159,9 @@ pub async fn get_network_adapter(
         manufacturer: "Virtual",
         network_device_functions: ODataId::new(format!(
             "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions"
+        )),
+        assembly: ODataId::new(format!(
+            "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/Assembly"
         )),
         status: Status::enabled_ok(),
     }))

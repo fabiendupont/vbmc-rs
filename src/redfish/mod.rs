@@ -1,4 +1,5 @@
 pub mod account_service;
+pub mod assembly;
 pub mod bios;
 pub mod boot_options;
 pub mod certificate_service;
@@ -8,6 +9,7 @@ pub mod chassis_thermal;
 pub mod chassis_thermal_subsystem;
 pub mod compliance;
 pub mod component_integrity;
+pub mod environment_metrics;
 pub mod error;
 pub mod ethernet;
 pub mod event_service;
@@ -67,6 +69,15 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/redfish/v1/Systems/{system_id}/Actions/ComputerSystem.Reset",
             post(power::reset_system),
+        )
+        .route(
+            "/redfish/v1/Systems/{system_id}/Actions/ComputerSystem.SetDefaultBootOrder",
+            post(systems::set_default_boot_order),
+        )
+        // BIOS actions
+        .route(
+            "/redfish/v1/Systems/{system_id}/Bios/Actions/Bios.ResetBios",
+            post(bios::reset_bios),
         )
         // Virtual Media
         .route(
@@ -450,6 +461,40 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/redfish/v1/Chassis/1/TrustedComponents/{component_id}",
             get(trusted_component::get_trusted_component),
+        )
+        // Assembly
+        .route(
+            "/redfish/v1/Chassis/1/Assembly",
+            get(assembly::get_chassis_assembly),
+        )
+        .route(
+            "/redfish/v1/Chassis/1/ThermalSubsystem/Fans/{fan_id}/Assembly",
+            get(assembly::get_chassis_sub_assembly),
+        )
+        .route(
+            "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/{psu_id}/Assembly",
+            get(assembly::get_chassis_sub_assembly),
+        )
+        .route(
+            "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/Assembly",
+            get(assembly::get_chassis_sub_assembly),
+        )
+        .route(
+            "/redfish/v1/Systems/{system_id}/Processors/{proc_id}/Assembly",
+            get(assembly::get_system_sub_assembly),
+        )
+        .route(
+            "/redfish/v1/Systems/{system_id}/Memory/{dimm_id}/Assembly",
+            get(assembly::get_system_sub_assembly),
+        )
+        .route(
+            "/redfish/v1/Systems/{system_id}/Storage/{ctrl_id}/Controllers/{cid}/Assembly",
+            get(assembly::get_system_sub_assembly),
+        )
+        // EnvironmentMetrics
+        .route(
+            "/redfish/v1/Chassis/1/EnvironmentMetrics",
+            get(environment_metrics::get_environment_metrics),
         )
         // Component Integrity
         .route(

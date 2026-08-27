@@ -193,6 +193,18 @@ See `examples/` for complete annotated configuration files for each backend.
 | `[systems.<id>.attestation]` | `provider_url` | — | Keylime/Trustee verifier URL |
 | `[systems.<id>.attestation]` | `poll_interval_seconds` | `30` | Attestation polling interval |
 | `[systems.<id>.attestation]` | `pcr_policy` | — | Expected PCR values (map of index to base64) |
+| `[location]` | `facility` | — | Data center / facility name |
+| `[location]` | `room` | — | Room within facility |
+| `[location]` | `row` | — | Row identifier |
+| `[location]` | `rack` | — | Rack identifier |
+| `[location]` | `rack_offset` | — | Rack offset (U position) |
+| `[location]` | `city` | — | Physical city |
+| `[location]` | `state_or_province` | — | State or province |
+| `[location]` | `country` | — | Country |
+| `[location]` | `postal_code` | — | Postal / ZIP code |
+| `[location]` | `latitude` | — | GPS latitude |
+| `[location]` | `longitude` | — | GPS longitude |
+| `[location]` | `altitude_meters` | — | Altitude in meters |
 | `[security_policy]` | `tls_minimum_version` | — | Minimum TLS version (`tls12` or `tls13`); constrains rustls protocol |
 | `[security_policy]` | `spdm_enabled` | `false` | Enable SPDM attestation coordinator |
 

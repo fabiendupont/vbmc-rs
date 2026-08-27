@@ -13,6 +13,16 @@ use super::k8s_auth::KubernetesUser;
 use super::k8s_authz;
 use super::state::AggregatorState;
 
+const DEFAULT_PAGE_SIZE: usize = 50;
+
+#[derive(serde::Deserialize, Default)]
+struct PaginationParams {
+    #[serde(rename = "$skip", default)]
+    skip: Option<usize>,
+    #[serde(rename = "$top", default)]
+    top: Option<usize>,
+}
+
 pub fn aggregator_router(state: Arc<AggregatorState>) -> Router {
     Router::new()
         .route("/redfish", get(get_redfish_root))
@@ -128,6 +138,7 @@ fn strip_auth_headers(headers: &HeaderMap) -> HeaderMap {
 async fn get_aggregated_systems(
     State(state): State<Arc<AggregatorState>>,
     user: KubernetesUser,
+    axum::extract::Query(params): axum::extract::Query<PaginationParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let endpoints = state.registry.list();
     let mut all_members = Vec::new();
@@ -168,13 +179,30 @@ async fn get_aggregated_systems(
         }
     }
 
-    Ok(Json(serde_json::json!({
+    let total = all_members.len();
+    let skip = params.skip.unwrap_or(0);
+    let top = params.top.unwrap_or(DEFAULT_PAGE_SIZE);
+    let page: Vec<_> = all_members.into_iter().skip(skip).take(top).collect();
+    let next_link = if skip + top < total {
+        Some(format!(
+            "/redfish/v1/Systems?$skip={}&$top={top}",
+            skip + top
+        ))
+    } else {
+        None
+    };
+
+    let mut resp = serde_json::json!({
         "@odata.id": "/redfish/v1/Systems",
         "@odata.type": "#ComputerSystemCollection.ComputerSystemCollection",
         "Name": "Computer System Collection",
-        "Members": all_members,
-        "Members@odata.count": all_members.len(),
-    })))
+        "Members": page,
+        "Members@odata.count": total,
+    });
+    if let Some(link) = next_link {
+        resp["Members@odata.nextLink"] = serde_json::Value::String(link);
+    }
+    Ok(Json(resp))
 }
 
 async fn proxy_system_get(

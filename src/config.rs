@@ -58,7 +58,37 @@ pub struct AppConfig {
     #[serde(default)]
     pub metrics: MetricsConfig,
     #[serde(default)]
+    pub location: LocationConfig,
+    #[serde(default)]
     pub systems: HashMap<String, SystemConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct LocationConfig {
+    #[serde(default)]
+    pub facility: Option<String>,
+    #[serde(default)]
+    pub room: Option<String>,
+    #[serde(default)]
+    pub row: Option<String>,
+    #[serde(default)]
+    pub rack: Option<String>,
+    #[serde(default)]
+    pub rack_offset: Option<u32>,
+    #[serde(default)]
+    pub city: Option<String>,
+    #[serde(default)]
+    pub state_or_province: Option<String>,
+    #[serde(default)]
+    pub country: Option<String>,
+    #[serde(default)]
+    pub postal_code: Option<String>,
+    #[serde(default)]
+    pub latitude: Option<f64>,
+    #[serde(default)]
+    pub longitude: Option<f64>,
+    #[serde(default)]
+    pub altitude_meters: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

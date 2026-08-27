@@ -30,6 +30,11 @@ pub struct Collection<T: Serialize> {
     pub members: Vec<T>,
     #[serde(rename = "Members@odata.count")]
     pub members_count: usize,
+    #[serde(
+        rename = "Members@odata.nextLink",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub next_link: Option<String>,
 }
 
 impl<T: Serialize> Collection<T> {
@@ -42,7 +47,6 @@ impl<T: Serialize> Collection<T> {
         let count = members.len();
         let odata_type = odata_type.into();
         let name = name.into();
-        // Derive @odata.context from @odata.type: "#Foo.Foo" → "/redfish/v1/$metadata#Foo.Foo"
         let odata_context = odata_type
             .strip_prefix('#')
             .map(|t| format!("/redfish/v1/$metadata#{t}"));
@@ -55,6 +59,41 @@ impl<T: Serialize> Collection<T> {
             description,
             members,
             members_count: count,
+            next_link: None,
+        }
+    }
+
+    pub fn paged(
+        odata_id: impl Into<String>,
+        odata_type: impl Into<String>,
+        name: impl Into<String>,
+        all_members: Vec<T>,
+        skip: usize,
+        top: usize,
+    ) -> Self {
+        let total = all_members.len();
+        let odata_id = odata_id.into();
+        let page: Vec<T> = all_members.into_iter().skip(skip).take(top).collect();
+        let next_link = if skip + top < total {
+            Some(format!("{odata_id}?$skip={}&$top={top}", skip + top))
+        } else {
+            None
+        };
+        let odata_type = odata_type.into();
+        let name = name.into();
+        let odata_context = odata_type
+            .strip_prefix('#')
+            .map(|t| format!("/redfish/v1/$metadata#{t}"));
+        let description = name.clone();
+        Self {
+            odata_id,
+            odata_type,
+            odata_context,
+            name,
+            description,
+            members: page,
+            members_count: total,
+            next_link,
         }
     }
 }
@@ -293,6 +332,46 @@ impl RedfishLocation {
             latitude: 0.0,
             longitude: 0.0,
         }
+    }
+
+    pub fn with_config(mut self, cfg: &crate::config::LocationConfig) -> Self {
+        if let Some(ref f) = cfg.facility {
+            self.placement.facility_name = Box::leak(f.clone().into_boxed_str());
+        }
+        if let Some(ref r) = cfg.room {
+            self.placement.room = Box::leak(r.clone().into_boxed_str());
+        }
+        if let Some(ref r) = cfg.row {
+            self.placement.row = Box::leak(r.clone().into_boxed_str());
+        }
+        if let Some(ref r) = cfg.rack {
+            self.placement.rack = Box::leak(r.clone().into_boxed_str());
+        }
+        if let Some(o) = cfg.rack_offset {
+            self.placement.rack_offset = o;
+        }
+        if let Some(ref c) = cfg.city {
+            self.physical_address.city = Box::leak(c.clone().into_boxed_str());
+        }
+        if let Some(ref s) = cfg.state_or_province {
+            self.physical_address.state_or_province = Box::leak(s.clone().into_boxed_str());
+        }
+        if let Some(ref c) = cfg.country {
+            self.physical_address.country = Box::leak(c.clone().into_boxed_str());
+        }
+        if let Some(ref p) = cfg.postal_code {
+            self.physical_address.postal_code = Box::leak(p.clone().into_boxed_str());
+        }
+        if let Some(lat) = cfg.latitude {
+            self.latitude = lat;
+        }
+        if let Some(lon) = cfg.longitude {
+            self.longitude = lon;
+        }
+        if let Some(alt) = cfg.altitude_meters {
+            self.altitude_meters = alt;
+        }
+        self
     }
 }
 

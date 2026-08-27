@@ -4,3 +4,4 @@ audit.jsonl
 /.venv-dmtf
 /dmtf-reports
 /SchemaFiles
+.claude/worktrees/

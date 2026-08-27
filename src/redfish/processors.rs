@@ -102,6 +102,8 @@ pub struct Processor {
     pub proc_links: ProcessorLinks,
     #[serde(rename = "Location")]
     pub location: super::types::RedfishLocation,
+    #[serde(rename = "Assembly")]
+    pub assembly: ODataId,
     #[serde(rename = "ProcessorId")]
     pub processor_id: ProcessorIdInfo,
     #[serde(rename = "Status")]
@@ -314,6 +316,9 @@ pub async fn get_processor(
             pcie_functions: Vec::new(),
         },
         location: super::types::RedfishLocation::new("CPU0", "Socket", 0),
+        assembly: ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/Processors/CPU0/Assembly"
+        )),
         processor_id: ProcessorIdInfo {
             vendor_id: manufacturer.clone(),
             identification_registers: "0x00000000",

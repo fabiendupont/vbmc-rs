@@ -88,6 +88,8 @@ pub struct PowerSupplyResource {
     pub input_ranges: Vec<PsuInputRange>,
     #[serde(rename = "EfficiencyRatings")]
     pub efficiency_ratings: Vec<PsuEfficiencyRating>,
+    #[serde(rename = "Assembly")]
+    pub assembly: ODataId,
     #[serde(rename = "Links")]
     pub psu_links: PsuLinks,
     #[serde(rename = "Status")]
@@ -188,6 +190,7 @@ pub async fn get_power_supply(_user: AuthenticatedUser) -> Json<PowerSupplyResou
                 efficiency_percent: 85,
             },
         ],
+        assembly: ODataId::new("/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0/Assembly"),
         psu_links: PsuLinks {
             powering_chassis: vec![ODataId::new("/redfish/v1/Chassis/1")],
             power_outlets: Vec::new(),

@@ -174,6 +174,8 @@ pub struct FanResource {
     pub part_number: &'static str,
     #[serde(rename = "Replaceable")]
     pub replaceable: bool,
+    #[serde(rename = "Assembly")]
+    pub assembly: ODataId,
     #[serde(rename = "Status")]
     pub status: Status,
 }
@@ -335,6 +337,7 @@ pub async fn get_fan(_user: AuthenticatedUser) -> Json<FanResource> {
         location: super::types::RedfishLocation::new("Fan 0", "Bay", 0),
         part_number: "VBMC-FAN",
         replaceable: false,
+        assembly: ODataId::new("/redfish/v1/Chassis/1/ThermalSubsystem/Fans/0/Assembly"),
         status: Status::enabled_ok(),
     })
 }

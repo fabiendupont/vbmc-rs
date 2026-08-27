@@ -280,6 +280,8 @@ pub struct MemorySummary {
 pub struct SystemActions {
     #[serde(rename = "#ComputerSystem.Reset")]
     pub reset: ResetAction,
+    #[serde(rename = "#ComputerSystem.SetDefaultBootOrder")]
+    pub set_default_boot_order: ActionTarget,
 }
 
 #[derive(Debug, Serialize)]
@@ -287,6 +289,11 @@ pub struct ResetAction {
     pub target: String,
     #[serde(rename = "ResetType@Redfish.AllowableValues")]
     pub allowable_values: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActionTarget {
+    pub target: String,
 }
 
 fn get_host_cpu_model() -> String {
@@ -488,6 +495,11 @@ pub async fn get_system(
                     "PushPowerButton".to_string(),
                 ],
             },
+            set_default_boot_order: ActionTarget {
+                target: format!(
+                    "/redfish/v1/Systems/{system_id}/Actions/ComputerSystem.SetDefaultBootOrder"
+                ),
+            },
         },
         ethernet_interfaces: ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/EthernetInterfaces"
@@ -676,4 +688,33 @@ mod tests {
         assert_eq!(s.state.as_deref(), Some("UnavailableOffline"));
         assert_eq!(s.health.as_deref(), Some("Critical"));
     }
+}
+
+const DEFAULT_BOOT_ORDER: &[&str] = &["Hdd", "Pxe", "Cd", "None"];
+
+pub async fn set_default_boot_order(
+    State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
+    Path(system_id): Path<String>,
+) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    if !has_privilege(&user.role, Privilege::ConfigureComponents) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
+    if !state.config.systems.contains_key(&system_id) {
+        return Err(RedfishApiError::NotFound(format!(
+            "System '{system_id}' not found"
+        )));
+    }
+
+    let mut vm_state = state.get_vm_state(&system_id);
+    vm_state.boot_override = crate::state::BootOverride::default();
+    state.save_vm_state(&system_id, &vm_state);
+
+    Ok(Json(serde_json::json!({
+        "BootOrder": DEFAULT_BOOT_ORDER,
+        "message": "Boot order reset to defaults"
+    })))
 }
