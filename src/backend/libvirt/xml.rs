@@ -441,6 +441,43 @@ fn set_nvram_template(xml: &str, template: &str) -> String {
     }
 }
 
+pub fn parse_console_pty(xml: &str) -> Option<String> {
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(true);
+    let mut buf = Vec::new();
+    let mut in_console = false;
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name().as_ref() == b"console" => {
+                let is_pty = e.attributes().filter_map(|a| a.ok()).any(|a| {
+                    a.key.as_ref() == b"type" && a.unescape_value().ok().as_deref() == Some("pty")
+                });
+                if is_pty {
+                    in_console = true;
+                }
+            }
+            Ok(Event::Empty(ref e)) if in_console && e.name().as_ref() == b"source" => {
+                for attr in e.attributes().filter_map(|a| a.ok()) {
+                    if attr.key.as_ref() == b"path"
+                        && let Ok(path) = attr.unescape_value()
+                    {
+                        return Some(path.to_string());
+                    }
+                }
+            }
+            Ok(Event::End(ref e)) if e.name().as_ref() == b"console" => {
+                in_console = false;
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -720,5 +757,26 @@ mod tests {
         let result = set_secure_boot_xml(xml, true, Some(&cfg)).unwrap();
         assert!(result.contains("OVMF_CODE.secboot.fd"));
         assert!(result.contains("secure='yes'"));
+    }
+
+    #[test]
+    fn test_parse_console_pty() {
+        let xml = r#"
+        <domain type='kvm'>
+          <devices>
+            <console type='pty'>
+              <source path='/dev/pts/3'/>
+              <target type='serial' port='0'/>
+            </console>
+          </devices>
+        </domain>
+        "#;
+        assert_eq!(parse_console_pty(xml), Some("/dev/pts/3".to_string()));
+    }
+
+    #[test]
+    fn test_parse_console_pty_missing() {
+        let xml = r#"<domain type='kvm'><devices></devices></domain>"#;
+        assert_eq!(parse_console_pty(xml), None);
     }
 }

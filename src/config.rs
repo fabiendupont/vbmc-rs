@@ -60,6 +60,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub location: LocationConfig,
     #[serde(default)]
+    pub snmp_trap: SnmpTrapConfig,
+    #[serde(default)]
     pub systems: HashMap<String, SystemConfig>,
 }
 
@@ -89,6 +91,24 @@ pub struct LocationConfig {
     pub longitude: Option<f64>,
     #[serde(default)]
     pub altitude_meters: Option<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct SnmpTrapConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_trap_receiver")]
+    pub receiver: String,
+    #[serde(default = "default_community")]
+    pub community: String,
+}
+
+fn default_trap_receiver() -> String {
+    "127.0.0.1:162".to_string()
+}
+
+fn default_community() -> String {
+    "public".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]

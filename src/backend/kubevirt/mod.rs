@@ -365,6 +365,13 @@ impl VmmBackend for KubeVirtBackend {
 
         Ok(())
     }
+
+    async fn vm_serial_console(
+        &self,
+        _system_id: &str,
+    ) -> Result<bt::SerialConsoleInfo, BackendError> {
+        Err(BackendError::NotSupported("serial console".to_string()))
+    }
 }
 
 pub async fn build_backend(config: &AppConfig) -> Result<super::Backend, BackendError> {

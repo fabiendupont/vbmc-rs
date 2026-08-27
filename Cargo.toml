@@ -37,7 +37,7 @@ nvidia-cc = []
 test-support = []
 
 [dependencies]
-axum = { version = "0.8", features = ["macros"] }
+axum = { version = "0.8", features = ["macros", "ws"] }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -65,6 +65,7 @@ bytes = "1"
 anyhow = "1"
 tokio-rustls = "0.26"
 tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"
 quick-xml = { version = "0.37", optional = true }
 virt = { version = "0.4", optional = true }
 kube = { version = "4.2.0", features = ["client", "runtime", "derive"], optional = true }

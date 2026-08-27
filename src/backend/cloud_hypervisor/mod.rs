@@ -405,6 +405,13 @@ impl VmmBackend for CloudHypervisorBackend {
     ) -> Result<(), BackendError> {
         Ok(())
     }
+
+    async fn vm_serial_console(
+        &self,
+        _system_id: &str,
+    ) -> Result<bt::SerialConsoleInfo, BackendError> {
+        Err(BackendError::NotSupported("serial console".to_string()))
+    }
 }
 
 #[cfg(test)]

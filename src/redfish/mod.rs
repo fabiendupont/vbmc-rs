@@ -30,6 +30,7 @@ pub mod registries;
 pub mod secure_boot;
 pub mod security_policy;
 pub mod sensors;
+pub mod serial_console;
 pub mod service_root;
 pub mod session_service;
 pub mod storage;
@@ -232,6 +233,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/redfish/v1/Systems/{system_id}/SecureBoot",
             get(secure_boot::get_secure_boot).patch(secure_boot::patch_secure_boot),
+        )
+        // Serial Console (WebSocket)
+        .route(
+            "/redfish/v1/Systems/{system_id}/SerialConsole",
+            get(serial_console::serial_console_ws),
         )
         // Managers
         .route("/redfish/v1/Managers", get(managers::get_managers))

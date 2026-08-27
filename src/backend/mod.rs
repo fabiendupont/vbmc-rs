@@ -9,7 +9,9 @@ pub mod types;
 
 use std::fmt;
 
-use types::{DiskCreateConfig, VmCounters, VmCreateConfig, VmInfo, VmmPingResponse};
+use types::{
+    DiskCreateConfig, SerialConsoleInfo, VmCounters, VmCreateConfig, VmInfo, VmmPingResponse,
+};
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -132,6 +134,11 @@ pub trait VmmBackend: Send + Sync {
         system_id: &str,
         enabled: bool,
     ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send;
+
+    fn vm_serial_console(
+        &self,
+        system_id: &str,
+    ) -> impl std::future::Future<Output = Result<SerialConsoleInfo, BackendError>> + Send;
 }
 
 pub enum Backend {
@@ -248,6 +255,15 @@ pub mod mock {
             _enabled: bool,
         ) -> Result<(), BackendError> {
             Ok(())
+        }
+
+        async fn vm_serial_console(
+            &self,
+            _system_id: &str,
+        ) -> Result<bt::SerialConsoleInfo, BackendError> {
+            Err(BackendError::NotSupported(
+                "serial console not available in mock backend".to_string(),
+            ))
         }
     }
 }
@@ -422,6 +438,20 @@ impl VmmBackend for Backend {
             Self::Libvirt(b) => b.vm_set_secure_boot(system_id, enabled).await,
             #[cfg(any(test, feature = "test-support"))]
             Self::Mock(b) => b.vm_set_secure_boot(system_id, enabled).await,
+        }
+    }
+
+    async fn vm_serial_console(&self, system_id: &str) -> Result<SerialConsoleInfo, BackendError> {
+        match self {
+            Self::CloudHypervisor(b) => b.vm_serial_console(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_serial_console(system_id).await,
+            #[cfg(feature = "qemu")]
+            Self::Qemu(b) => b.vm_serial_console(system_id).await,
+            #[cfg(feature = "libvirt")]
+            Self::Libvirt(b) => b.vm_serial_console(system_id).await,
+            #[cfg(any(test, feature = "test-support"))]
+            Self::Mock(b) => b.vm_serial_console(system_id).await,
         }
     }
 }

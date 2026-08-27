@@ -154,6 +154,11 @@ pub struct VmCounters {
     pub net_tx_frames: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct SerialConsoleInfo {
+    pub pty_path: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

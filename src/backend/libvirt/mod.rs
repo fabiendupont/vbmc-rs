@@ -247,6 +247,16 @@ impl VmmBackend for LibvirtBackend {
         Domain::define_xml(&self.conn, &new_xml).map_err(map_virt_error)?;
         Ok(())
     }
+
+    async fn vm_serial_console(
+        &self,
+        system_id: &str,
+    ) -> Result<bt::SerialConsoleInfo, BackendError> {
+        let domain = self.domain_for(system_id)?;
+        let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
+        let pty_path = xml::parse_console_pty(&domain_xml);
+        Ok(bt::SerialConsoleInfo { pty_path })
+    }
 }
 
 pub fn build_backend(config: &AppConfig) -> Result<super::Backend, BackendError> {

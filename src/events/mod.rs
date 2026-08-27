@@ -1,5 +1,6 @@
 pub mod audit_log;
 pub mod registry;
+pub mod snmp_trap;
 pub mod subscriptions;
 
 use chrono::{DateTime, Utc};

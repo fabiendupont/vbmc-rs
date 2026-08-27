@@ -36,6 +36,7 @@ fn make_test_config(systems: HashMap<String, SystemConfig>) -> AppConfig {
         audit_log: Default::default(),
         audit_log_target: Default::default(),
         location: Default::default(),
+        snmp_trap: Default::default(),
         metrics: MetricsConfig::default(),
         systems,
     }

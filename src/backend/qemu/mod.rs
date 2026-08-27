@@ -257,6 +257,13 @@ impl VmmBackend for QemuBackend {
             "QEMU secure boot is a command-line setting and cannot be changed via QMP".to_string(),
         ))
     }
+
+    async fn vm_serial_console(
+        &self,
+        _system_id: &str,
+    ) -> Result<bt::SerialConsoleInfo, BackendError> {
+        Err(BackendError::NotSupported("serial console".to_string()))
+    }
 }
 
 pub fn build_backend(config: &AppConfig) -> super::Backend {

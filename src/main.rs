@@ -103,6 +103,14 @@ async fn main() -> anyhow::Result<()> {
         audit_path,
     ));
 
+    if config.snmp_trap.enabled {
+        let trap_rx = app_state.event_bus.subscribe();
+        tokio::spawn(events::snmp_trap::snmp_trap_sender(
+            trap_rx,
+            config.snmp_trap.clone(),
+        ));
+    }
+
     let cancel = CancellationToken::new();
 
     // Start session sweeper
