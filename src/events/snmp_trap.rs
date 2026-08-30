@@ -207,6 +207,64 @@ fn encode_oid_component(buf: &mut Vec<u8>, value: u32) {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn test_snmp_trap_end_to_end() {
+        let listener = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let (tx, rx) = broadcast::channel::<RedfishEvent>(16);
+
+        let config = SnmpTrapConfig {
+            enabled: true,
+            receiver: addr.to_string(),
+            community: "public".to_string(),
+        };
+
+        tokio::spawn(snmp_trap_sender(rx, config));
+
+        let event = RedfishEvent {
+            event_type: "StatusChange".to_string(),
+            event_id: "test-1".to_string(),
+            event_timestamp: chrono::Utc::now(),
+            message_id: "PowerStateChanged".to_string(),
+            message: "System powered on".to_string(),
+            origin_of_condition: Some("/redfish/v1/Systems/vm1".to_string()),
+            severity: "OK".to_string(),
+            actor: None,
+            payload: None,
+        };
+
+        tx.send(event).unwrap();
+
+        let mut buf = [0u8; 4096];
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            listener.recv_from(&mut buf),
+        )
+        .await;
+
+        let (len, _from) = result.expect("timeout receiving trap").unwrap();
+        let packet = &buf[..len];
+
+        // Verify SNMP SEQUENCE
+        assert_eq!(packet[0], 0x30, "outer tag should be SEQUENCE");
+
+        // Verify community string "public" is in the packet
+        let packet_str = String::from_utf8_lossy(packet);
+        assert!(
+            packet_str.contains("public"),
+            "packet should contain community string"
+        );
+        assert!(
+            packet_str.contains("PowerStateChanged"),
+            "packet should contain message_id"
+        );
+        assert!(
+            packet_str.contains("System powered on"),
+            "packet should contain message"
+        );
+    }
+
     #[test]
     fn test_encode_oid_simple() {
         let encoded = encode_oid(&[1, 3, 6, 1, 2, 1, 1, 3, 0]);
