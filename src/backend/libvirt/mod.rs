@@ -255,7 +255,10 @@ impl VmmBackend for LibvirtBackend {
         let domain = self.domain_for(system_id)?;
         let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
         let pty_path = xml::parse_console_pty(&domain_xml);
-        Ok(bt::SerialConsoleInfo { pty_path })
+        Ok(bt::SerialConsoleInfo {
+            pty_path,
+            websocket_url: None,
+        })
     }
 }
 

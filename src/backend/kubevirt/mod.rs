@@ -368,9 +368,17 @@ impl VmmBackend for KubeVirtBackend {
 
     async fn vm_serial_console(
         &self,
-        _system_id: &str,
+        system_id: &str,
     ) -> Result<bt::SerialConsoleInfo, BackendError> {
-        Err(BackendError::NotSupported("serial console".to_string()))
+        let m = self.mapping_for(system_id)?;
+        let url = format!(
+            "wss://kubernetes.default.svc/apis/subresources.kubevirt.io/v1/namespaces/{}/virtualmachineinstances/{}/console",
+            m.namespace, m.vm_name
+        );
+        Ok(bt::SerialConsoleInfo {
+            pty_path: None,
+            websocket_url: Some(url),
+        })
     }
 }
 

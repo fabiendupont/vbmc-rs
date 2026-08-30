@@ -157,6 +157,7 @@ pub struct VmCounters {
 #[derive(Debug, Clone)]
 pub struct SerialConsoleInfo {
     pub pty_path: Option<String>,
+    pub websocket_url: Option<String>,
 }
 
 #[cfg(test)]
