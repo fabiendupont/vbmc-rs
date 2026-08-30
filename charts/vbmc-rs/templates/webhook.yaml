@@ -1,22 +1,24 @@
 {{- if .Values.webhook.enabled }}
 {{- $ns := include "vbmc-rs.namespace" . -}}
 {{- $svcName := "vbmc-rs-webhook" -}}
+{{- $useCertManager := .Values.webhook.certManager.enabled -}}
 {{- $certProvided := and .Values.webhook.tls.certPEM .Values.webhook.tls.keyPEM -}}
 {{- $ca := "" -}}
 {{- $cert := "" -}}
 {{- $key := "" -}}
-{{- if $certProvided -}}
-  {{- $ca = .Values.webhook.tls.caPEM | default .Values.webhook.tls.certPEM -}}
-  {{- $cert = .Values.webhook.tls.certPEM -}}
-  {{- $key = .Values.webhook.tls.keyPEM -}}
-{{- else -}}
-  {{- $altNames := list (printf "%s.%s.svc" $svcName $ns) (printf "%s.%s.svc.cluster.local" $svcName $ns) -}}
-  {{- $genCA := genCA "vbmc-rs-webhook-ca" 365 -}}
-  {{- $genCert := genSignedCert (printf "%s.%s.svc" $svcName $ns) nil $altNames 365 $genCA -}}
-  {{- $ca = $genCA.Cert -}}
-  {{- $cert = $genCert.Cert -}}
-  {{- $key = $genCert.Key -}}
-{{- end }}
+{{- if not $useCertManager -}}
+  {{- if $certProvided -}}
+    {{- $ca = .Values.webhook.tls.caPEM | default .Values.webhook.tls.certPEM -}}
+    {{- $cert = .Values.webhook.tls.certPEM -}}
+    {{- $key = .Values.webhook.tls.keyPEM -}}
+  {{- else -}}
+    {{- $altNames := list (printf "%s.%s.svc" $svcName $ns) (printf "%s.%s.svc.cluster.local" $svcName $ns) -}}
+    {{- $genCA := genCA "vbmc-rs-webhook-ca" 365 -}}
+    {{- $genCert := genSignedCert (printf "%s.%s.svc" $svcName $ns) nil $altNames 365 $genCA -}}
+    {{- $ca = $genCA.Cert -}}
+    {{- $cert = $genCert.Cert -}}
+    {{- $key = $genCert.Key -}}
+  {{- end }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -28,6 +30,33 @@ data:
   tls.key: {{ $key | b64enc }}
   ca.crt: {{ $ca | b64enc }}
 ---
+{{- end }}
+{{- if $useCertManager }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: vbmc-rs-selfsigned
+  namespace: {{ $ns }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vbmc-rs-webhook-cert
+  namespace: {{ $ns }}
+spec:
+  secretName: vbmc-rs-webhook-tls
+  issuerRef:
+    name: {{ .Values.webhook.certManager.issuerRef.name }}
+    kind: {{ .Values.webhook.certManager.issuerRef.kind }}
+  dnsNames:
+    - {{ $svcName }}.{{ $ns }}.svc
+    - {{ $svcName }}.{{ $ns }}.svc.cluster.local
+  duration: 8760h
+  renewBefore: 720h
+---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -91,6 +120,10 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   name: vbmc-rs-sidecar-injector
+  {{- if $useCertManager }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ $ns }}/vbmc-rs-webhook-cert
+  {{- end }}
 webhooks:
   - name: vbmc-rs-sidecar-injector.kubevirt.io
     clientConfig:
@@ -98,7 +131,9 @@ webhooks:
         name: {{ $svcName }}
         namespace: {{ $ns }}
         path: /mutate
+      {{- if not $useCertManager }}
       caBundle: {{ $ca | b64enc }}
+      {{- end }}
     rules:
       - operations: ["CREATE"]
         apiGroups: [""]

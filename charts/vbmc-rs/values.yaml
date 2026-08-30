@@ -40,6 +40,12 @@ webhook:
     certPEM: ""
     keyPEM: ""
     caPEM: ""
+  # Use cert-manager for webhook TLS certificate management
+  certManager:
+    enabled: false
+    issuerRef:
+      name: selfsigned-issuer
+      kind: Issuer
   # TLS secret name injected into sidecars for mTLS
   tlsSecret: ""
   # swtpm socket path injected into sidecars for vTPM attestation
