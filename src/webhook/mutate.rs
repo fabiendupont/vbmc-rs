@@ -261,8 +261,10 @@ fn build_patch(
         inline_config.replace('\'', "'\\''")
     );
 
-    let mut volume_mounts =
-        vec![serde_json::json!({"name": libvirt_mount_name, "mountPath": "/var/run/libvirt"})];
+    let mut volume_mounts = vec![
+        serde_json::json!({"name": libvirt_mount_name, "mountPath": "/var/run/libvirt"}),
+        serde_json::json!({"name": "private", "mountPath": "/var/run/kubevirt-private"}),
+    ];
     if tls_secret.is_some() {
         volume_mounts.push(
             serde_json::json!({"name": "vbmc-tls", "mountPath": "/etc/vbmc-tls", "readOnly": true}),

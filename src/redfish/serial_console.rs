@@ -4,7 +4,7 @@ use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{Path, State, WebSocketUpgrade};
 use axum::response::{IntoResponse, Response};
 use futures_util::{SinkExt, StreamExt};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{info, warn};
 
 use super::error::RedfishApiError;
@@ -55,34 +55,45 @@ async fn handle_console(
     }
 }
 
-async fn handle_pty_console(socket: WebSocket, pty_path: String, system_id: String) {
-    let pty = match tokio::fs::OpenOptions::new()
+async fn handle_pty_console(socket: WebSocket, path: String, system_id: String) {
+    // Try Unix socket first (KubeVirt), then PTY file (standalone libvirt)
+    if let Ok(stream) = tokio::net::UnixStream::connect(&path).await {
+        info!(system_id = %system_id, path = %path, "Connected to serial console (unix socket)");
+        let (reader, writer) = stream.into_split();
+        bridge_ws_to_io(socket, reader, writer, system_id).await;
+    } else if let Ok(file) = tokio::fs::OpenOptions::new()
         .read(true)
         .write(true)
-        .open(&pty_path)
+        .open(&path)
         .await
     {
-        Ok(f) => f,
-        Err(e) => {
-            warn!(system_id = %system_id, error = %e, "Failed to open PTY");
-            return;
+        info!(system_id = %system_id, path = %path, "Connected to serial console (pty)");
+        let std_file = file.into_std().await;
+        match std_file.try_clone() {
+            Ok(clone) => {
+                let reader = tokio::fs::File::from_std(clone);
+                let writer = tokio::fs::File::from_std(std_file);
+                bridge_ws_to_io(socket, reader, writer, system_id).await;
+            }
+            Err(e) => {
+                warn!(system_id = %system_id, error = %e, "Failed to clone PTY fd");
+            }
         }
-    };
+    } else {
+        warn!(system_id = %system_id, path = %path, "Failed to connect to serial console");
+    }
+}
 
-    let std_file = pty.into_std().await;
-    let (pty_read, pty_write) = match (std_file.try_clone(), std_file) {
-        (Ok(r), w) => (tokio::fs::File::from_std(r), tokio::fs::File::from_std(w)),
-        (Err(e), _) => {
-            warn!(system_id = %system_id, error = %e, "Failed to clone PTY fd");
-            return;
-        }
-    };
-
+async fn bridge_ws_to_io<R, W>(socket: WebSocket, reader: R, writer: W, system_id: String)
+where
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
     let sys_id = system_id.clone();
-    let pty_to_ws = tokio::spawn(async move {
-        let mut reader = pty_read;
+    let io_to_ws = tokio::spawn(async move {
+        let mut reader = tokio::io::BufReader::new(reader);
         let mut buf = [0u8; 4096];
         loop {
             match reader.read(&mut buf).await {
@@ -97,7 +108,7 @@ async fn handle_pty_console(socket: WebSocket, pty_path: String, system_id: Stri
                     }
                 }
                 Err(e) => {
-                    warn!(system_id = %sys_id, error = %e, "PTY read error");
+                    warn!(system_id = %sys_id, error = %e, "Console read error");
                     break;
                 }
             }
@@ -105,8 +116,8 @@ async fn handle_pty_console(socket: WebSocket, pty_path: String, system_id: Stri
     });
 
     let sys_id = system_id.clone();
-    let ws_to_pty = tokio::spawn(async move {
-        let mut writer = pty_write;
+    let ws_to_io = tokio::spawn(async move {
+        let mut writer = writer;
         while let Some(Ok(msg)) = ws_receiver.next().await {
             match msg {
                 Message::Binary(data) => {
@@ -123,13 +134,12 @@ async fn handle_pty_console(socket: WebSocket, pty_path: String, system_id: Stri
                 _ => {}
             }
         }
-        drop(writer);
         info!(system_id = %sys_id, "WebSocket serial console closed");
     });
 
     tokio::select! {
-        _ = pty_to_ws => {}
-        _ = ws_to_pty => {}
+        _ = io_to_ws => {}
+        _ = ws_to_io => {}
     }
 }
 

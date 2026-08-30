@@ -450,10 +450,14 @@ pub fn parse_console_pty(xml: &str) -> Option<String> {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) if e.name().as_ref() == b"console" => {
-                let is_pty = e.attributes().filter_map(|a| a.ok()).any(|a| {
-                    a.key.as_ref() == b"type" && a.unescape_value().ok().as_deref() == Some("pty")
+                let has_source = e.attributes().filter_map(|a| a.ok()).any(|a| {
+                    a.key.as_ref() == b"type"
+                        && matches!(
+                            a.unescape_value().ok().as_deref(),
+                            Some("pty") | Some("unix")
+                        )
                 });
-                if is_pty {
+                if has_source {
                     in_console = true;
                 }
             }
@@ -778,5 +782,23 @@ mod tests {
     fn test_parse_console_pty_missing() {
         let xml = r#"<domain type='kvm'><devices></devices></domain>"#;
         assert_eq!(parse_console_pty(xml), None);
+    }
+
+    #[test]
+    fn test_parse_console_unix_socket() {
+        let xml = r#"
+        <domain type='kvm'>
+          <devices>
+            <console type='unix'>
+              <source mode='bind' path='/var/run/kubevirt-private/abc/virt-serial0'/>
+              <target type='serial' port='0'/>
+            </console>
+          </devices>
+        </domain>
+        "#;
+        assert_eq!(
+            parse_console_pty(xml),
+            Some("/var/run/kubevirt-private/abc/virt-serial0".to_string())
+        );
     }
 }

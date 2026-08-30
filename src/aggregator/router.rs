@@ -3,10 +3,12 @@ use std::sync::Arc;
 use axum::Json;
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::ws::{Message, WebSocket};
+use axum::extract::{Path, State, WebSocketUpgrade};
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use futures_util::{SinkExt, StreamExt};
 use tracing::{info, warn};
 
 use super::k8s_auth::KubernetesUser;
@@ -37,6 +39,10 @@ pub fn aggregator_router(state: Arc<AggregatorState>) -> Router {
                 .post(proxy_system_mutate)
                 .patch(proxy_system_mutate)
                 .delete(proxy_system_mutate),
+        )
+        .route(
+            "/redfish/v1/Systems/{system_id}/SerialConsole",
+            get(proxy_serial_console),
         )
         .route(
             "/redfish/v1/Systems/{system_id}/{*rest}",
@@ -491,5 +497,103 @@ async fn handle_keylime_revocation(
             );
             status
         }
+    }
+}
+
+async fn proxy_serial_console(
+    State(state): State<Arc<AggregatorState>>,
+    user: KubernetesUser,
+    Path(system_id): Path<String>,
+    ws: WebSocketUpgrade,
+) -> Result<Response, StatusCode> {
+    let endpoint = state
+        .registry
+        .get(&system_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if !check_endpoint_access(&state, &user, &endpoint).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let upstream_url = format!(
+        "{}/redfish/v1/Systems/{system_id}/SerialConsole",
+        endpoint
+            .url
+            .replace("http://", "ws://")
+            .replace("https://", "wss://")
+    );
+
+    info!(
+        system_id = %system_id,
+        upstream = %upstream_url,
+        "Proxying WebSocket serial console"
+    );
+
+    Ok(ws
+        .on_upgrade(move |client_socket| async move {
+            let upstream = match tokio_tungstenite::connect_async(&upstream_url).await {
+                Ok((ws, _)) => ws,
+                Err(e) => {
+                    warn!(
+                        system_id = %system_id,
+                        error = %e,
+                        "Failed to connect to sidecar serial console"
+                    );
+                    return;
+                }
+            };
+
+            proxy_websocket(client_socket, upstream, system_id).await;
+        })
+        .into_response())
+}
+
+async fn proxy_websocket(
+    client: WebSocket,
+    upstream: tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    system_id: String,
+) {
+    let (mut client_tx, mut client_rx) = client.split();
+    let (mut upstream_tx, mut upstream_rx) = upstream.split();
+
+    let sid = system_id.clone();
+    let upstream_to_client = tokio::spawn(async move {
+        while let Some(Ok(msg)) = upstream_rx.next().await {
+            let axum_msg = match msg {
+                tokio_tungstenite::tungstenite::Message::Binary(data) => Message::Binary(data),
+                tokio_tungstenite::tungstenite::Message::Text(text) => {
+                    Message::Text(text.to_string().into())
+                }
+                tokio_tungstenite::tungstenite::Message::Close(_) => break,
+                _ => continue,
+            };
+            if client_tx.send(axum_msg).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let sid2 = sid.clone();
+    let client_to_upstream = tokio::spawn(async move {
+        while let Some(Ok(msg)) = client_rx.next().await {
+            let tung_msg = match msg {
+                Message::Binary(data) => tokio_tungstenite::tungstenite::Message::Binary(data),
+                Message::Text(text) => {
+                    tokio_tungstenite::tungstenite::Message::Text(text.to_string().into())
+                }
+                Message::Close(_) => break,
+                _ => continue,
+            };
+            if upstream_tx.send(tung_msg).await.is_err() {
+                break;
+            }
+        }
+        info!(system_id = %sid2, "Serial console proxy closed");
+    });
+
+    tokio::select! {
+        _ = upstream_to_client => {}
+        _ = client_to_upstream => {}
     }
 }
