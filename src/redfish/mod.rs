@@ -52,6 +52,9 @@ use crate::app_state::AppState;
 use compliance::ODataComplianceLayer;
 
 pub fn router(state: Arc<AppState>) -> Router {
+    if state.mockup_store.is_some() {
+        return mockup_router(state);
+    }
     Router::new()
         // Redfish root
         .route("/redfish", get(service_root::get_redfish_root))
@@ -537,7 +540,79 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/redfish/v1/TelemetryService/MetricDefinitions/{def_id}",
             get(telemetry::get_metric_definition),
         )
+        .fallback(mockup_fallback)
         .layer(ODataComplianceLayer)
         .layer(axum::middleware::from_fn(crate::telemetry::metrics_middleware))
         .with_state(state)
+}
+
+fn mockup_router(state: Arc<AppState>) -> Router {
+    Router::new()
+        .fallback(mockup_fallback)
+        .layer(ODataComplianceLayer)
+        .layer(axum::middleware::from_fn(
+            crate::telemetry::metrics_middleware,
+        ))
+        .with_state(state)
+}
+
+async fn mockup_fallback(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    req: axum::http::Request<axum::body::Body>,
+) -> axum::response::Response {
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+
+    let store = match &state.mockup_store {
+        Some(s) => s,
+        None => return StatusCode::NOT_FOUND.into_response(),
+    };
+
+    let path = req.uri().path().to_string();
+    let method = req.method().clone();
+
+    match method {
+        axum::http::Method::GET => match store.get(&path) {
+            Some(json) => axum::Json(json).into_response(),
+            None => StatusCode::NOT_FOUND.into_response(),
+        },
+        axum::http::Method::PATCH => {
+            let body = match axum::body::to_bytes(req.into_body(), 1_000_000).await {
+                Ok(b) => b,
+                Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+            };
+            let patch: serde_json::Value = match serde_json::from_slice(&body) {
+                Ok(v) => v,
+                Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+            };
+            store.patch(&path, &patch);
+            match store.get(&path) {
+                Some(json) => axum::Json(json).into_response(),
+                None => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+        axum::http::Method::POST => {
+            if path.contains("/Actions/ComputerSystem.Reset") {
+                let system_path = path.split("/Actions/").next().unwrap_or(&path).to_string();
+                let body = match axum::body::to_bytes(req.into_body(), 1_000_000).await {
+                    Ok(b) => b,
+                    Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+                };
+                let action: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
+                let reset_type = action
+                    .get("ResetType")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("On");
+                let new_state = match reset_type {
+                    "On" | "ForceOn" | "ForceRestart" | "GracefulRestart" => "On",
+                    _ => "Off",
+                };
+                store.patch(&system_path, &serde_json::json!({"PowerState": new_state}));
+                StatusCode::OK.into_response()
+            } else {
+                StatusCode::METHOD_NOT_ALLOWED.into_response()
+            }
+        }
+        _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+    }
 }

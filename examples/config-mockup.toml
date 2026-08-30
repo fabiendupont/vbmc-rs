@@ -1,0 +1,9 @@
+backend = "mockup"
+mockup_directory = "examples/mockup"
+
+[server]
+bind_address = "127.0.0.1"
+port = 8000
+
+[auth]
+enabled = false

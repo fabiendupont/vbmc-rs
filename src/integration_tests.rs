@@ -37,6 +37,7 @@ fn make_test_config(systems: HashMap<String, SystemConfig>) -> AppConfig {
         audit_log_target: Default::default(),
         location: Default::default(),
         snmp_trap: Default::default(),
+        mockup_directory: None,
         metrics: MetricsConfig::default(),
         systems,
     }
@@ -93,6 +94,7 @@ fn make_app_state(mock: MockBackend, systems: HashMap<String, SystemConfig>) -> 
         config,
         Backend::Mock(mock),
         AccountStore::default(),
+        None,
         None,
     ))
 }
@@ -958,7 +960,13 @@ fn make_auth_app_state(mock: MockBackend, systems: HashMap<String, SystemConfig>
     accounts
         .add_account("viewer", "view123", "ReadOnly")
         .unwrap();
-    Arc::new(AppState::new(config, Backend::Mock(mock), accounts, None))
+    Arc::new(AppState::new(
+        config,
+        Backend::Mock(mock),
+        accounts,
+        None,
+        None,
+    ))
 }
 
 fn basic_auth_header(username: &str, password: &str) -> String {

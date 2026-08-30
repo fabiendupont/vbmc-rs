@@ -1,0 +1,50 @@
+{
+  "@odata.id": "/redfish/v1/Systems/node-01",
+  "@odata.type": "#ComputerSystem.v1_20_0.ComputerSystem",
+  "Id": "node-01",
+  "Name": "Simulated Server",
+  "SystemType": "Physical",
+  "PowerState": "On",
+  "Status": {
+    "State": "Enabled",
+    "Health": "OK"
+  },
+  "ProcessorSummary": {
+    "Count": 2,
+    "Model": "Intel Xeon Gold 6248R",
+    "CoreCount": 48
+  },
+  "MemorySummary": {
+    "TotalSystemMemoryGiB": 256
+  },
+  "Boot": {
+    "BootSourceOverrideEnabled": "Disabled",
+    "BootSourceOverrideTarget": "None"
+  },
+  "SecureBoot": {
+    "@odata.id": "/redfish/v1/Systems/node-01/SecureBoot"
+  },
+  "Bios": {
+    "@odata.id": "/redfish/v1/Systems/node-01/Bios"
+  },
+  "Processors": {
+    "@odata.id": "/redfish/v1/Systems/node-01/Processors"
+  },
+  "Memory": {
+    "@odata.id": "/redfish/v1/Systems/node-01/Memory"
+  },
+  "EthernetInterfaces": {
+    "@odata.id": "/redfish/v1/Systems/node-01/EthernetInterfaces"
+  },
+  "Storage": {
+    "@odata.id": "/redfish/v1/Systems/node-01/Storage"
+  },
+  "Actions": {
+    "#ComputerSystem.Reset": {
+      "target": "/redfish/v1/Systems/node-01/Actions/ComputerSystem.Reset",
+      "ResetType@Redfish.AllowableValues": [
+        "On", "ForceOff", "GracefulShutdown", "GracefulRestart", "ForceRestart"
+      ]
+    }
+  }
+}

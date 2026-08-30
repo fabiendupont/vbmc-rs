@@ -22,6 +22,7 @@ pub enum BackendType {
     Libvirt,
     #[cfg(feature = "kubevirt")]
     KubeVirt,
+    Mockup,
 }
 
 impl BackendType {
@@ -34,6 +35,7 @@ impl BackendType {
             Self::Libvirt => "Libvirt",
             #[cfg(feature = "kubevirt")]
             Self::KubeVirt => "KubeVirt",
+            Self::Mockup => "Mockup",
         }
     }
 }
@@ -61,6 +63,8 @@ pub struct AppConfig {
     pub location: LocationConfig,
     #[serde(default)]
     pub snmp_trap: SnmpTrapConfig,
+    #[serde(default)]
+    pub mockup_directory: Option<PathBuf>,
     #[serde(default)]
     pub systems: HashMap<String, SystemConfig>,
 }

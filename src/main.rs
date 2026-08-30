@@ -15,6 +15,7 @@ use vbmc_rs::auth::accounts::AccountStore;
 use vbmc_rs::backend;
 use vbmc_rs::backend::Backend;
 use vbmc_rs::backend::cloud_hypervisor::CloudHypervisorBackend;
+use vbmc_rs::backend::mockup::{MockupBackend, MockupStore};
 use vbmc_rs::{attestation, config, events, prometheus, redfish, tls};
 
 #[derive(Parser, Debug)]
@@ -48,6 +49,7 @@ async fn main() -> anyhow::Result<()> {
     let addr = SocketAddr::new(config.server.bind_address.parse()?, config.server.port);
 
     // Build backend based on config
+    let mut mockup_store: Option<Arc<MockupStore>> = None;
     let backend = match config.backend {
         config::BackendType::CloudHypervisor => {
             let sockets = config
@@ -65,6 +67,14 @@ async fn main() -> anyhow::Result<()> {
         config::BackendType::KubeVirt => backend::kubevirt::build_backend(&config)
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?,
+        config::BackendType::Mockup => {
+            let dir = config.mockup_directory.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("mockup_directory is required for mockup backend")
+            })?;
+            let store = Arc::new(MockupStore::load(dir)?);
+            mockup_store = Some(store.clone());
+            Backend::Mockup(MockupBackend::new(store))
+        }
     };
 
     // Load accounts
@@ -88,6 +98,7 @@ async fn main() -> anyhow::Result<()> {
         backend,
         account_store,
         rustls_config.clone(),
+        mockup_store,
     ));
 
     // Start audit log writer

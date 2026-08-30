@@ -1,0 +1,11 @@
+{
+  "@odata.id": "/redfish/v1",
+  "@odata.type": "#ServiceRoot.v1_17_0.ServiceRoot",
+  "Id": "RootService",
+  "Name": "Mock BMC Service",
+  "RedfishVersion": "1.21.0",
+  "UUID": "00000000-0000-0000-0000-000000000001",
+  "Systems": {"@odata.id": "/redfish/v1/Systems"},
+  "Chassis": {"@odata.id": "/redfish/v1/Chassis"},
+  "Managers": {"@odata.id": "/redfish/v1/Managers"}
+}

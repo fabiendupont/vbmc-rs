@@ -6,6 +6,7 @@ use tokio::sync::{Mutex, OwnedMutexGuard};
 use crate::auth::accounts::AccountStore;
 use crate::auth::sessions::SessionStore;
 use crate::backend::Backend;
+use crate::backend::mockup::MockupStore;
 use crate::config::{AppConfig, SecurityPolicyConfig};
 use crate::events::EventBus;
 use crate::events::subscriptions::SubscriptionStore;
@@ -24,6 +25,7 @@ pub struct AppState {
     pub security_policy: std::sync::RwLock<SecurityPolicyConfig>,
     pub tls_config: Option<axum_server::tls_rustls::RustlsConfig>,
     pub instance_uuid: String,
+    pub mockup_store: Option<Arc<MockupStore>>,
     system_locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
@@ -33,6 +35,7 @@ impl AppState {
         backend: Backend,
         account_store: AccountStore,
         tls_config: Option<axum_server::tls_rustls::RustlsConfig>,
+        mockup_store: Option<Arc<MockupStore>>,
     ) -> Self {
         let vm_states: DashMap<String, VmState> = DashMap::new();
 
@@ -61,6 +64,7 @@ impl AppState {
             tls_config,
             subscription_store: SubscriptionStore::new(),
             instance_uuid: uuid::Uuid::new_v4().to_string(),
+            mockup_store,
             system_locks: DashMap::new(),
         }
     }
