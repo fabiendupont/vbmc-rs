@@ -37,3 +37,42 @@ jobs:
 
       - name: Test
         run: cargo test --all-features
+
+  dmtf-validate:
+    name: DMTF Redfish Validator
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libvirt-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache DMTF validator and schemas
+        uses: actions/cache@v4
+        with:
+          path: |
+            .venv-dmtf
+            SchemaFiles
+          key: dmtf-validator-${{ runner.os }}
+
+      - name: Run DMTF Redfish Service Validator
+        run: bash scripts/dmtf-validate.sh --no-build
+
+      - name: Upload DMTF report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmtf-report
+          path: dmtf-reports/

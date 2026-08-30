@@ -35,6 +35,10 @@ jobs:
             containerfile: Containerfile.kubevirt
             image_suffix: "-kubevirt-aggregator"
             target: aggregator
+          - variant: kubevirt-webhook
+            containerfile: Containerfile.kubevirt
+            image_suffix: "-kubevirt-webhook"
+            target: webhook
 
     steps:
       - uses: actions/checkout@v4
