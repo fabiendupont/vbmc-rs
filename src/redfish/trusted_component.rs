@@ -188,7 +188,8 @@ pub async fn get_chassis(
         powered_by_parent: true,
         electrical_source_manager_uris: Vec::new(),
         electrical_source_names: Vec::new(),
-        location: super::types::RedfishLocation::new("Virtual Chassis", "Embedded", 0),
+        location: super::types::RedfishLocation::new("Virtual Chassis", "Embedded", 0)
+            .with_config(&state.config.location),
         physical_security: PhysicalSecurity {
             intrusion_sensor: "Normal",
             intrusion_sensor_re_arm: "Manual",

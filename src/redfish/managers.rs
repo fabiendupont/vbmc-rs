@@ -177,7 +177,8 @@ pub async fn get_manager(
             state.instance_uuid.split('-').next().unwrap_or("0000")
         ),
         auto_dst_enabled: false,
-        location: super::types::RedfishLocation::new("BMC", "Embedded", 0),
+        location: super::types::RedfishLocation::new("BMC", "Embedded", 0)
+            .with_config(&state.config.location),
         network_protocol: ODataId::new("/redfish/v1/Managers/vbmc/NetworkProtocol"),
         ethernet_interfaces: ODataId::new("/redfish/v1/Managers/vbmc/EthernetInterfaces"),
         log_services: Some(ODataId::new("/redfish/v1/Managers/vbmc/LogServices")),
