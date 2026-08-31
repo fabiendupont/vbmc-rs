@@ -50,6 +50,16 @@ enum Command {
         /// Shell type
         shell: Shell,
     },
+    /// Start a simulated BMC fleet with no config file or hypervisor needed
+    Simulate {
+        /// Number of simulated servers
+        #[arg(short, long, default_value_t = 1)]
+        systems: usize,
+
+        /// Listen port
+        #[arg(short, long, default_value_t = 8000)]
+        port: u16,
+    },
 }
 
 fn generate_init_config(backend: &str) -> anyhow::Result<String> {
@@ -163,6 +173,35 @@ async fn main() -> anyhow::Result<()> {
                 "vbmc-rs",
                 &mut io::stdout(),
             );
+            return Ok(());
+        }
+        Some(Command::Simulate { systems, port }) => {
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| "vbmc_rs=info".into()),
+                )
+                .init();
+
+            let store = Arc::new(MockupStore::generate(systems));
+            let config = config::AppConfig::simulate(port);
+            let app_state = Arc::new(AppState::new(
+                config,
+                Backend::Mockup(MockupBackend::new(store.clone())),
+                AccountStore::default(),
+                None,
+                Some(store),
+            ));
+            let addr = SocketAddr::new("127.0.0.1".parse()?, port);
+            let app = redfish::router(app_state);
+            let listener = TcpListener::bind(addr).await?;
+            info!("Simulating {} server(s) at http://{}", systems, addr);
+            info!("Try: curl -s http://{}/redfish/v1/Systems | jq .", addr);
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    tokio::signal::ctrl_c().await.ok();
+                })
+                .await?;
             return Ok(());
         }
         None => {}

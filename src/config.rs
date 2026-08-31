@@ -335,6 +335,33 @@ impl AppConfig {
         let config: AppConfig = toml::from_str(&content)?;
         Ok(config)
     }
+
+    pub fn simulate(port: u16) -> Self {
+        Self {
+            server: ServerConfig {
+                bind_address: "127.0.0.1".to_string(),
+                port,
+                tls_cert: None,
+                tls_key: None,
+                tls_client_ca: None,
+            },
+            backend: BackendType::Mockup,
+            auth: AuthConfig::default(),
+            defaults: DefaultsConfig::default(),
+            security_policy: SecurityPolicyConfig::default(),
+            state_directory: PathBuf::new(),
+            audit_log: PathBuf::new(),
+            audit_log_target: AuditLogTarget::default(),
+            metrics: MetricsConfig {
+                enabled: false,
+                ..Default::default()
+            },
+            location: LocationConfig::default(),
+            snmp_trap: SnmpTrapConfig::default(),
+            mockup_directory: None,
+            systems: HashMap::new(),
+        }
+    }
 }
 
 #[cfg(test)]

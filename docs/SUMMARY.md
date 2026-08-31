@@ -4,6 +4,7 @@
 
 ---
 
+- [Testing Ironic](ironic.md)
 - [Deployment](deployment.md)
 - [KubeVirt](kubevirt.md)
 - [Mockup Mode](mockup.md)

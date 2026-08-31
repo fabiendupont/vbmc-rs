@@ -12,6 +12,226 @@ pub struct MockupStore {
 }
 
 impl MockupStore {
+    pub fn generate(count: usize) -> Self {
+        let store = Self {
+            resources: DashMap::new(),
+        };
+
+        let mut members = Vec::new();
+        for i in 1..=count {
+            let id = format!("Server{i}");
+            let uuid = uuid::Uuid::new_v5(
+                &uuid::Uuid::NAMESPACE_DNS,
+                format!("vbmc-rs-simulate-{i}").as_bytes(),
+            );
+            let serial = format!("VBMC{i:06}");
+            let mac1 = format!("52:54:00:00:{:02x}:{:02x}", i / 256, i % 256);
+            let mac2 = format!("52:54:00:01:{:02x}:{:02x}", i / 256, i % 256);
+
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}"),
+                    "@odata.type": "#ComputerSystem.v1_20_0.ComputerSystem",
+                    "Id": id,
+                    "Name": format!("Simulated Server {i}"),
+                    "SystemType": "Physical",
+                    "Manufacturer": "vbmc-rs",
+                    "Model": "Virtual Server 1U",
+                    "SerialNumber": serial,
+                    "UUID": uuid.to_string(),
+                    "PowerState": "Off",
+                    "BiosVersion": "vbmc-rs 0.1.0",
+                    "ProcessorSummary": {
+                        "Count": 2,
+                        "Model": "Virtual CPU",
+                        "LogicalProcessorCount": 4,
+                        "Status": {"State": "Enabled", "Health": "OK"}
+                    },
+                    "MemorySummary": {
+                        "TotalSystemMemoryGiB": 64,
+                        "Status": {"State": "Enabled", "Health": "OK"}
+                    },
+                    "Boot": {
+                        "BootSourceOverrideTarget": "None",
+                        "BootSourceOverrideEnabled": "Disabled",
+                        "BootSourceOverrideMode": "UEFI",
+                        "BootSourceOverrideTarget@Redfish.AllowableValues": ["None", "Pxe", "Hdd", "Cd"]
+                    },
+                    "Status": {"State": "Enabled", "Health": "OK"},
+                    "Actions": {
+                        "#ComputerSystem.Reset": {
+                            "target": format!("/redfish/v1/Systems/{id}/Actions/ComputerSystem.Reset"),
+                            "ResetType@Redfish.AllowableValues": ["On", "ForceOff", "GracefulShutdown", "GracefulRestart", "ForceRestart", "PushPowerButton"]
+                        }
+                    },
+                    "Processors": {"@odata.id": format!("/redfish/v1/Systems/{id}/Processors")},
+                    "Memory": {"@odata.id": format!("/redfish/v1/Systems/{id}/Memory")},
+                    "EthernetInterfaces": {"@odata.id": format!("/redfish/v1/Systems/{id}/EthernetInterfaces")},
+                    "Storage": {"@odata.id": format!("/redfish/v1/Systems/{id}/Storage")},
+                    "Bios": {"@odata.id": format!("/redfish/v1/Systems/{id}/Bios")},
+                    "SecureBoot": {"@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot")}
+                }),
+            );
+
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/Processors"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/Processors"),
+                    "@odata.type": "#ProcessorCollection.ProcessorCollection",
+                    "Name": "Processor Collection",
+                    "Members": [{"@odata.id": format!("/redfish/v1/Systems/{id}/Processors/CPU0")}],
+                    "Members@odata.count": 1
+                }),
+            );
+
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/Processors/CPU0"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/Processors/CPU0"),
+                    "@odata.type": "#Processor.v1_18_0.Processor",
+                    "Id": "CPU0",
+                    "Name": "CPU 0",
+                    "ProcessorType": "CPU",
+                    "TotalCores": 2,
+                    "TotalThreads": 4,
+                    "MaxSpeedMHz": 3600,
+                    "Manufacturer": "vbmc-rs",
+                    "Model": "Virtual CPU",
+                    "InstructionSet": "x86-64",
+                    "Status": {"State": "Enabled", "Health": "OK"}
+                }),
+            );
+
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/Memory"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/Memory"),
+                    "@odata.type": "#MemoryCollection.MemoryCollection",
+                    "Name": "Memory Collection",
+                    "Members": [{"@odata.id": format!("/redfish/v1/Systems/{id}/Memory/DIMM0")}],
+                    "Members@odata.count": 1
+                }),
+            );
+
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/Memory/DIMM0"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/Memory/DIMM0"),
+                    "@odata.type": "#Memory.v1_16_0.Memory",
+                    "Id": "DIMM0",
+                    "Name": "DIMM 0",
+                    "CapacityMiB": 65536,
+                    "MemoryDeviceType": "DDR5",
+                    "DataWidthBits": 64,
+                    "OperatingSpeedMhz": 4800,
+                    "Manufacturer": "Virtual",
+                    "Status": {"State": "Enabled", "Health": "OK"}
+                }),
+            );
+
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/EthernetInterfaces"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/EthernetInterfaces"),
+                    "@odata.type": "#EthernetInterfaceCollection.EthernetInterfaceCollection",
+                    "Name": "Ethernet Interface Collection",
+                    "Members": [
+                        {"@odata.id": format!("/redfish/v1/Systems/{id}/EthernetInterfaces/NIC0")},
+                        {"@odata.id": format!("/redfish/v1/Systems/{id}/EthernetInterfaces/NIC1")}
+                    ],
+                    "Members@odata.count": 2
+                }),
+            );
+
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/EthernetInterfaces/NIC0"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/EthernetInterfaces/NIC0"),
+                    "@odata.type": "#EthernetInterface.v1_9_0.EthernetInterface",
+                    "Id": "NIC0",
+                    "Name": "Ethernet Interface 0",
+                    "MACAddress": mac1,
+                    "SpeedMbps": 25000,
+                    "Status": {"State": "Enabled", "Health": "OK"}
+                }),
+            );
+
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/EthernetInterfaces/NIC1"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/EthernetInterfaces/NIC1"),
+                    "@odata.type": "#EthernetInterface.v1_9_0.EthernetInterface",
+                    "Id": "NIC1",
+                    "Name": "Ethernet Interface 1",
+                    "MACAddress": mac2,
+                    "SpeedMbps": 25000,
+                    "Status": {"State": "Enabled", "Health": "OK"}
+                }),
+            );
+
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/Storage"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/Storage"),
+                    "@odata.type": "#StorageCollection.StorageCollection",
+                    "Name": "Storage Collection",
+                    "Members": [{"@odata.id": format!("/redfish/v1/Systems/{id}/Storage/NVMe")}],
+                    "Members@odata.count": 1
+                }),
+            );
+
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/SecureBoot"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot"),
+                    "@odata.type": "#SecureBoot.v1_1_0.SecureBoot",
+                    "Id": "SecureBoot",
+                    "Name": "UEFI Secure Boot",
+                    "SecureBootEnable": false,
+                    "SecureBootCurrentBoot": "Disabled",
+                    "SecureBootMode": "UserMode"
+                }),
+            );
+
+            members.push(serde_json::json!({"@odata.id": format!("/redfish/v1/Systems/{id}")}));
+        }
+
+        store.resources.insert(
+            "/redfish/v1/Systems".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Systems",
+                "@odata.type": "#ComputerSystemCollection.ComputerSystemCollection",
+                "Name": "Computer System Collection",
+                "Members": members,
+                "Members@odata.count": count
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1",
+                "@odata.type": "#ServiceRoot.v1_16_0.ServiceRoot",
+                "Id": "RootService",
+                "Name": "vbmc-rs Simulated BMC",
+                "RedfishVersion": "1.21.0",
+                "UUID": uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_DNS, b"vbmc-rs-simulate").to_string(),
+                "Systems": {"@odata.id": "/redfish/v1/Systems"},
+                "Chassis": {"@odata.id": "/redfish/v1/Chassis"},
+                "Managers": {"@odata.id": "/redfish/v1/Managers"}
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish".to_string(),
+            serde_json::json!({"v1": "/redfish/v1"}),
+        );
+
+        info!(systems = count, "Generated simulated BMC fleet");
+        store
+    }
+
     pub fn load(dir: &Path) -> anyhow::Result<Self> {
         let store = Self {
             resources: DashMap::new(),

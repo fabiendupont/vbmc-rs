@@ -25,13 +25,19 @@ curl -X POST http://localhost:8000/redfish/v1/Systems/vm1/Actions/ComputerSystem
   -d '{"ResetType": "On"}'
 ```
 
-No hypervisor? Use **mockup mode** to serve a DMTF Redfish mockup directory as a live, stateful Redfish service — power actions change state, PATCH requests persist, full OData compliance:
+No hypervisor? **Simulate a fleet of BMCs** with a single command — no config file, no VMs:
+
+```sh
+./target/release/vbmc-rs simulate --systems 50
+# Simulating 50 server(s) at http://127.0.0.1:8000
+# Try: curl -s http://127.0.0.1:8000/redfish/v1/Systems | jq .
+```
+
+Or serve a [DMTF mockup directory](docs/mockup.md) as a live, stateful Redfish service:
 
 ```sh
 vbmc-rs -c examples/config-mockup.toml
 ```
-
-See [Mockup Mode](docs/mockup.md) for details.
 
 ## Use cases
 
@@ -316,6 +322,7 @@ See [Mockup Mode](docs/mockup.md) for the directory format and state mutation su
 | Document | Description |
 |----------|-------------|
 | [Architecture](ARCHITECTURE.md) | Internal structure and design decisions |
+| [Testing Ironic](docs/ironic.md) | Using vbmc-rs with Ironic and Metal3 for bare-metal provisioning |
 | [Conformance](docs/conformance.md) | Redfish conformance profile and backend capability matrix |
 | [KubeVirt deployment](docs/kubevirt.md) | Helm chart, webhook injection, OAuth, UDN, mTLS |
 | [Deployment](docs/deployment.md) | Auth, TLS, state directory, systemd, containers, logging |
