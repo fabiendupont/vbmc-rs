@@ -56,6 +56,7 @@ fn make_system_config(name: &str) -> SystemConfig {
         namespace: None,
         vm_name: None,
         attestation: None,
+        ipmi_socket: None,
     }
 }
 

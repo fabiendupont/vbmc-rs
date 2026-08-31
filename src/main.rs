@@ -323,6 +323,18 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    // Start IPMI extern BMC servers
+    for (system_id, sys_config) in &config.systems {
+        if let Some(socket_path) = &sys_config.ipmi_socket {
+            tokio::spawn(vbmc_rs::ipmi::start_ipmi_server(
+                socket_path.clone(),
+                system_id.clone(),
+                app_state.clone(),
+                cancel.clone(),
+            ));
+        }
+    }
+
     // Start metrics server
     if config.metrics.enabled {
         tokio::spawn(prometheus::start_metrics_server(

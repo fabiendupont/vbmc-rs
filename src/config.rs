@@ -221,6 +221,8 @@ pub struct SystemConfig {
     pub vm_name: Option<String>,
     #[serde(default)]
     pub attestation: Option<AttestationConfig>,
+    #[serde(default)]
+    pub ipmi_socket: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

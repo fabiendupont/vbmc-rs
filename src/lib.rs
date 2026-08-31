@@ -4,6 +4,7 @@ pub mod auth;
 pub mod backend;
 pub mod config;
 pub mod events;
+pub mod ipmi;
 pub mod media;
 pub mod prometheus;
 pub mod redfish;
