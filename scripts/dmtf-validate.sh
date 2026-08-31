@@ -138,33 +138,36 @@ echo "================================================================"
 
 # ── Step 6: Parse results ─────────────────────────────────────────────
 
-# Look for the summary in the text log
-TEXT_LOG=$(ls -t "$LOG_DIR"/ConformanceLog_*.txt 2>/dev/null | head -1)
+# Find reports (validator may put them in a timestamped subdirectory)
+TEXT_LOG=$(find "$LOG_DIR" -name 'ConformanceLog_*.txt' -type f 2>/dev/null | sort -r | head -1)
+HTML_REPORT=$(find "$LOG_DIR" -name 'ConformanceHtmlLog_*.html' -type f 2>/dev/null | sort -r | head -1)
 
 if [ -n "$TEXT_LOG" ] && [ -f "$TEXT_LOG" ]; then
     echo ""
     echo "==> Validator Summary (from $TEXT_LOG):"
     echo ""
-    # Print the last section which typically has the summary
     tail -30 "$TEXT_LOG"
 fi
 
-# Also check stdout capture for pass/fail counts
-if grep -qiE "(fail|error)" "$LOG_DIR/validator-stdout.txt" 2>/dev/null; then
-    FAIL_COUNT=$(grep -ciE "fail" "$LOG_DIR/validator-stdout.txt" 2>/dev/null || echo "?")
-    echo ""
-    echo "    Lines containing 'fail': $FAIL_COUNT"
-fi
+# Extract actual fail count from the summary table in stdout
+ACTUAL_FAILS=$(grep -oP 'FAIL\s*\|\s*\K[0-9]+' "$LOG_DIR/validator-stdout.txt" 2>/dev/null | head -1)
 
 echo ""
 echo "================================================================"
 echo "Validator exit code: $VALIDATOR_EXIT"
-echo "HTML report: $(ls -t "$LOG_DIR"/ConformanceHtmlLog_*.html 2>/dev/null | head -1)"
+echo "Actual failures:     ${ACTUAL_FAILS:-unknown}"
+echo "HTML report: $HTML_REPORT"
 echo "Text report: $TEXT_LOG"
 echo "================================================================"
 
 # Clean up temp files
 rm -f "$TEMP_CONFIG"
 rm -rf "$STATE_DIR"
+
+# Exit code 2 with 0 actual failures means informational issues only
+if [ "$VALIDATOR_EXIT" -eq 2 ] && [ "${ACTUAL_FAILS:-1}" -eq 0 ]; then
+    echo "Validator exit code 2 with 0 failures — treating as success."
+    exit 0
+fi
 
 exit $VALIDATOR_EXIT
