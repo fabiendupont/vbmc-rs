@@ -1,0 +1,12 @@
+[book]
+title = "vbmc-rs Documentation"
+authors = ["Fabien Dupont"]
+language = "en"
+src = "."
+
+[build]
+build-dir = "../book"
+
+[output.html]
+git-repository-url = "https://github.com/fabiendupont/vbmc-rs"
+additional-css = []

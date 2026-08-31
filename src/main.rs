@@ -1,11 +1,13 @@
 #[cfg(test)]
 mod integration_tests;
 
+use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
+use clap_complete::Shell;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -22,12 +24,150 @@ use vbmc_rs::{attestation, config, events, prometheus, redfish, tls};
 #[command(name = "vbmc-rs", version, about = "Redfish-compliant virtual BMC")]
 struct Cli {
     /// Path to configuration file
-    #[arg(short, long, default_value = "/etc/vbmc-rs/config.toml")]
+    #[arg(short, long, default_value = "/etc/vbmc-rs/config.toml", global = true)]
     config: PathBuf,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Command {
+    /// Generate a starter configuration file
+    Init {
+        /// Backend type (cloud_hypervisor, qemu, libvirt, kube_virt, mockup)
+        #[arg(short, long, default_value = "cloud_hypervisor")]
+        backend: String,
+
+        /// Output file path
+        #[arg(short, long, default_value = "config.toml")]
+        output: PathBuf,
+    },
+    /// Validate configuration without starting the server
+    Validate,
+    /// Generate shell completions
+    Completions {
+        /// Shell type
+        shell: Shell,
+    },
+}
+
+fn generate_init_config(backend: &str) -> anyhow::Result<String> {
+    let config = match backend {
+        "cloud_hypervisor" => {
+            r#"backend = "cloud_hypervisor"
+
+[server]
+bind_address = "127.0.0.1"
+port = 8000
+
+[systems.vm1]
+name = "My VM"
+socket_path = "/tmp/cloud-hypervisor-vm1.sock"
+
+[systems.vm1.hardware]
+cpu_count = 2
+memory_mib = 1024
+
+[[systems.vm1.hardware.disks]]
+path = "/var/lib/images/vm1.qcow2"
+id = "rootdisk"
+"#
+        }
+        "qemu" => {
+            r#"backend = "qemu"
+
+[server]
+bind_address = "127.0.0.1"
+port = 8000
+
+[systems.vm1]
+name = "My QEMU VM"
+socket_path = "/tmp/qmp-vm1.sock"
+"#
+        }
+        "libvirt" => {
+            r#"backend = "libvirt"
+
+[server]
+bind_address = "127.0.0.1"
+port = 8000
+
+[systems.vm1]
+name = "My Libvirt VM"
+connection_uri = "qemu:///system"
+domain_name = "my-domain"
+"#
+        }
+        "kube_virt" => {
+            r#"backend = "kube_virt"
+
+[server]
+bind_address = "0.0.0.0"
+port = 8000
+
+[systems.vm1]
+name = "KubeVirt VM 1"
+namespace = "default"
+vm_name = "my-test-vm"
+
+[systems.vm1.hardware]
+cpu_count = 2
+memory_mib = 2048
+"#
+        }
+        "mockup" => {
+            r#"backend = "mockup"
+mockup_directory = "./mockup"
+
+[server]
+bind_address = "127.0.0.1"
+port = 8000
+"#
+        }
+        other => anyhow::bail!(
+            "Unknown backend: {other}. Valid options: cloud_hypervisor, qemu, libvirt, kube_virt, mockup"
+        ),
+    };
+    Ok(config.to_string())
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(Command::Init { backend, output }) => {
+            let config = generate_init_config(&backend)?;
+            if output.exists() {
+                anyhow::bail!("{} already exists, refusing to overwrite", output.display());
+            }
+            std::fs::write(&output, &config)?;
+            println!("Generated {} config at {}", backend, output.display());
+            return Ok(());
+        }
+        Some(Command::Validate) => {
+            let config = config::AppConfig::load(&cli.config)?;
+            config.server.validate_tls()?;
+            println!(
+                "Configuration valid: {} backend, {} system(s)",
+                format!("{:?}", config.backend).to_lowercase(),
+                config.systems.len()
+            );
+            return Ok(());
+        }
+        Some(Command::Completions { shell }) => {
+            clap_complete::generate(
+                shell,
+                &mut <Cli as clap::CommandFactory>::command(),
+                "vbmc-rs",
+                &mut io::stdout(),
+            );
+            return Ok(());
+        }
+        None => {}
+    }
+
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
@@ -38,8 +178,6 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| "vbmc_rs=info".into()),
         )
         .init();
-
-    let cli = Cli::parse();
 
     let config = config::AppConfig::load(&cli.config)?;
     info!("Loaded configuration from {}", cli.config.display());

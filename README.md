@@ -1,8 +1,63 @@
 # vbmc-rs
 
-A Redfish-compliant virtual BMC (Baseboard Management Controller) written in Rust. It exposes a standard Redfish REST API to manage virtual machines, supporting multiple hypervisor backends.
+**Turn any virtual machine into a standards-compliant bare-metal server.**
 
-One vbmc-rs instance manages multiple VMs using a blade chassis model — all systems in an instance use the same backend type.
+vbmc-rs is a Redfish virtual BMC (Baseboard Management Controller) written in Rust. It exposes the same REST API that physical servers use — so management tools like [Ironic](https://ironicbaremetal.org/), [MAAS](https://maas.io/), and [Tinkerbell](https://tinkerbell.org/) can provision VMs exactly like real hardware.
+
+One instance manages multiple VMs using a blade chassis model. Four hypervisor backends. 30+ Redfish resources. DMTF-validated conformance. Single static binary.
+
+## Quick start
+
+```sh
+# Build
+cargo build --release
+
+# Generate a starter config
+./target/release/vbmc-rs init --backend cloud_hypervisor
+
+# Start the server
+./target/release/vbmc-rs -c config.toml
+
+# Power on a VM via Redfish
+curl -s http://localhost:8000/redfish/v1/Systems/vm1 | jq .PowerState
+curl -X POST http://localhost:8000/redfish/v1/Systems/vm1/Actions/ComputerSystem.Reset \
+  -H 'Content-Type: application/json' \
+  -d '{"ResetType": "On"}'
+```
+
+No hypervisor? Use **mockup mode** to serve a DMTF Redfish mockup directory as a live, stateful Redfish service — power actions change state, PATCH requests persist, full OData compliance:
+
+```sh
+vbmc-rs -c examples/config-mockup.toml
+```
+
+See [Mockup Mode](docs/mockup.md) for details.
+
+## Use cases
+
+**Test bare-metal provisioning without bare metal.** Point Ironic, MAAS, or Tinkerbell at vbmc-rs instead of a real BMC. Enroll, inspect, and provision VMs through the same Redfish workflows you use in production.
+
+**Simulate BMC fleets at scale.** Spin up hundreds of Redfish endpoints from DMTF mockup directories for fleet management development, monitoring dashboards, and load testing.
+
+**Redfish client development and CI.** Replace the Python `redfishMockupServer.py` with a single binary that supports state mutations, TLS/mTLS, authentication, and OData compliance out of the box.
+
+**Kubernetes-native virtual BMC.** Deploy as a sidecar alongside KubeVirt VMs, with an aggregator that presents a unified Redfish Systems collection, OAuth via TokenReview, and mTLS between components. Ships with a Helm chart.
+
+## Why vbmc-rs?
+
+| | **vbmc-rs** | **VirtualBMC** | **sushy-tools** |
+|---|---|---|---|
+| Protocol | Redfish | IPMI only | Redfish |
+| Language | Rust | Python | Python |
+| Backends | Cloud-Hypervisor, QEMU, libvirt, KubeVirt | libvirt | libvirt, OpenStack |
+| Conformance | DMTF-validated, OData-compliant | N/A (IPMI) | Partial |
+| Mockup mode | Yes — stateful, serves DMTF mockup dirs | No | No |
+| Auth | Session-based, RBAC, account lockout | No | Basic |
+| TLS | TLS + mTLS (rustls) | No | Optional |
+| Events | SSE, webhooks, audit log | No | No |
+| Attestation | Keylime, Trustee, swtpm | No | No |
+| Kubernetes | Sidecar + aggregator + webhook + Helm | No | No |
+| Packaging | Static binary, OCI images | pip | pip |
 
 ## Backends
 
@@ -10,8 +65,22 @@ One vbmc-rs instance manages multiple VMs using a blade chassis model — all sy
 |---------|-------------|------------|-------|
 | **Cloud-Hypervisor** | `cloud-hypervisor` (default) | HTTP over Unix socket | Full lifecycle: create, boot, shutdown, delete, hot-plug |
 | **QEMU** | `qemu` | QMP over Unix socket | Manage-only: controls pre-existing QEMU processes |
-| **Libvirt** | `libvirt` | `virt` crate (libvirt C API) | Native bindings via `virt` crate, parses domain XML with `quick-xml`. Requires `libvirt-dev`/`libvirt-devel` at build time |
-| **KubeVirt** | `kubevirt` | Kubernetes API (`kube` crate) | Manage-only; uses KubeVirt subresource APIs (start/stop/restart/softreboot/addvolume/removevolume) |
+| **Libvirt** | `libvirt` | `virt` crate (libvirt C API) | Native bindings, parses domain XML. Requires `libvirt-dev` at build time |
+| **KubeVirt** | `kubevirt` | Kubernetes API (`kube` crate) | Manage-only; uses KubeVirt subresource APIs |
+| **Mockup** | (always available) | Filesystem | Serves DMTF mockup directories with stateful mutations |
+
+## Features
+
+- **30+ Redfish resources** — Systems, Chassis, Managers, Storage, BIOS, SecureBoot, VirtualMedia, Processors, Memory, EthernetInterfaces, PCIe, Sensors, and more
+- **DMTF-validated** — passes the official Redfish Service Validator on every CI run
+- **OData compliance** — `$metadata`, ETags, `@odata.context`, proper Link headers
+- **Session auth + RBAC** — Administrator, Operator, ReadOnly roles with argon2 password hashing and account lockout
+- **TLS and mTLS** — rustls-based, with hot-reload via CertificateService
+- **Events** — Server-Sent Events, webhook subscriptions with exponential backoff, JSONL audit log
+- **Attestation** — Keylime, Trustee, and swtpm integration for remote attestation via ComponentIntegrity
+- **Prometheus metrics** — request latency, power state, backend health
+- **Task service** — async operation tracking for long-running actions
+- **Kubernetes-native** — sidecar injection webhook, aggregator with OAuth (TokenReview + SubjectAccessReview), Helm chart
 
 ## Building
 
@@ -27,29 +96,24 @@ cargo build --release --features qemu
 cargo build --release --features libvirt
 cargo build --release --features kubevirt
 
-# Aggregator binary
-cargo build --release --features aggregator
-
-# Webhook binary
-cargo build --release --features webhook
-
-# KubeVirt container images (sidecar, aggregator, webhook)
+# Container images
 podman build -f Containerfile.kubevirt --target sidecar -t vbmc-rs-sidecar .
 podman build -f Containerfile.kubevirt --target aggregator -t vbmc-rs-aggregator .
 podman build -f Containerfile.kubevirt --target webhook -t vbmc-rs-webhook .
 ```
 
-`--all-features` pulls in all backends plus the aggregator and webhook.
+`--all-features` pulls in all backends plus the aggregator and webhook. The libvirt backend requires `libvirt-dev` (Debian/Ubuntu) or `libvirt-devel` (Fedora).
 
 ## Configuration
 
-vbmc-rs uses a TOML configuration file. By default it looks for `/etc/vbmc-rs/config.toml`, overridden with `-c`:
+vbmc-rs uses a TOML configuration file. See `examples/` for complete annotated configs for each backend.
 
 ```sh
 vbmc-rs -c examples/config.toml
 ```
 
-### Minimal Cloud-Hypervisor config
+<details>
+<summary><strong>Minimal Cloud-Hypervisor config</strong></summary>
 
 ```toml
 backend = "cloud_hypervisor"
@@ -70,8 +134,10 @@ memory_mib = 1024
 path = "/var/lib/images/vm1.qcow2"
 id = "rootdisk"
 ```
+</details>
 
-### Minimal QEMU config
+<details>
+<summary><strong>Minimal QEMU config</strong></summary>
 
 ```toml
 backend = "qemu"
@@ -89,8 +155,10 @@ Start QEMU separately with a QMP socket:
 ```sh
 qemu-system-x86_64 -qmp unix:/tmp/qmp-vm1.sock,server,nowait -m 2048 -smp 2 ...
 ```
+</details>
 
-### Minimal Libvirt config
+<details>
+<summary><strong>Minimal Libvirt config</strong></summary>
 
 ```toml
 backend = "libvirt"
@@ -104,8 +172,10 @@ name = "My Libvirt VM"
 connection_uri = "qemu:///system"
 domain_name = "my-domain"
 ```
+</details>
 
-### Minimal KubeVirt config
+<details>
+<summary><strong>Minimal KubeVirt config</strong></summary>
 
 ```toml
 backend = "kube_virt"
@@ -124,38 +194,30 @@ cpu_count = 2
 memory_mib = 2048
 ```
 
-KubeVirt VMs must already exist in the cluster. The backend uses in-cluster or kubeconfig credentials automatically.
+KubeVirt VMs must already exist in the cluster.
+</details>
 
-### Minimal aggregator config
-
-The aggregator is a separate binary (`vbmc-rs-aggregator`) that discovers vbmc-rs sidecar instances and presents a unified Redfish Systems collection.
+<details>
+<summary><strong>Minimal Mockup config</strong></summary>
 
 ```toml
+backend = "mockup"
+mockup_directory = "/path/to/mockup"
+
 [server]
 bind_address = "0.0.0.0"
-port = 8443
-
-[discovery]
-mode = "static"
-
-[[discovery.endpoints]]
-system_id = "vm1"
-url = "http://localhost:8001"
-
-[[discovery.endpoints]]
-system_id = "vm2"
-url = "http://localhost:8002"
+port = 8000
 ```
 
-Discovery modes: `static` (explicit endpoint list) or `kubernetes` (watches for vbmc-rs sidecar pods). mTLS between aggregator and sidecars is configured via the server TLS fields.
+See [Mockup Mode](docs/mockup.md) for the directory format and state mutation support.
+</details>
 
-See `examples/` for complete annotated configuration files for each backend.
-
-### Configuration reference
+<details>
+<summary><strong>Full configuration reference</strong></summary>
 
 | Section | Field | Default | Description |
 |---------|-------|---------|-------------|
-| (top) | `backend` | `cloud_hypervisor` | Backend type: `cloud_hypervisor`, `qemu`, `libvirt`, `kube_virt` |
+| (top) | `backend` | `cloud_hypervisor` | Backend type: `cloud_hypervisor`, `qemu`, `libvirt`, `kube_virt`, `mockup` |
 | `[server]` | `bind_address` | `0.0.0.0` | Listen address |
 | `[server]` | `port` | `8000` | Listen port |
 | `[server]` | `tls_cert` | — | TLS certificate path |
@@ -205,48 +267,12 @@ See `examples/` for complete annotated configuration files for each backend.
 | `[location]` | `latitude` | — | GPS latitude |
 | `[location]` | `longitude` | — | GPS longitude |
 | `[location]` | `altitude_meters` | — | Altitude in meters |
-| `[security_policy]` | `tls_minimum_version` | — | Minimum TLS version (`tls12` or `tls13`); constrains rustls protocol |
+| `[security_policy]` | `tls_minimum_version` | — | Minimum TLS version (`tls12` or `tls13`) |
 | `[security_policy]` | `spdm_enabled` | `false` | Enable SPDM attestation coordinator |
 
-## Usage
-
-```sh
-# Start with default config
-vbmc-rs
-
-# Start with custom config
-vbmc-rs -c /path/to/config.toml
-
-# Enable debug logging
-RUST_LOG=vbmc_rs=debug vbmc-rs -c config.toml
-```
-
-### Quick smoke test
-
-```sh
-# Service root
-curl -s http://localhost:8000/redfish/v1 | jq .
-
-# List systems
-curl -s http://localhost:8000/redfish/v1/Systems | jq .
-
-# Get system details
-curl -s http://localhost:8000/redfish/v1/Systems/vm1 | jq .
-
-# Power on
-curl -s -X POST http://localhost:8000/redfish/v1/Systems/vm1/Actions/ComputerSystem.Reset \
-  -H 'Content-Type: application/json' \
-  -d '{"ResetType": "On"}'
-
-# Graceful shutdown
-curl -s -X POST http://localhost:8000/redfish/v1/Systems/vm1/Actions/ComputerSystem.Reset \
-  -H 'Content-Type: application/json' \
-  -d '{"ResetType": "GracefulShutdown"}'
-```
+</details>
 
 ## Redfish resources
-
-vbmc-rs implements the following Redfish resources:
 
 | Resource | Endpoint |
 |----------|----------|
@@ -281,8 +307,6 @@ vbmc-rs implements the following Redfish resources:
 | Update Service | `GET /redfish/v1/UpdateService` |
 | License Service | `GET/POST /redfish/v1/LicenseService/Licenses` |
 | Certificate Service | `GET /redfish/v1/CertificateService` |
-| GenerateCSR | `POST /redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR` |
-| ReplaceCertificate | `POST /redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate` |
 | Telemetry Service | `GET /redfish/v1/TelemetryService` |
 | Component Integrity | `GET /redfish/v1/ComponentIntegrity` |
 | Security Policy | `GET/PATCH /redfish/v1/SecurityPolicy` |
@@ -291,25 +315,21 @@ vbmc-rs implements the following Redfish resources:
 
 | Document | Description |
 |----------|-------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Internal structure and design decisions for contributors |
-| [docs/conformance.md](docs/conformance.md) | Redfish conformance profile: which properties are live, persisted, or static; backend capability matrix |
-| [docs/kubevirt.md](docs/kubevirt.md) | KubeVirt deployment: Helm chart, webhook injection, OAuth, UDN, mTLS, attestation |
-| [docs/deployment.md](docs/deployment.md) | Auth setup, TLS, state directory, systemd, containers, logging |
-| [docs/observability.md](docs/observability.md) | Events, audit log, webhooks, SSE, Prometheus metrics |
-| [docs/attestation.md](docs/attestation.md) | Keylime, Trustee, and swtpm integration for remote attestation |
+| [Architecture](ARCHITECTURE.md) | Internal structure and design decisions |
+| [Conformance](docs/conformance.md) | Redfish conformance profile and backend capability matrix |
+| [KubeVirt deployment](docs/kubevirt.md) | Helm chart, webhook injection, OAuth, UDN, mTLS |
+| [Deployment](docs/deployment.md) | Auth, TLS, state directory, systemd, containers, logging |
+| [Observability](docs/observability.md) | Events, audit log, webhooks, SSE, Prometheus metrics |
+| [Attestation](docs/attestation.md) | Keylime, Trustee, and swtpm integration |
+| [Mockup mode](docs/mockup.md) | Serving DMTF mockup directories as live Redfish services |
+| [Why vbmc-rs](docs/why-vbmc-rs.md) | Comparison with VirtualBMC, sushy-tools, and redfishMockupServer |
 
 ## Testing
 
 ```sh
-# Run all tests
-cargo test --all-features
-
-# Run only unit tests
-cargo test --all-features --lib
-
-# Run a specific test module
-cargo test --all-features integration_tests
-cargo test --all-features backend::libvirt::xml
+cargo test --all-features              # All tests
+cargo test --all-features --lib        # Unit tests only
+cargo test --all-features integration  # Integration tests
 ```
 
 ## License
