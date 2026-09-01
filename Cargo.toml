@@ -58,7 +58,7 @@ clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 rand = "0.8"
 base64 = "0.23"
-argon2 = "0.5"
+argon2 = "0.6"
 rcgen = "0.14"
 reqwest = { version = "0.12", features = ["stream", "rustls-tls", "json"], default-features = false }
 rustls = "0.23"
