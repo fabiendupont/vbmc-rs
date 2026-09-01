@@ -1,0 +1,33 @@
+name: Feature Request
+description: Suggest a new feature or enhancement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What would you like vbmc-rs to do?
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: How would you use this feature? What problem does it solve?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Redfish resources
+        - Backend (new or existing)
+        - Authentication / Security
+        - Kubernetes / KubeVirt
+        - IPMI
+        - CLI / Configuration
+        - Documentation
+        - Other
+    validations:
+      required: true

@@ -1,0 +1,50 @@
+name: Bug Report
+description: Report a bug in vbmc-rs
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: vbmc-rs version
+      description: Output of `vbmc-rs --version`
+      placeholder: "vbmc-rs 0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      options:
+        - Cloud-Hypervisor
+        - QEMU
+        - libvirt
+        - KubeVirt
+        - Mockup / Simulate
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger the bug
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Relevant parts of your TOML config (redact secrets)
+      render: toml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log output (`RUST_LOG=vbmc_rs=debug`)
+      render: text

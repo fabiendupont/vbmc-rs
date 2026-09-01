@@ -7,10 +7,10 @@ This document describes the internal structure of vbmc-rs for contributors.
 vbmc-rs is a Redfish virtual BMC — it presents a standard Redfish REST API that maps to hypervisor operations on virtual machines. One instance manages multiple VMs (blade chassis model), all using the same backend type.
 
 ```
-┌─────────────────────────────────────────────┐
+┌──────────────────────────────────────────────┐
 │                HTTP Clients                  │
 │          (curl, Redfish tools, BMaaS)        │
-└──────────┬──────────────────┬───────────────┘
+└──────────┬──────────────────┬────────────────┘
            │                  │
            │ direct           │ aggregated
            │                  ▼
@@ -18,31 +18,31 @@ vbmc-rs is a Redfish virtual BMC — it presents a standard Redfish REST API tha
            │     │  vbmc-rs-aggregator    │
            │     │  (discovers sidecars,  │
            │     │   proxies requests,    │
-           │     │   mTLS)               │
+           │     │   mTLS)                │
            │     └──────────┬─────────────┘
            │                │
            ▼                ▼
 ┌──────────────────────────────────────────────┐
-│              axum Router                      │
-│  ┌──────────────────────────────────────┐    │
-│  │   RBAC Enforcement (AuthenticatedUser)│    │
-│  │   TLS/mTLS (rustls + axum-server)    │    │
-│  └──────────────────────────────────────┘    │
-│  ┌──────────────────────────────────────┐    │
-│  │   OData Compliance Layer (Tower)      │    │
-│  │   • OData-Version header              │    │
-│  │   • Link header                       │    │
-│  │   • HEAD → GET + strip body           │    │
-│  └──────────────────────────────────────┘    │
-│  ┌──────────────────────────────────────┐    │
-│  │   Redfish Handlers (~30 modules)      │    │
-│  │   systems, power, storage, memory,    │    │
-│  │   ethernet, bios, managers, ...       │    │
-│  └──────────────┬───────────────────────┘    │
+│              axum Router                     │
+│  ┌───────────────────────────────────────┐   │
+│  │   RBAC Enforcement (AuthenticatedUser)│   │
+│  │   TLS/mTLS (rustls + axum-server)     │   │
+│  └───────────────────────────────────────┘   │
+│  ┌───────────────────────────────────────┐   │
+│  │   OData Compliance Layer (Tower)      │   │
+│  │   • OData-Version header              │   │
+│  │   • Link header                       │   │
+│  │   • HEAD → GET + strip body           │   │
+│  └───────────────────────────────────────┘   │
+│  ┌───────────────────────────────────────┐   │
+│  │   Redfish Handlers (~30 modules)      │   │
+│  │   systems, power, storage, memory,    │   │
+│  │   ethernet, bios, managers, ...       │   │
+│  └──────────────┬────────────────────────┘   │
 └─────────────────┼────────────────────────────┘
                   │ backend-agnostic types
 ┌─────────────────▼────────────────────────────┐
-│           VmmBackend trait                     │
+│           VmmBackend trait                   │
 │  ┌──────────┬──────────┬──────────┬────────┐ │
 │  │   Cloud  │   QEMU   │ Libvirt  │KubeVirt│ │
 │  │Hypervisor│  (QMP)   │(libvirt) │ (kube) │ │
@@ -52,7 +52,7 @@ vbmc-rs is a Redfish virtual BMC — it presents a standard Redfish REST API tha
    Unix socket  Unix socket  virt   Kubernetes
                              crate     API
         │          │          │         │
-   ┌────▼───┐ ┌───▼────┐ ┌───▼────┐ ┌──▼──────┐
+   ┌────▼───┐ ┌────▼───┐ ┌────▼───┐ ┌───▼─────┐
    │  CH    │ │  QEMU  │ │libvirtd│ │KubeVirt │
    │process │ │process │ │        │ │  VMs    │
    └────────┘ └────────┘ └────────┘ └─────────┘
