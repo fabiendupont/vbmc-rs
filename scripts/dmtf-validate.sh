@@ -149,8 +149,10 @@ if [ -n "$TEXT_LOG" ] && [ -f "$TEXT_LOG" ]; then
     tail -30 "$TEXT_LOG"
 fi
 
-# Extract actual fail count from the summary table in stdout
-ACTUAL_FAILS=$(grep -oP 'FAIL\s*\|\s*\K[0-9]+' "$LOG_DIR/validator-stdout.txt" 2>/dev/null | head -1)
+# Extract actual fail count from the summary table in stdout (strip ANSI codes first)
+ACTUAL_FAILS=$(sed 's/\x1b\[[0-9;]*m//g' "$LOG_DIR/validator-stdout.txt" 2>/dev/null \
+    | grep -oP 'FAIL\s*\|\s*\K[0-9]+' 2>/dev/null \
+    | head -1 || true)
 
 echo ""
 echo "================================================================"

@@ -64,7 +64,7 @@ jobs:
 
       - name: Copy DMTF report into book
         run: |
-          REPORT=$(ls -t dmtf-reports/ConformanceHtmlLog_*.html 2>/dev/null | head -1)
+          REPORT=$(find dmtf-reports -name 'ConformanceHtmlLog_*.html' -type f 2>/dev/null | sort -r | head -1)
           if [ -n "$REPORT" ]; then
             cp "$REPORT" book/dmtf-report.html
           else
