@@ -329,6 +329,7 @@ See [Mockup Mode](docs/mockup.md) for the directory format and state mutation su
 | [Observability](docs/observability.md) | Events, audit log, webhooks, SSE, Prometheus metrics |
 | [Attestation](docs/attestation.md) | Keylime, Trustee, and swtpm integration |
 | [Mockup mode](docs/mockup.md) | Serving DMTF mockup directories as live Redfish services |
+| [IPMI extern BMC](docs/ipmi-extern.md) | In-guest BMC via QEMU's ipmi-bmc-extern device |
 | [Why vbmc-rs](docs/why-vbmc-rs.md) | Comparison with VirtualBMC, sushy-tools, and redfishMockupServer |
 
 ## Testing

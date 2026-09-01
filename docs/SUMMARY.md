@@ -8,6 +8,7 @@
 - [Deployment](deployment.md)
 - [KubeVirt](kubevirt.md)
 - [Mockup Mode](mockup.md)
+- [IPMI Extern BMC](ipmi-extern.md)
 - [Observability](observability.md)
 - [Remote Attestation](attestation.md)
 - [Redfish Conformance](conformance.md)
