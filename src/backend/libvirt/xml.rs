@@ -19,7 +19,6 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
     let mut info = DomainInfo::default();
-    let mut buf = Vec::new();
 
     let mut disk_idx = 0u32;
     let mut nic_idx = 0u32;
@@ -36,17 +35,15 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
     };
 
     loop {
-        match reader.read_event_into(&mut buf) {
+        match reader.read_event() {
             Ok(Event::Start(ref e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                handle_open_tag(&name, e, &mut ps);
+                handle_open_tag(e.name().into_inner(), e, &mut ps);
             }
             Ok(Event::Empty(ref e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                handle_open_tag(&name, e, &mut ps);
+                handle_open_tag(e.name().into_inner(), e, &mut ps);
             }
             Ok(Event::Text(ref e)) => {
-                let text = e.unescape().unwrap_or_default().to_string();
+                let text: &str = e;
                 if ps.in_vcpu {
                     info.vcpu_count = text.trim().parse().unwrap_or(0);
                     ps.in_vcpu = false;
@@ -63,76 +60,72 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
                     ps.in_memory = false;
                 }
             }
-            Ok(Event::End(ref e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                match name.as_str() {
-                    "vcpu" => ps.in_vcpu = false,
-                    "memory" => ps.in_memory = false,
-                    "devices" => ps.in_devices = false,
-                    "disk" if ps.current_disk.is_some() => {
-                        if let Some(builder) = ps.current_disk.take() {
-                            let protocol = match builder.bus.as_deref() {
-                                Some("virtio") => bt::DiskProtocol::Virtio,
-                                Some("sata") | Some("ide") => bt::DiskProtocol::Sata,
-                                _ => bt::DiskProtocol::Unknown,
-                            };
-                            let id = builder
-                                .target_dev
-                                .unwrap_or_else(|| format!("disk{disk_idx}"));
-                            info.disks.push(bt::DiskInfo {
-                                id,
-                                path: builder.source,
-                                capacity_bytes: None,
-                                readonly: builder.readonly,
-                                protocol,
-                                media_type: bt::DiskMediaType::Virtual,
-                            });
-                            disk_idx += 1;
-                        }
+            Ok(Event::End(ref e)) => match e.name().into_inner() {
+                "vcpu" => ps.in_vcpu = false,
+                "memory" => ps.in_memory = false,
+                "devices" => ps.in_devices = false,
+                "disk" if ps.current_disk.is_some() => {
+                    if let Some(builder) = ps.current_disk.take() {
+                        let protocol = match builder.bus.as_deref() {
+                            Some("virtio") => bt::DiskProtocol::Virtio,
+                            Some("sata") | Some("ide") => bt::DiskProtocol::Sata,
+                            _ => bt::DiskProtocol::Unknown,
+                        };
+                        let id = builder
+                            .target_dev
+                            .unwrap_or_else(|| format!("disk{disk_idx}"));
+                        info.disks.push(bt::DiskInfo {
+                            id,
+                            path: builder.source,
+                            capacity_bytes: None,
+                            readonly: builder.readonly,
+                            protocol,
+                            media_type: bt::DiskMediaType::Virtual,
+                        });
+                        disk_idx += 1;
                     }
-                    "interface" if ps.current_nic.is_some() => {
-                        if let Some(builder) = ps.current_nic.take() {
-                            info.nics.push(bt::NicInfo {
-                                id: format!("NIC{nic_idx}"),
-                                mac_address: builder.mac,
-                                tap: builder.target_dev,
-                                speed_mbps: 25000,
-                            });
-                            nic_idx += 1;
-                        }
-                    }
-                    "hostdev" if ps.current_hostdev.is_some() => {
-                        if let Some(builder) = ps.current_hostdev.take()
-                            && builder.hostdev_type == "pci"
-                        {
-                            let bdf = format!(
-                                "{:04x}:{:02x}:{:02x}.{:x}",
-                                builder.domain, builder.bus, builder.slot, builder.function
-                            );
-                            info.pci_devices.push(bt::PciDeviceInfo {
-                                bdf,
-                                vendor_id: None,
-                                device_id: None,
-                                class_code: None,
-                                device_name: None,
-                                is_passthrough: true,
-                                functions: vec![bt::PciFunctionInfo {
-                                    function_id: builder.function as u8,
-                                    class_code: None,
-                                    device_id: None,
-                                    vendor_id: None,
-                                }],
-                            });
-                        }
-                    }
-                    _ => {}
                 }
-            }
+                "interface" if ps.current_nic.is_some() => {
+                    if let Some(builder) = ps.current_nic.take() {
+                        info.nics.push(bt::NicInfo {
+                            id: format!("NIC{nic_idx}"),
+                            mac_address: builder.mac,
+                            tap: builder.target_dev,
+                            speed_mbps: 25000,
+                        });
+                        nic_idx += 1;
+                    }
+                }
+                "hostdev" if ps.current_hostdev.is_some() => {
+                    if let Some(builder) = ps.current_hostdev.take()
+                        && builder.hostdev_type == "pci"
+                    {
+                        let bdf = format!(
+                            "{:04x}:{:02x}:{:02x}.{:x}",
+                            builder.domain, builder.bus, builder.slot, builder.function
+                        );
+                        info.pci_devices.push(bt::PciDeviceInfo {
+                            bdf,
+                            vendor_id: None,
+                            device_id: None,
+                            class_code: None,
+                            device_name: None,
+                            is_passthrough: true,
+                            functions: vec![bt::PciFunctionInfo {
+                                function_id: builder.function as u8,
+                                class_code: None,
+                                device_id: None,
+                                vendor_id: None,
+                            }],
+                        });
+                    }
+                }
+                _ => {}
+            },
             Ok(Event::Eof) => break,
             Err(_) => break,
             _ => {}
         }
-        buf.clear();
     }
 
     info.secure_boot = ps.secure_boot;
@@ -156,16 +149,15 @@ fn handle_open_tag(name: &str, e: &quick_xml::events::BytesStart<'_>, ps: &mut P
         "memory" => {
             ps.in_memory = true;
             for attr in e.attributes().flatten() {
-                if attr.key.as_ref() == b"unit" {
-                    ps.memory_unit = String::from_utf8_lossy(&attr.value).to_string();
+                if attr.key.as_ref() == "unit" {
+                    ps.memory_unit = attr.value.to_string();
                 }
             }
         }
         "loader" => {
             for attr in e.attributes().flatten() {
-                if attr.key.as_ref() == b"secure" {
-                    let val = String::from_utf8_lossy(&attr.value);
-                    ps.secure_boot = Some(val == "yes");
+                if attr.key.as_ref() == "secure" {
+                    ps.secure_boot = Some(&*attr.value == "yes");
                 }
             }
         }
@@ -174,11 +166,11 @@ fn handle_open_tag(name: &str, e: &quick_xml::events::BytesStart<'_>, ps: &mut P
             let mut builder = DiskBuilder::default();
             for attr in e.attributes().flatten() {
                 match attr.key.as_ref() {
-                    b"type" => {
-                        builder.disk_type = String::from_utf8_lossy(&attr.value).to_string();
+                    "type" => {
+                        builder.disk_type = attr.value.to_string();
                     }
-                    b"device" => {
-                        builder.device = String::from_utf8_lossy(&attr.value).to_string();
+                    "device" => {
+                        builder.device = attr.value.to_string();
                     }
                     _ => {}
                 }
@@ -188,8 +180,8 @@ fn handle_open_tag(name: &str, e: &quick_xml::events::BytesStart<'_>, ps: &mut P
         "source" if ps.current_disk.is_some() => {
             if let Some(disk) = &mut ps.current_disk {
                 for attr in e.attributes().flatten() {
-                    if attr.key.as_ref() == b"file" || attr.key.as_ref() == b"dev" {
-                        disk.source = Some(String::from_utf8_lossy(&attr.value).to_string());
+                    if attr.key.as_ref() == "file" || attr.key.as_ref() == "dev" {
+                        disk.source = Some(attr.value.to_string());
                     }
                 }
             }
@@ -197,11 +189,11 @@ fn handle_open_tag(name: &str, e: &quick_xml::events::BytesStart<'_>, ps: &mut P
         "target" if ps.current_disk.is_some() => {
             if let Some(disk) = &mut ps.current_disk {
                 for attr in e.attributes().flatten() {
-                    if attr.key.as_ref() == b"bus" {
-                        disk.bus = Some(String::from_utf8_lossy(&attr.value).to_string());
+                    if attr.key.as_ref() == "bus" {
+                        disk.bus = Some(attr.value.to_string());
                     }
-                    if attr.key.as_ref() == b"dev" {
-                        disk.target_dev = Some(String::from_utf8_lossy(&attr.value).to_string());
+                    if attr.key.as_ref() == "dev" {
+                        disk.target_dev = Some(attr.value.to_string());
                     }
                 }
             }
@@ -217,8 +209,8 @@ fn handle_open_tag(name: &str, e: &quick_xml::events::BytesStart<'_>, ps: &mut P
         "mac" if ps.current_nic.is_some() => {
             if let Some(nic) = &mut ps.current_nic {
                 for attr in e.attributes().flatten() {
-                    if attr.key.as_ref() == b"address" {
-                        nic.mac = Some(String::from_utf8_lossy(&attr.value).to_string());
+                    if attr.key.as_ref() == "address" {
+                        nic.mac = Some(attr.value.to_string());
                     }
                 }
             }
@@ -226,8 +218,8 @@ fn handle_open_tag(name: &str, e: &quick_xml::events::BytesStart<'_>, ps: &mut P
         "target" if ps.current_nic.is_some() => {
             if let Some(nic) = &mut ps.current_nic {
                 for attr in e.attributes().flatten() {
-                    if attr.key.as_ref() == b"dev" {
-                        nic.target_dev = Some(String::from_utf8_lossy(&attr.value).to_string());
+                    if attr.key.as_ref() == "dev" {
+                        nic.target_dev = Some(attr.value.to_string());
                     }
                 }
             }
@@ -235,8 +227,8 @@ fn handle_open_tag(name: &str, e: &quick_xml::events::BytesStart<'_>, ps: &mut P
         "model" if ps.current_nic.is_some() => {
             if let Some(nic) = &mut ps.current_nic {
                 for attr in e.attributes().flatten() {
-                    if attr.key.as_ref() == b"type" {
-                        nic.model = Some(String::from_utf8_lossy(&attr.value).to_string());
+                    if attr.key.as_ref() == "type" {
+                        nic.model = Some(attr.value.to_string());
                     }
                 }
             }
@@ -244,8 +236,8 @@ fn handle_open_tag(name: &str, e: &quick_xml::events::BytesStart<'_>, ps: &mut P
         "hostdev" if ps.in_devices => {
             let mut builder = HostdevBuilder::default();
             for attr in e.attributes().flatten() {
-                if attr.key.as_ref() == b"type" {
-                    builder.hostdev_type = String::from_utf8_lossy(&attr.value).to_string();
+                if attr.key.as_ref() == "type" {
+                    builder.hostdev_type = attr.value.to_string();
                 }
             }
             ps.current_hostdev = Some(builder);
@@ -254,17 +246,17 @@ fn handle_open_tag(name: &str, e: &quick_xml::events::BytesStart<'_>, ps: &mut P
             if let Some(hd) = &mut ps.current_hostdev {
                 for attr in e.attributes().flatten() {
                     match attr.key.as_ref() {
-                        b"domain" => {
-                            hd.domain = parse_hex(&String::from_utf8_lossy(&attr.value));
+                        "domain" => {
+                            hd.domain = parse_hex(&attr.value);
                         }
-                        b"bus" => {
-                            hd.bus = parse_hex(&String::from_utf8_lossy(&attr.value));
+                        "bus" => {
+                            hd.bus = parse_hex(&attr.value);
                         }
-                        b"slot" => {
-                            hd.slot = parse_hex(&String::from_utf8_lossy(&attr.value));
+                        "slot" => {
+                            hd.slot = parse_hex(&attr.value);
                         }
-                        b"function" => {
-                            hd.function = parse_hex(&String::from_utf8_lossy(&attr.value));
+                        "function" => {
+                            hd.function = parse_hex(&attr.value);
                         }
                         _ => {}
                     }
@@ -444,40 +436,33 @@ fn set_nvram_template(xml: &str, template: &str) -> String {
 pub fn parse_console_pty(xml: &str) -> Option<String> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
-    let mut buf = Vec::new();
     let mut in_console = false;
 
     loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) if e.name().as_ref() == b"console" => {
-                let has_source = e.attributes().filter_map(|a| a.ok()).any(|a| {
-                    a.key.as_ref() == b"type"
-                        && matches!(
-                            a.unescape_value().ok().as_deref(),
-                            Some("pty") | Some("unix")
-                        )
-                });
+        match reader.read_event() {
+            Ok(Event::Start(ref e)) if e.name().into_inner() == "console" => {
+                let has_source = e
+                    .attributes()
+                    .filter_map(|a| a.ok())
+                    .any(|a| a.key.as_ref() == "type" && matches!(&*a.value, "pty" | "unix"));
                 if has_source {
                     in_console = true;
                 }
             }
-            Ok(Event::Empty(ref e)) if in_console && e.name().as_ref() == b"source" => {
+            Ok(Event::Empty(ref e)) if in_console && e.name().into_inner() == "source" => {
                 for attr in e.attributes().filter_map(|a| a.ok()) {
-                    if attr.key.as_ref() == b"path"
-                        && let Ok(path) = attr.unescape_value()
-                    {
-                        return Some(path.to_string());
+                    if attr.key.as_ref() == "path" {
+                        return Some(attr.value.to_string());
                     }
                 }
             }
-            Ok(Event::End(ref e)) if e.name().as_ref() == b"console" => {
+            Ok(Event::End(ref e)) if e.name().into_inner() == "console" => {
                 in_console = false;
             }
             Ok(Event::Eof) => break,
             Err(_) => break,
             _ => {}
         }
-        buf.clear();
     }
     None
 }
