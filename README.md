@@ -4,7 +4,7 @@
 
 vbmc-rs is a Redfish virtual BMC (Baseboard Management Controller) written in Rust. It exposes the same REST API that physical servers use — so management tools like [Ironic](https://ironicbaremetal.org/), [MAAS](https://maas.io/), and [Tinkerbell](https://tinkerbell.org/) can provision VMs exactly like real hardware.
 
-One instance manages multiple VMs using a blade chassis model. Four hypervisor backends. 30+ Redfish resources. DMTF-validated conformance. Single static binary.
+One instance manages multiple VMs using a blade chassis model. Four hypervisor backends. 40+ Redfish resources. DMTF-validated conformance. Single static binary.
 
 ## Quick start
 
@@ -77,7 +77,7 @@ vbmc-rs -c examples/config-mockup.toml
 
 ## Features
 
-- **30+ Redfish resources** — Systems, Chassis, Managers, Storage, BIOS, SecureBoot, VirtualMedia, Processors, Memory, EthernetInterfaces, PCIe, Sensors, and more
+- **40+ Redfish resources** — Systems, Chassis, Managers, Storage, BIOS, SecureBoot, VirtualMedia, Processors, Memory, EthernetInterfaces, PCIe, Sensors, and more
 - **DMTF-validated** — passes the official Redfish Service Validator on every CI run
 - **OData compliance** — `$metadata`, ETags, `@odata.context`, proper Link headers
 - **Session auth + RBAC** — Administrator, Operator, ReadOnly roles with argon2 password hashing and account lockout
@@ -236,6 +236,7 @@ See [Mockup Mode](docs/mockup.md) for the directory format and state mutation su
 | `[auth]` | `lockout_duration_seconds` | `300` | Auto-unlock duration after lockout |
 | `[auth]` | `accounts_file` | — | Path to accounts JSON file |
 | `[defaults]` | `firmware_path` | `/usr/share/OVMF/OVMF_CODE.fd` | Default UEFI firmware |
+| `[defaults]` | `secure_boot_firmware_path` | `/usr/share/OVMF/OVMF_CODE.secboot.fd` | UEFI firmware for Secure Boot |
 | `[defaults]` | `boot_source` | `Hdd` | Default boot device |
 | (top) | `state_directory` | (empty) | Directory for persistent VM state |
 | (top) | `audit_log` | (empty) | Audit log path (JSONL) |
@@ -249,7 +250,7 @@ See [Mockup Mode](docs/mockup.md) for the directory format and state mutation su
 | `[systems.<id>]` | `namespace` | — | Kubernetes namespace (KubeVirt) |
 | `[systems.<id>]` | `vm_name` | — | KubeVirt VirtualMachine name |
 | `[systems.<id>]` | `firmware_path` | — | Per-system firmware override |
-| `[systems.<id>]` | `secure_boot_firmware_path` | — | UEFI firmware for Secure Boot |
+| `[systems.<id>]` | `ipmi_socket` | — | IPMI extern BMC Unix socket path (see [IPMI extern](docs/ipmi-extern.md)) |
 | `[systems.<id>.hardware]` | `cpu_count` | `2` | vCPU count |
 | `[systems.<id>.hardware]` | `max_cpu_count` | — | Max vCPU (for hotplug) |
 | `[systems.<id>.hardware]` | `memory_mib` | `1024` | Memory in MiB |
@@ -273,6 +274,9 @@ See [Mockup Mode](docs/mockup.md) for the directory format and state mutation su
 | `[location]` | `latitude` | — | GPS latitude |
 | `[location]` | `longitude` | — | GPS longitude |
 | `[location]` | `altitude_meters` | — | Altitude in meters |
+| `[snmp_trap]` | `enabled` | `false` | Enable SNMP trap emission for Redfish events |
+| `[snmp_trap]` | `receiver` | `127.0.0.1:162` | SNMP trap receiver address |
+| `[snmp_trap]` | `community` | `public` | SNMP community string |
 | `[security_policy]` | `tls_minimum_version` | — | Minimum TLS version (`tls12` or `tls13`) |
 | `[security_policy]` | `spdm_enabled` | `false` | Enable SPDM attestation coordinator |
 
@@ -284,12 +288,17 @@ See [Mockup Mode](docs/mockup.md) for the directory format and state mutation su
 |----------|----------|
 | Service Root | `GET /redfish/v1` |
 | OData Metadata | `GET /redfish/v1/$metadata` |
+| Registries | `GET /redfish/v1/Registries` |
 | Systems | `GET /redfish/v1/Systems/{id}` |
 | Power Actions | `POST /redfish/v1/Systems/{id}/Actions/ComputerSystem.Reset` |
 | Processors | `GET /redfish/v1/Systems/{id}/Processors/{cpu}` |
+| Processor Metrics | `GET /redfish/v1/Systems/{id}/Processors/{cpu}/ProcessorMetrics` |
 | Memory | `GET /redfish/v1/Systems/{id}/Memory/{dimm}` |
+| Memory Metrics | `GET /redfish/v1/Systems/{id}/Memory/{dimm}/MemoryMetrics` |
 | Ethernet Interfaces | `GET /redfish/v1/Systems/{id}/EthernetInterfaces/{nic}` |
+| Network Interfaces | `GET /redfish/v1/Systems/{id}/NetworkInterfaces/{nic}` |
 | Storage | `GET /redfish/v1/Systems/{id}/Storage/{ctrl}` |
+| Storage Controllers | `GET /redfish/v1/Systems/{id}/Storage/{ctrl}/Controllers/{idx}` |
 | Drives | `GET /redfish/v1/Systems/{id}/Storage/{ctrl}/Drives/{drive}` |
 | Volumes | `GET /redfish/v1/Systems/{id}/Storage/{ctrl}/Volumes/{vol}` |
 | SimpleStorage | `GET /redfish/v1/Systems/{id}/SimpleStorage/1` |
@@ -297,14 +306,23 @@ See [Mockup Mode](docs/mockup.md) for the directory format and state mutation su
 | PCIe Functions | `GET /redfish/v1/Systems/{id}/PCIeDevices/{dev}/PCIeFunctions/{fn}` |
 | BIOS | `GET /redfish/v1/Systems/{id}/Bios` |
 | BIOS Settings | `GET/PATCH /redfish/v1/Systems/{id}/Bios/Settings` |
+| Boot Options | `GET /redfish/v1/Systems/{id}/BootOptions` |
 | Secure Boot | `GET/PATCH /redfish/v1/Systems/{id}/SecureBoot` |
 | Virtual Media | `GET/POST /redfish/v1/Systems/{id}/VirtualMedia/Cd` |
 | Log Services | `GET /redfish/v1/Systems/{id}/LogServices` |
+| Assembly | `GET /redfish/v1/Systems/{id}/Processors/{cpu}/Assembly` |
 | Managers | `GET /redfish/v1/Managers/vbmc` |
+| Manager Network Protocol | `GET /redfish/v1/Managers/vbmc/NetworkProtocol` |
+| Serial Console | `GET /redfish/v1/Managers/vbmc/SerialConsole` |
 | Chassis | `GET /redfish/v1/Chassis/1` |
-| Power | `GET /redfish/v1/Chassis/1/Power` |
-| Thermal | `GET /redfish/v1/Chassis/1/Thermal` |
+| Power (legacy) | `GET /redfish/v1/Chassis/1/Power` |
+| Thermal (legacy) | `GET /redfish/v1/Chassis/1/Thermal` |
+| Power Subsystem | `GET /redfish/v1/Chassis/1/PowerSubsystem` |
+| Thermal Subsystem | `GET /redfish/v1/Chassis/1/ThermalSubsystem` |
+| Environment Metrics | `GET /redfish/v1/Chassis/1/EnvironmentMetrics` |
+| Sensors | `GET /redfish/v1/Chassis/1/Sensors/{sensor}` |
 | Network Adapters | `GET /redfish/v1/Chassis/1/NetworkAdapters` |
+| Trusted Components | `GET /redfish/v1/Chassis/1/TrustedComponents` |
 | Session Service | `GET/POST /redfish/v1/SessionService/Sessions` |
 | Account Service | `GET/POST /redfish/v1/AccountService/Accounts` |
 | Event Service | `GET/POST /redfish/v1/EventService/Subscriptions` |

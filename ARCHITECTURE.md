@@ -63,7 +63,7 @@ vbmc-rs is a Redfish virtual BMC — it presents a standard Redfish REST API tha
 ```
 src/
 ├── lib.rs                   Shared library crate (used by both binaries)
-├── main.rs                  Entry point, CLI, backend dispatch
+├── main.rs                  Entry point, CLI (init/validate/completions/simulate), backend dispatch
 ├── app_state.rs             Shared application state (Arc<AppState>)
 ├── config.rs                TOML configuration types and loading
 ├── state.rs                 Persistent per-VM state (JSON files)
@@ -76,6 +76,7 @@ src/
 ├── backend/
 │   ├── mod.rs               VmmBackend trait, Backend enum, BackendError
 │   ├── types.rs             Backend-agnostic types (VmInfo, VmPowerState, ...)
+│   ├── mockup.rs            MockupBackend (DMTF mockup dirs + generated profiles)
 │   ├── cloud_hypervisor/
 │   │   ├── mod.rs           CloudHypervisorBackend + type conversions
 │   │   ├── client.rs        Raw HTTP/1.1 over Unix socket
@@ -91,8 +92,13 @@ src/
 │       ├── mod.rs           KubeVirtBackend (manage-only, kube crate)
 │       └── types.rs         KubeVirt API types
 │
+├── ipmi/
+│   ├── mod.rs               IPMI extern BMC server (Unix socket listener)
+│   ├── protocol.rs          Wire protocol framing (escape, checksum, encode/decode)
+│   └── commands.rs          IPMI command handling (chassis, app, boot options)
+│
 ├── redfish/
-│   ├── mod.rs               Router with ~60 routes + compliance layer
+│   ├── mod.rs               Router with compliance layer
 │   ├── types.rs             ODataId, Collection<T>, Status, StatusRollup
 │   ├── error.rs             RedfishApiError → HTTP status + JSON body
 │   ├── compliance.rs        OData headers Tower middleware
@@ -101,19 +107,30 @@ src/
 │   ├── systems.rs           ComputerSystem collection + individual
 │   ├── power.rs             Reset actions (On, Off, Reboot, ...)
 │   ├── processors.rs        CPU information
+│   ├── processor_metrics.rs Processor metrics
 │   ├── memory.rs            Memory (DIMM) information
-│   ├── ethernet.rs          Network interfaces
+│   ├── memory_metrics.rs    Memory metrics
+│   ├── ethernet.rs          Ethernet interfaces
+│   ├── network_interfaces.rs  Network interfaces collection
 │   ├── storage.rs           SimpleStorage (legacy)
 │   ├── storage_controllers.rs  Full Storage/Drives/Volumes
 │   ├── pcie.rs              PCIe Devices and Functions
 │   ├── bios.rs              BIOS settings with pending changes
+│   ├── boot_options.rs      Boot option resources
 │   ├── secure_boot.rs       Secure Boot configuration
 │   ├── virtual_media.rs     CD/DVD insertion and ejection
 │   ├── log_service.rs       System console + manager audit logs
 │   ├── managers.rs          BMC manager resource
+│   ├── manager_network.rs   Manager network protocol
+│   ├── serial_console.rs    Serial console properties
 │   ├── trusted_component.rs Chassis + trusted components
-│   ├── chassis_power.rs     Synthetic power readings
-│   ├── chassis_thermal.rs   Synthetic thermal readings
+│   ├── chassis_power.rs     Synthetic power readings (legacy)
+│   ├── chassis_power_subsystem.rs  Power subsystem + power supplies
+│   ├── chassis_thermal.rs   Synthetic thermal readings (legacy)
+│   ├── chassis_thermal_subsystem.rs  Thermal subsystem + fans
+│   ├── environment_metrics.rs  Chassis environment metrics
+│   ├── sensors.rs           Sensor resources (temperature, voltage, current, fan, power)
+│   ├── assembly.rs          Assembly resources
 │   ├── network_adapter.rs   Chassis-level network adapters
 │   ├── update_service.rs    Firmware inventory
 │   ├── license_service.rs   License management
@@ -124,7 +141,8 @@ src/
 │   ├── certificate_service.rs  Certificate management
 │   ├── security_policy.rs   Security policy settings
 │   ├── telemetry.rs         Telemetry metric reports
-│   └── component_integrity.rs  Attestation status
+│   ├── component_integrity.rs  Attestation status
+│   └── registries.rs        Message registries
 │
 ├── auth/
 │   ├── mod.rs               AuthenticatedUser extractor
@@ -136,6 +154,7 @@ src/
 │   ├── mod.rs               EventBus (tokio broadcast channel)
 │   ├── subscriptions.rs     SubscriptionStore + webhook delivery
 │   ├── audit_log.rs         JSONL audit log writer (file, stdout, or both)
+│   ├── snmp_trap.rs         SNMP trap sender (event bus subscriber → UDP traps)
 │   └── registry.rs          Event message ID constants
 │
 ├── attestation/
@@ -157,6 +176,7 @@ src/
 │   └── state.rs             Aggregator state management
 │
 ├── webhook/
+│   ├── mod.rs               Webhook module root
 │   ├── main.rs              vbmc-rs-webhook binary entry point
 │   └── mutate.rs            Sidecar injection into virt-launcher pods
 │
@@ -170,7 +190,11 @@ examples/
 ├── config-qemu.toml         QEMU example config
 ├── config-libvirt.toml      Libvirt example config
 ├── config-kubevirt.toml     KubeVirt example config
+├── config-mockup.toml       Mockup backend example config
+├── config-test.toml         Test config (used by DMTF validator)
 ├── config-aggregator.toml   Aggregator example config
+├── config-webhook.yaml      Webhook deployment manifest
+├── mockup/                  Example DMTF mockup directory
 ├── admin-network-policy.yaml  AdminNetworkPolicy + CUDN manifests
 └── keylime.yaml             Keylime verifier + registrar deployment
 
@@ -190,7 +214,7 @@ charts/vbmc-rs/              Helm chart for KubeVirt deployment
 
 ### Backend abstraction
 
-The `VmmBackend` trait defines 12 async methods (`vm_info`, `vm_create`, `vm_boot`, `vm_shutdown`, `vm_delete`, `vm_power_button`, `vm_reboot`, `vm_add_disk`, `vm_remove_device`, `vmm_ping`, `vm_counters`, `vm_set_secure_boot`) that all return backend-agnostic types from `backend::types`. The `Backend` enum dispatches to four concrete implementations at zero overhead (no `dyn` / vtable): Cloud-Hypervisor, QEMU, libvirt, and KubeVirt.
+The `VmmBackend` trait defines 13 async methods (`vm_info`, `vm_create`, `vm_boot`, `vm_shutdown`, `vm_delete`, `vm_power_button`, `vm_reboot`, `vm_add_disk`, `vm_remove_device`, `vmm_ping`, `vm_counters`, `vm_set_secure_boot`, `vm_serial_console`) that all return backend-agnostic types from `backend::types`. The `Backend` enum dispatches to five concrete implementations at zero overhead (no `dyn` / vtable): Cloud-Hypervisor, QEMU, libvirt, KubeVirt, and Mockup.
 
 Backend-specific wire types (CH `VmConfig`, QMP `QmpStatus`, libvirt domain XML, KubeVirt subresource APIs) are converted to `backend::types::VmInfo` inside each backend module. Redfish handlers never touch backend-specific types. KubeVirt is manage-only: `vm_create` returns `NotSupported` since VMs are created through Kubernetes.
 
@@ -206,7 +230,7 @@ Each backend is behind a compile-time feature flag:
 - `webhook` — builds the `vbmc-rs-webhook` binary (mutating admission webhook for sidecar injection)
 - `test-support` — exposes `MockBackend` for use in external test harnesses
 
-The `Backend` enum variants and their match arms use `#[cfg(feature = "...")]`. The crate is structured as `lib.rs` + three binaries (`main.rs` for vbmc-rs, `aggregator/main.rs` for vbmc-rs-aggregator, `webhook/main.rs` for vbmc-rs-webhook).
+The Mockup backend is always available (no feature flag). The `Backend` enum variants and their match arms use `#[cfg(feature = "...")]`. The crate is structured as `lib.rs` + three binaries (`main.rs` for vbmc-rs, `aggregator/main.rs` for vbmc-rs-aggregator, `webhook/main.rs` for vbmc-rs-webhook).
 
 ### Multi-system model
 

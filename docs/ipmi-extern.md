@@ -91,6 +91,9 @@ For libvirt-managed VMs, use `<qemu:commandline>` to inject the IPMI device:
 |---------|-------|-----|-------------|
 | Get Device ID | App (0x06) | 0x01 | Returns BMC device identification |
 | Get Channel Auth Capabilities | App (0x06) | 0x38 | Authentication capabilities |
+| Get Session Info | App (0x06) | 0x3D | Session information |
+| Set Global Enables | App (0x06) | 0x2E | Set BMC global enables |
+| Get Global Enables | App (0x06) | 0x2F | Get BMC global enables |
 | Get Chassis Status | Chassis (0x00) | 0x01 | Power state, last power event |
 | Chassis Control | Chassis (0x00) | 0x02 | Power on/off/cycle/reset/shutdown |
 | Get System Boot Options | Chassis (0x00) | 0x09 | Boot device, boot flags |
