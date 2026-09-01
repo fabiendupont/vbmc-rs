@@ -75,13 +75,6 @@ async fn handle_connection(
 ) {
     let (mut reader, mut writer) = stream.into_split();
 
-    let handshake = protocol::encode_handshake_response();
-    if let Err(e) = writer.write_all(&handshake).await {
-        error!(error = %e, "Failed to send IPMI handshake");
-        return;
-    }
-    debug!(system = %system_id, "Sent IPMI handshake");
-
     let mut decoder = protocol::FrameDecoder::new();
     let mut buf = [0u8; 1];
     let mut boot_device: u8 = 0x00;
@@ -113,7 +106,13 @@ async fn handle_connection(
                                     }
                                 }
                                 protocol::Frame::Command { cmd, data } => {
-                                    handle_qemu_command(cmd, &data, &system_id);
+                                    if let Some(response) =
+                                        handle_qemu_command(cmd, &data, &system_id)
+                                        && let Err(e) = writer.write_all(&response).await
+                                    {
+                                        error!(error = %e, "Failed to write command response");
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -195,18 +194,21 @@ async fn execute_chassis_action(action: ChassisAction, system_id: &str, app_stat
     }
 }
 
-fn handle_qemu_command(cmd: u8, data: &[u8], system_id: &str) {
+fn handle_qemu_command(cmd: u8, data: &[u8], system_id: &str) -> Option<Vec<u8>> {
     match cmd {
         0xFF => {
             let version = data.first().copied().unwrap_or(0);
             debug!(system = %system_id, version, "QEMU sent protocol version");
+            None
         }
         0x08 => {
             let caps = data.first().copied().unwrap_or(0);
             debug!(system = %system_id, capabilities = caps, "QEMU sent capabilities");
+            Some(protocol::encode_noattn())
         }
         other => {
             debug!(system = %system_id, cmd = other, "Unknown QEMU command");
+            None
         }
     }
 }

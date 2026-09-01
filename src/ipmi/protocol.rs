@@ -2,13 +2,6 @@ const VM_MSG_CHAR: u8 = 0xA0;
 const VM_CMD_CHAR: u8 = 0xA1;
 const VM_ESCAPE_CHAR: u8 = 0xAA;
 
-const VM_CMD_VERSION: u8 = 0xFF;
-const VM_CMD_CAPABILITIES: u8 = 0x08;
-
-const CAP_POWER: u8 = 0x01;
-const CAP_RESET: u8 = 0x02;
-const CAP_GRACEFUL_SHUTDOWN: u8 = 0x20;
-
 #[derive(Debug)]
 pub enum Frame {
     IpmiMessage { msg_id: u8, data: Vec<u8> },
@@ -111,20 +104,8 @@ pub fn encode_ipmi_response(msg_id: u8, response: &[u8]) -> Vec<u8> {
     out
 }
 
-pub fn encode_handshake_response() -> Vec<u8> {
-    let mut out = Vec::new();
-
-    // Version response
-    escape_byte(VM_CMD_VERSION, &mut out);
-    escape_byte(0x01, &mut out);
-    out.push(VM_CMD_CHAR);
-
-    // Capabilities
-    escape_byte(VM_CMD_CAPABILITIES, &mut out);
-    escape_byte(CAP_POWER | CAP_RESET | CAP_GRACEFUL_SHUTDOWN, &mut out);
-    out.push(VM_CMD_CHAR);
-
-    out
+pub fn encode_noattn() -> Vec<u8> {
+    vec![0x00, VM_CMD_CHAR]
 }
 
 #[cfg(test)]
@@ -199,29 +180,18 @@ mod tests {
     }
 
     #[test]
-    fn test_handshake_response() {
-        let bytes = encode_handshake_response();
+    fn test_noattn() {
+        let bytes = encode_noattn();
         let mut decoder = FrameDecoder::new();
-        let mut frames = Vec::new();
+        let mut frame = None;
         for &b in &bytes {
             if let Some(f) = decoder.feed(b) {
-                frames.push(f);
+                frame = Some(f);
             }
         }
-        assert_eq!(frames.len(), 2);
-        match &frames[0] {
-            Frame::Command { cmd, data } => {
-                assert_eq!(*cmd, VM_CMD_VERSION);
-                assert_eq!(data, &[0x01]);
-            }
-            _ => panic!("expected version command"),
-        }
-        match &frames[1] {
-            Frame::Command { cmd, data } => {
-                assert_eq!(*cmd, VM_CMD_CAPABILITIES);
-                assert_eq!(data[0] & CAP_POWER, CAP_POWER);
-            }
-            _ => panic!("expected capabilities command"),
+        match frame.unwrap() {
+            Frame::Command { cmd, .. } => assert_eq!(cmd, 0x00),
+            _ => panic!("expected NOATTN command"),
         }
     }
 }
