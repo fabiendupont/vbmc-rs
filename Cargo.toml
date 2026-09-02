@@ -56,9 +56,9 @@ uuid = { version = "1", features = ["v4", "v5"] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
-rand = "0.8"
+rand = "0.9"
 base64 = "0.23"
-argon2 = "0.5"
+argon2 = "0.6"
 rcgen = "0.14"
 reqwest = { version = "0.12", features = ["stream", "rustls-tls", "json"], default-features = false }
 rustls = "0.23"

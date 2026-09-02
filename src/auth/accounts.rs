@@ -1,9 +1,7 @@
 use std::path::Path;
 
-use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use chrono::{DateTime, Utc};
-use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,9 +22,8 @@ pub struct Account {
 
 impl Account {
     pub fn set_password(&mut self, password: &str) -> anyhow::Result<()> {
-        let salt = SaltString::generate(&mut OsRng);
         self.password_hash = Argon2::default()
-            .hash_password(password.as_bytes(), &salt)
+            .hash_password(password.as_bytes())
             .map_err(|e| anyhow::anyhow!("Failed to hash password: {e}"))?
             .to_string();
         Ok(())
@@ -131,9 +128,8 @@ impl AccountStore {
         password: &str,
         role: &str,
     ) -> anyhow::Result<()> {
-        let salt = SaltString::generate(&mut OsRng);
         let password_hash = Argon2::default()
-            .hash_password(password.as_bytes(), &salt)
+            .hash_password(password.as_bytes())
             .map_err(|e| anyhow::anyhow!("Failed to hash password: {e}"))?
             .to_string();
 
