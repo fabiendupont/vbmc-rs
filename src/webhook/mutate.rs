@@ -216,7 +216,7 @@ fn build_patch(
          audit_log_target = \"stdout\"\n\
          \n\
          [server]\n\
-         bind_address = \"0.0.0.0\"\n\
+         bind_address = \"::\"\n\
          port = 8000\n\
          {tls_config}\
          \n\

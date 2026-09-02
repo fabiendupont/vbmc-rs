@@ -136,7 +136,7 @@ $KUBECTL create configmap "vbmc-rs-${VM_NAME}" -n "$NAMESPACE" --from-literal=co
 backend = \"libvirt\"
 
 [server]
-bind_address = \"0.0.0.0\"
+bind_address = \"::\"
 port = 8000
 
 [systems.${SYSTEM_ID}]
@@ -181,6 +181,7 @@ spec:
       containers:
         - name: webhook
           image: ${WEBHOOK_IMAGE}
+          imagePullPolicy: Always
           command: ["/vbmc-rs-webhook"]
           args:
             - --cert=/etc/webhook/tls/tls.crt
@@ -273,35 +274,34 @@ wait_for "VMI Running" "$KUBECTL get vmi ${VM_NAME} -n ${NAMESPACE} -o jsonpath=
 
 log "Waiting for virt-launcher pod"
 LAUNCHER_POD=""
-wait_for "launcher pod" "$KUBECTL get pods -n ${NAMESPACE} -l 'kubevirt.io/domain=${VM_NAME}' -o jsonpath='{.items[0].metadata.name}' | grep -q ." 120
-LAUNCHER_POD=$($KUBECTL get pods -n "$NAMESPACE" -l "kubevirt.io/domain=${VM_NAME}" -o jsonpath='{.items[0].metadata.name}')
+wait_for "launcher pod" "$KUBECTL get pods -n ${NAMESPACE} -l 'vm.kubevirt.io/name=${VM_NAME}' -o jsonpath='{.items[0].metadata.name}' | grep -q ." 120
+LAUNCHER_POD=$($KUBECTL get pods -n "$NAMESPACE" -l "vm.kubevirt.io/name=${VM_NAME}" -o jsonpath='{.items[0].metadata.name}')
 log "Launcher pod: $LAUNCHER_POD"
-
-log "Port-forwarding to sidecar"
-$KUBECTL port-forward -n "$NAMESPACE" "pod/${LAUNCHER_POD}" 8000:8000 &
-PF_PID=$!
-sleep 3
 
 # --- Test Redfish endpoints ---
 
-BASE="http://localhost:8000"
+# Use the pod IP directly from the compute container (avoids port-forward IPv6 issues)
+POD_IP=$($KUBECTL get pod -n "$NAMESPACE" "$LAUNCHER_POD" -o jsonpath='{.status.podIPs[0].ip}')
+BASE="http://${POD_IP}:8000"
+log "Testing via pod IP: $BASE"
+
 PASS=0
 FAIL=0
 
 check() {
     local desc="$1" method="$2" path="$3" expected_status="$4" body="${5:-}"
-    local args=(-s -o /tmp/e2e-body -w '%{http_code}' -X "$method")
+    local curl_args="-s -o /dev/null -w %{http_code} -X ${method}"
     if [ -n "$body" ]; then
-        args+=(-H "Content-Type: application/json" -d "$body")
+        curl_args="${curl_args} -H 'Content-Type: application/json' -d '${body}'"
     fi
     local status
-    status=$(curl "${args[@]}" "${BASE}${path}")
+    status=$($KUBECTL exec -n "$NAMESPACE" "$LAUNCHER_POD" -c compute -- \
+        sh -c "curl ${curl_args} '${BASE}${path}'" 2>/dev/null)
     if [ "$status" = "$expected_status" ]; then
         echo "  PASS: $desc (HTTP $status)"
         PASS=$((PASS + 1))
     else
         echo "  FAIL: $desc (expected $expected_status, got $status)"
-        echo "    Body: $(cat /tmp/e2e-body)"
         FAIL=$((FAIL + 1))
     fi
 }
@@ -328,8 +328,6 @@ sleep 5
 
 check "Power on" POST "/redfish/v1/Systems/${SYSTEM_ID}/Actions/ComputerSystem.Reset" 200 \
     '{"ResetType":"On"}'
-
-kill $PF_PID 2>/dev/null || true
 
 # --- Cleanup test resources (leave cluster running) ---
 
