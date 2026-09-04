@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use dashmap::DashMap;
 use tracing::info;
@@ -9,12 +10,15 @@ use super::{BackendError, VmmBackend};
 
 pub struct MockupStore {
     resources: DashMap<String, serde_json::Value>,
+    /// Monotonic source of store-wide-unique Task IDs.
+    next_task_id: AtomicU64,
 }
 
 impl MockupStore {
     pub fn generate(count: usize, port: u16, tls_enabled: bool) -> Self {
         let store = Self {
             resources: DashMap::new(),
+            next_task_id: AtomicU64::new(1),
         };
 
         let mut members = Vec::new();
@@ -310,6 +314,45 @@ impl MockupStore {
                 }),
             );
 
+            // SecureBoot database collections
+            for db in &["db", "kek"] {
+                store.resources.insert(
+                    format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/{db}"),
+                    serde_json::json!({
+                        "@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/{db}"),
+                        "@odata.type": "#SecureBootDatabase.v1_0_0.SecureBootDatabase",
+                        "Id": db,
+                        "Name": format!("Secure Boot {}", db.to_uppercase()),
+                        "Certificates": {
+                            "@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/{db}/Certificates")
+                        }
+                    }),
+                );
+                store.resources.insert(
+                    format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/{db}/Certificates"),
+                    serde_json::json!({
+                        "@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/{db}/Certificates"),
+                        "@odata.type": "#CertificateCollection.CertificateCollection",
+                        "Name": "Certificate Collection",
+                        "Members": [],
+                        "Members@odata.count": 0
+                    }),
+                );
+            }
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases"),
+                    "@odata.type": "#SecureBootDatabaseCollection.SecureBootDatabaseCollection",
+                    "Name": "SecureBoot Database Collection",
+                    "Members": [
+                        {"@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/db")},
+                        {"@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/kek")}
+                    ],
+                    "Members@odata.count": 2
+                }),
+            );
+
             members.push(serde_json::json!({"@odata.id": format!("/redfish/v1/Systems/{id}")}));
         }
 
@@ -399,6 +442,105 @@ impl MockupStore {
             }),
         );
 
+        // Simulated TPM/SPDM attestation resources
+        let fake_cert = "-----BEGIN CERTIFICATE-----\n\
+            MIIBpTCCAUygAwIBAgIUVbmcrSEGsUeK7jLvl6GFAAAAAA0wCgYIKoZIzj0EAwIw\n\
+            AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==\n\
+            -----END CERTIFICATE-----";
+        let evidence_action_path = "/redfish/v1/ComponentIntegrity/TPM0/Actions/ComponentIntegrity.SPDMGetSignedMeasurements";
+        let ca_cert_path = "/redfish/v1/ComponentIntegrity/TPM0/Certificates/0";
+
+        store.resources.insert(
+            "/redfish/v1/ComponentIntegrity".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/ComponentIntegrity",
+                "@odata.type": "#ComponentIntegrityCollection.ComponentIntegrityCollection",
+                "Name": "Component Integrity Collection",
+                "Members@odata.count": 1,
+                "Members": [{"@odata.id": "/redfish/v1/ComponentIntegrity/TPM0"}]
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/ComponentIntegrity/TPM0".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/ComponentIntegrity/TPM0",
+                "@odata.type": "#ComponentIntegrity.v1_2_0.ComponentIntegrity",
+                "ComponentIntegrityEnabled": true,
+                "ComponentIntegrityType": "SPDM",
+                "ComponentIntegrityTypeVersion": "1.1",
+                "Id": "TPM0",
+                "Name": "Simulated TPM",
+                "SPDM": {
+                    "IdentityAuthentication": {
+                        "ResponderAuthentication": {
+                            "ComponentCertificate": {"@odata.id": ca_cert_path}
+                        }
+                    },
+                    "Requester": {"@odata.id": "/redfish/v1/Managers/vbmc"}
+                },
+                "Actions": {
+                    "#ComponentIntegrity.SPDMGetSignedMeasurements": {
+                        "@Redfish.ActionInfo": "/redfish/v1/ComponentIntegrity/TPM0/SPDMGetSignedMeasurementsActionInfo",
+                        "target": evidence_action_path
+                    }
+                }
+            }),
+        );
+
+        // The component advertises an @Redfish.ActionInfo link for the SPDM
+        // action; store it so clients that follow the link get a resource
+        // instead of a 404 (mockup GETs only resolve stored paths).
+        store.resources.insert(
+            "/redfish/v1/ComponentIntegrity/TPM0/SPDMGetSignedMeasurementsActionInfo".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/ComponentIntegrity/TPM0/SPDMGetSignedMeasurementsActionInfo",
+                "@odata.type": "#ActionInfo.v1_4_2.ActionInfo",
+                "Id": "SPDMGetSignedMeasurementsActionInfo",
+                "Name": "SPDMGetSignedMeasurements Action Info",
+                "Parameters": [
+                    {
+                        "Name": "MeasurementIndices",
+                        "Required": false,
+                        "DataType": "NumberArray"
+                    },
+                    {
+                        "Name": "Nonce",
+                        "Required": false,
+                        "DataType": "String"
+                    },
+                    {
+                        "Name": "SlotId",
+                        "Required": false,
+                        "DataType": "Number"
+                    }
+                ]
+            }),
+        );
+
+        store.resources.insert(
+            ca_cert_path.to_string(),
+            serde_json::json!({
+                "CertificateString": fake_cert,
+                "CertificateType": "PEM",
+                "CertificateUsageTypes": ["Platform"],
+                "Id": "0",
+                "Name": "TPM Certificate",
+                "SPDM": {"SlotId": 0}
+            }),
+        );
+
+        // GET evidence at action_path + /data
+        store.resources.insert(
+            format!("{evidence_action_path}/data"),
+            serde_json::json!({
+                "HashingAlgorithm": "SHA256",
+                "SignedMeasurements": "AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899",
+                "SigningAlgorithm": "ECDSA_ECC_NIST_P256",
+                "Version": "1.1"
+            }),
+        );
+
         let mut chassis_members = vec![serde_json::json!({"@odata.id": "/redfish/v1/Chassis/1"})];
         for i in 1..=count {
             chassis_members.push(serde_json::json!({
@@ -467,7 +609,8 @@ impl MockupStore {
                 "Chassis": {"@odata.id": "/redfish/v1/Chassis"},
                 "Managers": {"@odata.id": "/redfish/v1/Managers"},
                 "AccountService": {"@odata.id": "/redfish/v1/AccountService"},
-                "SessionService": {"@odata.id": "/redfish/v1/SessionService"}
+                "SessionService": {"@odata.id": "/redfish/v1/SessionService"},
+                "ComponentIntegrity": {"@odata.id": "/redfish/v1/ComponentIntegrity"}
             }),
         );
 
@@ -529,6 +672,7 @@ impl MockupStore {
     pub fn load(dir: &Path) -> anyhow::Result<Self> {
         let store = Self {
             resources: DashMap::new(),
+            next_task_id: AtomicU64::new(1),
         };
         let dir_str = dir
             .to_str()
@@ -555,6 +699,22 @@ impl MockupStore {
             count += 1;
         }
 
+        // A loaded mockup may already contain TaskService tasks. Start the
+        // counter past the highest existing id so freshly minted tasks never
+        // overwrite loaded ones.
+        let max_task_id = store
+            .resources
+            .iter()
+            .filter_map(|e| {
+                e.key()
+                    .strip_prefix("/redfish/v1/TaskService/Tasks/")
+                    .and_then(|s| s.parse::<u64>().ok())
+            })
+            .max();
+        if let Some(max) = max_task_id {
+            store.next_task_id.store(max + 1, Ordering::Relaxed);
+        }
+
         info!(directory = %dir.display(), resources = count, "Loaded mockup data");
         Ok(store)
     }
@@ -577,6 +737,35 @@ impl MockupStore {
     /// Whether a resource exists at `path`.
     pub fn contains(&self, path: &str) -> bool {
         self.resources.contains_key(path)
+    }
+
+    /// Atomically append a member to a collection: under a single entry lock,
+    /// reserve the next 1-based id, build the member with `build`, push it, and
+    /// bump `Members@odata.count`. Returns the reserved id, or `None` if the
+    /// collection is missing or malformed. Avoids the read-then-write race of
+    /// computing the id from a separate `get`.
+    pub fn append_member<F>(&self, collection_path: &str, build: F) -> Option<u64>
+    where
+        F: FnOnce(u64) -> serde_json::Value,
+    {
+        let mut entry = self.resources.get_mut(collection_path)?;
+        let obj = entry.value_mut().as_object_mut()?;
+        let id = obj
+            .get("Members@odata.count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+            + 1;
+        let member = build(id);
+        obj.get_mut("Members")
+            .and_then(|m| m.as_array_mut())?
+            .push(member);
+        obj.insert("Members@odata.count".to_string(), serde_json::json!(id));
+        Some(id)
+    }
+
+    /// Store-wide-unique, monotonically increasing Task id.
+    pub fn next_task_id(&self) -> u64 {
+        self.next_task_id.fetch_add(1, Ordering::Relaxed)
     }
 
     pub fn system_ids(&self) -> Vec<String> {
