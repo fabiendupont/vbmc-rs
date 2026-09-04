@@ -304,7 +304,28 @@ impl MockupStore {
                 "ChassisType": "RackMount",
                 "Manufacturer": "vbmc-rs",
                 "Model": "Virtual Server 1U",
-                "Status": {"State": "Enabled", "Health": "OK"}
+                "Status": {"State": "Enabled", "Health": "OK"},
+                "Assembly": {"@odata.id": "/redfish/v1/Chassis/1/Assembly"}
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/Chassis/1/Assembly".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Chassis/1/Assembly",
+                "@odata.type": "#Assembly.v1_5_0.Assembly",
+                "Id": "Assembly",
+                "Name": "Chassis Assembly",
+                "Assemblies": [
+                    {
+                        "@odata.id": "/redfish/v1/Chassis/1/Assembly#/Assemblies/0",
+                        "MemberId": "0",
+                        "Name": "Motherboard",
+                        "Model": "Virtual Motherboard 1U",
+                        "Manufacturer": "vbmc-rs",
+                        "Status": {"State": "Enabled", "Health": "OK"}
+                    }
+                ]
             }),
         );
 
