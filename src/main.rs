@@ -59,6 +59,14 @@ enum Command {
         /// Listen port
         #[arg(short, long, default_value_t = 8000)]
         port: u16,
+
+        /// TLS certificate file (PEM). When both --cert and --key are given, HTTPS is used.
+        #[arg(long)]
+        cert: Option<PathBuf>,
+
+        /// TLS private key file (PEM). When both --cert and --key are given, HTTPS is used.
+        #[arg(long)]
+        key: Option<PathBuf>,
     },
 }
 
@@ -175,7 +183,12 @@ async fn main() -> anyhow::Result<()> {
             );
             return Ok(());
         }
-        Some(Command::Simulate { systems, port }) => {
+        Some(Command::Simulate {
+            systems,
+            port,
+            cert,
+            key,
+        }) => {
             tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_from_default_env()
@@ -184,24 +197,56 @@ async fn main() -> anyhow::Result<()> {
                 .init();
 
             let store = Arc::new(MockupStore::generate(systems));
-            let config = config::AppConfig::simulate(port);
+            let config = config::AppConfig::simulate_with_tls(port, cert, key);
+            config.server.validate_tls()?;
+
+            if config.server.tls_cert.is_some() {
+                rustls::crypto::ring::default_provider()
+                    .install_default()
+                    .expect("Failed to install rustls crypto provider");
+            }
+
+            let tls_server_config = tls::build_tls_config(
+                &config.server,
+                config.security_policy.tls_minimum_version.as_deref(),
+            )?;
+            let rustls_config = tls_server_config
+                .map(|c| axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(c)));
+
             let app_state = Arc::new(AppState::new(
                 config,
                 Backend::Mockup(MockupBackend::new(store.clone())),
                 AccountStore::default(),
-                None,
+                rustls_config.clone(),
                 Some(store),
             ));
             let addr = SocketAddr::new("127.0.0.1".parse()?, port);
             let app = redfish::router(app_state);
-            let listener = TcpListener::bind(addr).await?;
-            info!("Simulating {} server(s) at http://{}", systems, addr);
-            info!("Try: curl -s http://{}/redfish/v1/Systems | jq .", addr);
-            axum::serve(listener, app)
-                .with_graceful_shutdown(async {
+
+            if let Some(rustls_config) = rustls_config {
+                info!("Simulating {} server(s) at https://{}", systems, addr);
+                info!("Try: curl -sk https://{}/redfish/v1/Systems | jq .", addr);
+                let handle = axum_server::Handle::new();
+                let handle_clone = handle.clone();
+                tokio::spawn(async move {
                     tokio::signal::ctrl_c().await.ok();
-                })
-                .await?;
+                    info!("Received shutdown signal");
+                    handle_clone.graceful_shutdown(None);
+                });
+                axum_server::bind_rustls(addr, rustls_config)
+                    .handle(handle)
+                    .serve(app.into_make_service())
+                    .await?;
+            } else {
+                info!("Simulating {} server(s) at http://{}", systems, addr);
+                info!("Try: curl -s http://{}/redfish/v1/Systems | jq .", addr);
+                let listener = TcpListener::bind(addr).await?;
+                axum::serve(listener, app)
+                    .with_graceful_shutdown(async {
+                        tokio::signal::ctrl_c().await.ok();
+                    })
+                    .await?;
+            }
             return Ok(());
         }
         None => {}
