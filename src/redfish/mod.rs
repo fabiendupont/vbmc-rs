@@ -611,6 +611,20 @@ async fn mockup_fallback(
                 };
                 store.patch(&system_path, &serde_json::json!({"PowerState": new_state}));
                 StatusCode::OK.into_response()
+            } else if path.ends_with("/Actions/Bios.ResetBios") {
+                // Reset pending BIOS settings. A merge patch of `{}` would not clear
+                // existing attributes, so overwrite the Attributes object wholesale.
+                let settings_path = path.replace("/Actions/Bios.ResetBios", "/Settings");
+                match store.get(&settings_path) {
+                    Some(mut settings) => {
+                        if let Some(obj) = settings.as_object_mut() {
+                            obj.insert("Attributes".to_string(), serde_json::json!({}));
+                        }
+                        store.set(&settings_path, settings);
+                        StatusCode::OK.into_response()
+                    }
+                    None => StatusCode::NOT_FOUND.into_response(),
+                }
             } else if path.ends_with("/Actions/Manager.Reset") {
                 // The simulated manager stays enabled; acknowledge the reset.
                 // Only a Manager resource owns this action — a suffix match alone

@@ -194,6 +194,122 @@ impl MockupStore {
                 }),
             );
 
+            let bios_attrs = serde_json::json!({
+                "BootMode": "UEFI",
+                "NumCores": 4,
+                "HyperThreadingEnabled": true,
+                "VirtualizationEnabled": true,
+                "SecureBootState": "Disabled"
+            });
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/Bios"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/Bios"),
+                    "@odata.type": "#Bios.v1_2_0.Bios",
+                    "Id": "Bios",
+                    "Name": "BIOS Configuration",
+                    "Attributes": bios_attrs,
+                    "@Redfish.Settings": {
+                        "SettingsObject": {"@odata.id": format!("/redfish/v1/Systems/{id}/Bios/Settings")}
+                    },
+                    "Actions": {
+                        "#Bios.ResetBios": {
+                            "target": format!("/redfish/v1/Systems/{id}/Bios/Actions/Bios.ResetBios")
+                        }
+                    }
+                }),
+            );
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/Bios/Settings"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/Bios/Settings"),
+                    "@odata.type": "#Bios.v1_2_0.Bios",
+                    "Id": "Settings",
+                    "Name": "BIOS Pending Settings",
+                    "Attributes": {}
+                }),
+            );
+
+            // GPU chassis for systems with a GPU index
+            let gpu_id = format!("GPU{}", i - 1);
+            let gpu_sensor_path = format!("/redfish/v1/Chassis/{gpu_id}/Sensors");
+            store.resources.insert(
+                format!("/redfish/v1/Chassis/{gpu_id}"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Chassis/{gpu_id}"),
+                    "@odata.type": "#Chassis.v1_24_0.Chassis",
+                    "Id": gpu_id,
+                    "Name": format!("Simulated GPU {}", i - 1),
+                    "ChassisType": "Card",
+                    "Manufacturer": "vbmc-rs",
+                    "Model": "Virtual GPU",
+                    "Status": {"State": "Enabled", "Health": "OK"},
+                    "Sensors": {"@odata.id": gpu_sensor_path}
+                }),
+            );
+            store.resources.insert(
+                format!("/redfish/v1/Chassis/{gpu_id}/Sensors"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Chassis/{gpu_id}/Sensors"),
+                    "@odata.type": "#SensorCollection.SensorCollection",
+                    "Name": "GPU Sensor Collection",
+                    "Members@odata.count": 2,
+                    "Members": [
+                        {
+                            "@odata.id": format!("/redfish/v1/Chassis/{gpu_id}/Sensors/Temp0"),
+                            "@odata.type": "#Sensor.v1_6_0.Sensor",
+                            "Id": "Temp0",
+                            "Name": "GPU Temperature",
+                            "PhysicalContext": "GPU",
+                            "Reading": 65.0_f64,
+                            "ReadingType": "Temperature",
+                            "ReadingUnits": "Cel",
+                            "Status": {"State": "Enabled", "Health": "OK"}
+                        },
+                        {
+                            "@odata.id": format!("/redfish/v1/Chassis/{gpu_id}/Sensors/Power0"),
+                            "@odata.type": "#Sensor.v1_6_0.Sensor",
+                            "Id": "Power0",
+                            "Name": "GPU Power",
+                            "PhysicalContext": "GPUSubsystem",
+                            "Reading": 150.0_f64,
+                            "ReadingType": "Power",
+                            "ReadingUnits": "W",
+                            "Status": {"State": "Enabled", "Health": "OK"}
+                        }
+                    ]
+                }),
+            );
+            // Serve the individual sensor members advertised above.
+            store.resources.insert(
+                format!("/redfish/v1/Chassis/{gpu_id}/Sensors/Temp0"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Chassis/{gpu_id}/Sensors/Temp0"),
+                    "@odata.type": "#Sensor.v1_6_0.Sensor",
+                    "Id": "Temp0",
+                    "Name": "GPU Temperature",
+                    "PhysicalContext": "GPU",
+                    "Reading": 65.0_f64,
+                    "ReadingType": "Temperature",
+                    "ReadingUnits": "Cel",
+                    "Status": {"State": "Enabled", "Health": "OK"}
+                }),
+            );
+            store.resources.insert(
+                format!("/redfish/v1/Chassis/{gpu_id}/Sensors/Power0"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Chassis/{gpu_id}/Sensors/Power0"),
+                    "@odata.type": "#Sensor.v1_6_0.Sensor",
+                    "Id": "Power0",
+                    "Name": "GPU Power",
+                    "PhysicalContext": "GPUSubsystem",
+                    "Reading": 150.0_f64,
+                    "ReadingType": "Power",
+                    "ReadingUnits": "W",
+                    "Status": {"State": "Enabled", "Health": "OK"}
+                }),
+            );
+
             members.push(serde_json::json!({"@odata.id": format!("/redfish/v1/Systems/{id}")}));
         }
 
@@ -283,14 +399,21 @@ impl MockupStore {
             }),
         );
 
+        let mut chassis_members = vec![serde_json::json!({"@odata.id": "/redfish/v1/Chassis/1"})];
+        for i in 1..=count {
+            chassis_members.push(serde_json::json!({
+                "@odata.id": format!("/redfish/v1/Chassis/GPU{}", i - 1)
+            }));
+        }
+        let chassis_count = chassis_members.len();
         store.resources.insert(
             "/redfish/v1/Chassis".to_string(),
             serde_json::json!({
                 "@odata.id": "/redfish/v1/Chassis",
                 "@odata.type": "#ChassisCollection.ChassisCollection",
                 "Name": "Chassis Collection",
-                "Members": [{"@odata.id": "/redfish/v1/Chassis/1"}],
-                "Members@odata.count": 1
+                "Members": chassis_members,
+                "Members@odata.count": chassis_count
             }),
         );
 
@@ -444,6 +567,11 @@ impl MockupStore {
         if let Some(mut entry) = self.resources.get_mut(path) {
             merge_json(entry.value_mut(), patch);
         }
+    }
+
+    /// Insert or overwrite a resource wholesale (unlike `patch`, which deep-merges).
+    pub fn set(&self, path: &str, value: serde_json::Value) {
+        self.resources.insert(path.to_string(), value);
     }
 
     /// Whether a resource exists at `path`.
