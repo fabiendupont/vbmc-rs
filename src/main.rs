@@ -196,7 +196,8 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .init();
 
-            let store = Arc::new(MockupStore::generate(systems));
+            let tls_enabled = cert.is_some() && key.is_some();
+            let store = Arc::new(MockupStore::generate(systems, port, tls_enabled));
             let config = config::AppConfig::simulate_with_tls(port, cert, key);
             config.server.validate_tls()?;
 

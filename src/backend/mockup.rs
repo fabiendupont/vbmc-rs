@@ -12,7 +12,7 @@ pub struct MockupStore {
 }
 
 impl MockupStore {
-    pub fn generate(count: usize) -> Self {
+    pub fn generate(count: usize, port: u16, tls_enabled: bool) -> Self {
         let store = Self {
             resources: DashMap::new(),
         };
@@ -208,6 +208,106 @@ impl MockupStore {
             }),
         );
 
+        let bmc_mac = "52:54:00:ff:00:01";
+
+        store.resources.insert(
+            "/redfish/v1/Managers".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Managers",
+                "@odata.type": "#ManagerCollection.ManagerCollection",
+                "Name": "Manager Collection",
+                "Members": [{"@odata.id": "/redfish/v1/Managers/vbmc"}],
+                "Members@odata.count": 1
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/Managers/vbmc".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Managers/vbmc",
+                "@odata.type": "#Manager.v1_18_0.Manager",
+                "Id": "vbmc",
+                "Name": "vbmc-rs Manager",
+                "ManagerType": "BMC",
+                "FirmwareVersion": "0.1.0",
+                "Status": {"State": "Enabled", "Health": "OK"},
+                "EthernetInterfaces": {"@odata.id": "/redfish/v1/Managers/vbmc/EthernetInterfaces"},
+                "NetworkProtocol": {"@odata.id": "/redfish/v1/Managers/vbmc/NetworkProtocol"},
+                "Actions": {
+                    "#Manager.Reset": {
+                        "target": "/redfish/v1/Managers/vbmc/Actions/Manager.Reset",
+                        "ResetType@Redfish.AllowableValues": ["GracefulRestart", "ForceRestart"]
+                    }
+                }
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/Managers/vbmc/NetworkProtocol".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Managers/vbmc/NetworkProtocol",
+                "@odata.type": "#ManagerNetworkProtocol.v1_9_0.ManagerNetworkProtocol",
+                "Id": "NetworkProtocol",
+                "Name": "Manager Network Protocol",
+                "Status": {"State": "Enabled", "Health": "OK"},
+                // Reflect the transport the fleet actually listens on: HTTPS when a
+                // TLS cert/key was supplied, plain HTTP otherwise. Advertising HTTPS
+                // unconditionally would mislead clients that follow NetworkProtocol.
+                "HTTP": {"ProtocolEnabled": !tls_enabled, "Port": if tls_enabled { 0 } else { port }},
+                "HTTPS": {"ProtocolEnabled": tls_enabled, "Port": if tls_enabled { port } else { 0 }},
+                "SSDP": {"ProtocolEnabled": false}
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/Managers/vbmc/EthernetInterfaces".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Managers/vbmc/EthernetInterfaces",
+                "@odata.type": "#EthernetInterfaceCollection.EthernetInterfaceCollection",
+                "Name": "Ethernet Interface Collection",
+                "Members": [{"@odata.id": "/redfish/v1/Managers/vbmc/EthernetInterfaces/eth0"}],
+                "Members@odata.count": 1
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/Managers/vbmc/EthernetInterfaces/eth0".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Managers/vbmc/EthernetInterfaces/eth0",
+                "@odata.type": "#EthernetInterface.v1_9_0.EthernetInterface",
+                "Id": "eth0",
+                "Name": "BMC Ethernet Interface",
+                "MACAddress": bmc_mac,
+                "SpeedMbps": 1000,
+                "Status": {"State": "Enabled", "Health": "OK"}
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/Chassis".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Chassis",
+                "@odata.type": "#ChassisCollection.ChassisCollection",
+                "Name": "Chassis Collection",
+                "Members": [{"@odata.id": "/redfish/v1/Chassis/1"}],
+                "Members@odata.count": 1
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/Chassis/1".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Chassis/1",
+                "@odata.type": "#Chassis.v1_24_0.Chassis",
+                "Id": "1",
+                "Name": "vbmc-rs Chassis",
+                "ChassisType": "RackMount",
+                "Manufacturer": "vbmc-rs",
+                "Model": "Virtual Server 1U",
+                "Status": {"State": "Enabled", "Health": "OK"}
+            }),
+        );
+
         store.resources.insert(
             "/redfish/v1".to_string(),
             serde_json::json!({
@@ -216,16 +316,66 @@ impl MockupStore {
                 "Id": "RootService",
                 "Name": "vbmc-rs Simulated BMC",
                 "RedfishVersion": "1.21.0",
+                "Vendor": "vbmc-rs",
+                "Product": "Virtual BMC",
                 "UUID": uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_DNS, b"vbmc-rs-simulate").to_string(),
                 "Systems": {"@odata.id": "/redfish/v1/Systems"},
                 "Chassis": {"@odata.id": "/redfish/v1/Chassis"},
-                "Managers": {"@odata.id": "/redfish/v1/Managers"}
+                "Managers": {"@odata.id": "/redfish/v1/Managers"},
+                "AccountService": {"@odata.id": "/redfish/v1/AccountService"},
+                "SessionService": {"@odata.id": "/redfish/v1/SessionService"}
             }),
         );
 
         store.resources.insert(
             "/redfish".to_string(),
             serde_json::json!({"v1": "/redfish/v1"}),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/AccountService".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/AccountService",
+                "@odata.type": "#AccountService.v1_13_0.AccountService",
+                "Id": "AccountService",
+                "Name": "Account Service",
+                "Accounts": {"@odata.id": "/redfish/v1/AccountService/Accounts"}
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/AccountService/Accounts".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/AccountService/Accounts",
+                "@odata.type": "#ManagerAccountCollection.ManagerAccountCollection",
+                "Name": "Accounts Collection",
+                "Members": [],
+                "Members@odata.count": 0
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/SessionService".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/SessionService",
+                "@odata.type": "#SessionService.v1_1_9.SessionService",
+                "Id": "SessionService",
+                "Name": "Session Service",
+                "ServiceEnabled": true,
+                "SessionTimeout": 30,
+                "Sessions": {"@odata.id": "/redfish/v1/SessionService/Sessions"}
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/SessionService/Sessions".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/SessionService/Sessions",
+                "@odata.type": "#SessionCollection.SessionCollection",
+                "Name": "Session Collection",
+                "Members": [],
+                "Members@odata.count": 0
+            }),
         );
 
         info!(systems = count, "Generated simulated BMC fleet");
@@ -273,6 +423,11 @@ impl MockupStore {
         if let Some(mut entry) = self.resources.get_mut(path) {
             merge_json(entry.value_mut(), patch);
         }
+    }
+
+    /// Whether a resource exists at `path`.
+    pub fn contains(&self, path: &str) -> bool {
+        self.resources.contains_key(path)
     }
 
     pub fn system_ids(&self) -> Vec<String> {

@@ -568,7 +568,9 @@ async fn mockup_fallback(
         None => return StatusCode::NOT_FOUND.into_response(),
     };
 
-    let path = req.uri().path().to_string();
+    // Normalize: strip trailing slash so /redfish/v1/ and /redfish/v1 both hit the same key.
+    let raw = req.uri().path();
+    let path = if raw.len() > 1 { raw.trim_end_matches('/') } else { raw }.to_string();
     let method = req.method().clone();
 
     match method {
@@ -609,6 +611,17 @@ async fn mockup_fallback(
                 };
                 store.patch(&system_path, &serde_json::json!({"PowerState": new_state}));
                 StatusCode::OK.into_response()
+            } else if path.ends_with("/Actions/Manager.Reset") {
+                // The simulated manager stays enabled; acknowledge the reset.
+                // Only a Manager resource owns this action — a suffix match alone
+                // would also accept e.g. /Systems/Server1/Actions/Manager.Reset.
+                let manager_path = path.split("/Actions/").next().unwrap_or(&path);
+                if manager_path.starts_with("/redfish/v1/Managers/") && store.contains(manager_path)
+                {
+                    StatusCode::OK.into_response()
+                } else {
+                    StatusCode::NOT_FOUND.into_response()
+                }
             } else {
                 StatusCode::METHOD_NOT_ALLOWED.into_response()
             }
