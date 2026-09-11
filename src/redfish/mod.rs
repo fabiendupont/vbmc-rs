@@ -397,95 +397,95 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(trusted_component::get_chassis_collection),
         )
         .route(
-            "/redfish/v1/Chassis/1",
+            "/redfish/v1/Chassis/{chassis_id}",
             get(trusted_component::get_chassis),
         )
         .route(
-            "/redfish/v1/Chassis/1/Power",
+            "/redfish/v1/Chassis/{chassis_id}/Power",
             get(chassis_power::get_power),
         )
         .route(
-            "/redfish/v1/Chassis/1/Thermal",
+            "/redfish/v1/Chassis/{chassis_id}/Thermal",
             get(chassis_thermal::get_thermal),
         )
         // PowerSubsystem (modern)
         .route(
-            "/redfish/v1/Chassis/1/PowerSubsystem",
+            "/redfish/v1/Chassis/{chassis_id}/PowerSubsystem",
             get(chassis_power_subsystem::get_power_subsystem),
         )
         .route(
-            "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies",
+            "/redfish/v1/Chassis/{chassis_id}/PowerSubsystem/PowerSupplies",
             get(chassis_power_subsystem::get_power_supplies),
         )
         .route(
-            "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0",
+            "/redfish/v1/Chassis/{chassis_id}/PowerSubsystem/PowerSupplies/0",
             get(chassis_power_subsystem::get_power_supply),
         )
         // ThermalSubsystem (modern)
         .route(
-            "/redfish/v1/Chassis/1/ThermalSubsystem",
+            "/redfish/v1/Chassis/{chassis_id}/ThermalSubsystem",
             get(chassis_thermal_subsystem::get_thermal_subsystem),
         )
         .route(
-            "/redfish/v1/Chassis/1/ThermalSubsystem/ThermalMetrics",
+            "/redfish/v1/Chassis/{chassis_id}/ThermalSubsystem/ThermalMetrics",
             get(chassis_thermal_subsystem::get_thermal_metrics),
         )
         .route(
-            "/redfish/v1/Chassis/1/ThermalSubsystem/Fans",
+            "/redfish/v1/Chassis/{chassis_id}/ThermalSubsystem/Fans",
             get(chassis_thermal_subsystem::get_fans),
         )
         .route(
-            "/redfish/v1/Chassis/1/ThermalSubsystem/Fans/0",
+            "/redfish/v1/Chassis/{chassis_id}/ThermalSubsystem/Fans/0",
             get(chassis_thermal_subsystem::get_fan),
         )
         // Sensors
         .route(
-            "/redfish/v1/Chassis/1/Sensors",
+            "/redfish/v1/Chassis/{chassis_id}/Sensors",
             get(sensors::get_sensors),
         )
         .route(
-            "/redfish/v1/Chassis/1/Sensors/{sensor_id}",
+            "/redfish/v1/Chassis/{chassis_id}/Sensors/{sensor_id}",
             get(sensors::get_sensor),
         )
         .route(
-            "/redfish/v1/Chassis/1/NetworkAdapters",
+            "/redfish/v1/Chassis/{chassis_id}/NetworkAdapters",
             get(network_adapter::get_network_adapters),
         )
         .route(
-            "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}",
+            "/redfish/v1/Chassis/{chassis_id}/NetworkAdapters/{adapter_id}",
             get(network_adapter::get_network_adapter),
         )
         .route(
-            "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions",
+            "/redfish/v1/Chassis/{chassis_id}/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions",
             get(network_adapter::get_network_device_functions),
         )
         .route(
-            "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions/{func_id}",
+            "/redfish/v1/Chassis/{chassis_id}/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions/{func_id}",
             get(network_adapter::get_network_device_function),
         )
         .route(
-            "/redfish/v1/Chassis/1/TrustedComponents",
+            "/redfish/v1/Chassis/{chassis_id}/TrustedComponents",
             get(trusted_component::get_trusted_components),
         )
         .route(
-            "/redfish/v1/Chassis/1/TrustedComponents/{component_id}",
+            "/redfish/v1/Chassis/{chassis_id}/TrustedComponents/{component_id}",
             get(trusted_component::get_trusted_component),
         )
         // Assembly
         .route(
-            "/redfish/v1/Chassis/1/Assembly",
+            "/redfish/v1/Chassis/{chassis_id}/Assembly",
             get(assembly::get_chassis_assembly),
         )
         .route(
-            "/redfish/v1/Chassis/1/ThermalSubsystem/Fans/{fan_id}/Assembly",
+            "/redfish/v1/Chassis/{chassis_id}/ThermalSubsystem/Fans/{fan_id}/Assembly",
             get(assembly::get_chassis_sub_assembly),
         )
         .route(
-            "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/{psu_id}/Assembly",
+            "/redfish/v1/Chassis/{chassis_id}/PowerSubsystem/PowerSupplies/{psu_id}/Assembly",
             get(assembly::get_chassis_sub_assembly),
         )
         .route(
-            "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/Assembly",
+            "/redfish/v1/Chassis/{chassis_id}/NetworkAdapters/{adapter_id}/Assembly",
             get(assembly::get_chassis_sub_assembly),
         )
         .route(
@@ -502,7 +502,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         // EnvironmentMetrics
         .route(
-            "/redfish/v1/Chassis/1/EnvironmentMetrics",
+            "/redfish/v1/Chassis/{chassis_id}/EnvironmentMetrics",
             get(environment_metrics::get_environment_metrics),
         )
         // Component Integrity

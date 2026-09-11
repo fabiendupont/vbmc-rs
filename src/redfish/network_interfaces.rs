@@ -80,7 +80,8 @@ pub async fn get_network_interface(
         description: "System network interface",
         links: NetworkInterfaceLinks {
             network_adapter: ODataId::new(format!(
-                "/redfish/v1/Chassis/1/NetworkAdapters/{system_id}_NIC0"
+                "/redfish/v1/Chassis/{}/NetworkAdapters/{system_id}_NIC0",
+                state.chassis_id
             )),
         },
         status: Status::enabled_ok(),

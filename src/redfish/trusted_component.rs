@@ -16,9 +16,9 @@ pub struct ChassisResource {
     #[serde(rename = "@odata.type")]
     pub odata_type: &'static str,
     #[serde(rename = "Id")]
-    pub id: &'static str,
+    pub id: String,
     #[serde(rename = "Name")]
-    pub name: &'static str,
+    pub name: String,
     #[serde(rename = "Description")]
     pub description: &'static str,
     #[serde(rename = "ChassisType")]
@@ -127,8 +127,14 @@ pub struct ChassisLinks {
     pub contains: Vec<ODataId>,
 }
 
-pub async fn get_chassis_collection(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
-    let members = vec![ODataId::new("/redfish/v1/Chassis/1")];
+pub async fn get_chassis_collection(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<Collection<ODataId>> {
+    let members = vec![ODataId::new(format!(
+        "/redfish/v1/Chassis/{}",
+        state.chassis_id
+    ))];
     Json(Collection::new(
         "/redfish/v1/Chassis",
         "#ChassisCollection.ChassisCollection",
@@ -140,7 +146,15 @@ pub async fn get_chassis_collection(_user: AuthenticatedUser) -> Json<Collection
 pub async fn get_chassis(
     State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
-) -> Json<ChassisResource> {
+    Path(chassis_id): Path<String>,
+) -> Result<Json<ChassisResource>, super::error::RedfishApiError> {
+    if chassis_id != state.chassis_id {
+        return Err(super::error::RedfishApiError::NotFound(format!(
+            "Chassis '{chassis_id}' not found"
+        )));
+    }
+
+    let cid = &state.chassis_id;
     let computer_systems: Vec<ODataId> = state
         .config
         .systems
@@ -148,21 +162,21 @@ pub async fn get_chassis(
         .map(|id| ODataId::new(format!("/redfish/v1/Systems/{id}")))
         .collect();
 
-    Json(ChassisResource {
-        odata_id: "/redfish/v1/Chassis/1".to_string(),
+    Ok(Json(ChassisResource {
+        odata_id: format!("/redfish/v1/Chassis/{cid}"),
         odata_type: "#Chassis.v1_25_0.Chassis",
-        id: "1",
-        name: "Virtual Chassis",
+        id: cid.clone(),
+        name: cid.clone(),
         description: "Virtual chassis for vbmc-rs managed VMs",
         chassis_type: "Other",
         status: Status::enabled_ok(),
-        trusted_components: ODataId::new("/redfish/v1/Chassis/1/TrustedComponents"),
-        power_subsystem: ODataId::new("/redfish/v1/Chassis/1/PowerSubsystem"),
-        thermal_subsystem: ODataId::new("/redfish/v1/Chassis/1/ThermalSubsystem"),
-        sensors: ODataId::new("/redfish/v1/Chassis/1/Sensors"),
-        network_adapters: ODataId::new("/redfish/v1/Chassis/1/NetworkAdapters"),
-        assembly: ODataId::new("/redfish/v1/Chassis/1/Assembly"),
-        environment_metrics: ODataId::new("/redfish/v1/Chassis/1/EnvironmentMetrics"),
+        trusted_components: ODataId::new(format!("/redfish/v1/Chassis/{cid}/TrustedComponents")),
+        power_subsystem: ODataId::new(format!("/redfish/v1/Chassis/{cid}/PowerSubsystem")),
+        thermal_subsystem: ODataId::new(format!("/redfish/v1/Chassis/{cid}/ThermalSubsystem")),
+        sensors: ODataId::new(format!("/redfish/v1/Chassis/{cid}/Sensors")),
+        network_adapters: ODataId::new(format!("/redfish/v1/Chassis/{cid}/NetworkAdapters")),
+        assembly: ODataId::new(format!("/redfish/v1/Chassis/{cid}/Assembly")),
+        environment_metrics: ODataId::new(format!("/redfish/v1/Chassis/{cid}/EnvironmentMetrics")),
         power_state: "On",
         manufacturer: "vbmc-rs",
         model: "Virtual Chassis",
@@ -200,31 +214,32 @@ pub async fn get_chassis(
             managers_in_chassis: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
             drives: Vec::new(),
             storage: Vec::new(),
-            fans: vec![ODataId::new(
-                "/redfish/v1/Chassis/1/ThermalSubsystem/Fans/0",
-            )],
-            power_supplies: vec![ODataId::new(
-                "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0",
-            )],
+            fans: vec![ODataId::new(format!(
+                "/redfish/v1/Chassis/{cid}/ThermalSubsystem/Fans/0"
+            ))],
+            power_supplies: vec![ODataId::new(format!(
+                "/redfish/v1/Chassis/{cid}/PowerSubsystem/PowerSupplies/0"
+            ))],
             processors: Vec::new(),
             contains: Vec::new(),
         },
-    })
+    }))
 }
 
 pub async fn get_trusted_components(
     State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
 ) -> Json<Collection<ODataId>> {
+    let cid = &state.chassis_id;
     let members: Vec<ODataId> = state
         .config
         .systems
         .keys()
-        .map(|id| ODataId::new(format!("/redfish/v1/Chassis/1/TrustedComponents/{id}")))
+        .map(|id| ODataId::new(format!("/redfish/v1/Chassis/{cid}/TrustedComponents/{id}")))
         .collect();
 
     Json(Collection::new(
-        "/redfish/v1/Chassis/1/TrustedComponents",
+        format!("/redfish/v1/Chassis/{cid}/TrustedComponents"),
         "#TrustedComponentCollection.TrustedComponentCollection",
         "Trusted Component Collection",
         members,
@@ -292,8 +307,9 @@ pub async fn get_trusted_component(
         )));
     }
 
+    let cid = &state.chassis_id;
     Ok(Json(TrustedComponentResource {
-        odata_id: format!("/redfish/v1/Chassis/1/TrustedComponents/{component_id}"),
+        odata_id: format!("/redfish/v1/Chassis/{cid}/TrustedComponents/{component_id}"),
         odata_type: "#TrustedComponent.v1_3_0.TrustedComponent",
         id: component_id.clone(),
         name: format!("Trusted: {component_id}"),
@@ -314,8 +330,8 @@ pub async fn get_trusted_component(
             component_integrity: vec![ODataId::new(format!(
                 "/redfish/v1/ComponentIntegrity/{component_id}"
             ))],
-            integrated_into: ODataId::new("/redfish/v1/Chassis/1"),
-            owner: ODataId::new("/redfish/v1/Chassis/1"),
+            integrated_into: ODataId::new(format!("/redfish/v1/Chassis/{cid}")),
+            owner: ODataId::new(format!("/redfish/v1/Chassis/{cid}")),
             components_protected: vec![ODataId::new(format!("/redfish/v1/Systems/{component_id}"))],
             active_software_image: ODataId::new(
                 "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",

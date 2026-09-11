@@ -1,13 +1,17 @@
+use std::sync::Arc;
+
 use axum::Json;
+use axum::extract::State;
 use serde::Serialize;
 
 use super::types::{Collection, ODataId, Status};
+use crate::app_state::AppState;
 use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct PowerSubsystemResource {
     #[serde(rename = "@odata.id")]
-    pub odata_id: &'static str,
+    pub odata_id: String,
     #[serde(rename = "@odata.type")]
     pub odata_type: &'static str,
     #[serde(rename = "Id")]
@@ -39,7 +43,7 @@ pub struct PowerAllocation {
 #[derive(Debug, Serialize)]
 pub struct PowerSupplyResource {
     #[serde(rename = "@odata.id")]
-    pub odata_id: &'static str,
+    pub odata_id: String,
     #[serde(rename = "@odata.type")]
     pub odata_type: &'static str,
     #[serde(rename = "Id")]
@@ -120,9 +124,13 @@ pub struct PsuLinks {
     pub power_outlets: Vec<ODataId>,
 }
 
-pub async fn get_power_subsystem(_user: AuthenticatedUser) -> Json<PowerSubsystemResource> {
+pub async fn get_power_subsystem(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<PowerSubsystemResource> {
+    let cid = &state.chassis_id;
     Json(PowerSubsystemResource {
-        odata_id: "/redfish/v1/Chassis/1/PowerSubsystem",
+        odata_id: format!("/redfish/v1/Chassis/{cid}/PowerSubsystem"),
         odata_type: "#PowerSubsystem.v1_1_0.PowerSubsystem",
         id: "PowerSubsystem",
         name: "Power Subsystem",
@@ -134,26 +142,36 @@ pub async fn get_power_subsystem(_user: AuthenticatedUser) -> Json<PowerSubsyste
             allocated_watts: 500,
         },
         power_supply_redundancy: Vec::new(),
-        power_supplies: ODataId::new("/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies"),
+        power_supplies: ODataId::new(format!(
+            "/redfish/v1/Chassis/{cid}/PowerSubsystem/PowerSupplies"
+        )),
     })
 }
 
-pub async fn get_power_supplies(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
-    let members = vec![ODataId::new(
-        "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0",
-    )];
+pub async fn get_power_supplies(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<Collection<ODataId>> {
+    let cid = &state.chassis_id;
+    let members = vec![ODataId::new(format!(
+        "/redfish/v1/Chassis/{cid}/PowerSubsystem/PowerSupplies/0"
+    ))];
 
     Json(Collection::new(
-        "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies",
+        format!("/redfish/v1/Chassis/{cid}/PowerSubsystem/PowerSupplies"),
         "#PowerSupplyCollection.PowerSupplyCollection",
         "Power Supply Collection",
         members,
     ))
 }
 
-pub async fn get_power_supply(_user: AuthenticatedUser) -> Json<PowerSupplyResource> {
+pub async fn get_power_supply(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<PowerSupplyResource> {
+    let cid = &state.chassis_id;
     Json(PowerSupplyResource {
-        odata_id: "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0",
+        odata_id: format!("/redfish/v1/Chassis/{cid}/PowerSubsystem/PowerSupplies/0"),
         odata_type: "#PowerSupply.v1_5_0.PowerSupply",
         id: "0",
         name: "Virtual PSU",
@@ -190,9 +208,11 @@ pub async fn get_power_supply(_user: AuthenticatedUser) -> Json<PowerSupplyResou
                 efficiency_percent: 85,
             },
         ],
-        assembly: ODataId::new("/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0/Assembly"),
+        assembly: ODataId::new(format!(
+            "/redfish/v1/Chassis/{cid}/PowerSubsystem/PowerSupplies/0/Assembly"
+        )),
         psu_links: PsuLinks {
-            powering_chassis: vec![ODataId::new("/redfish/v1/Chassis/1")],
+            powering_chassis: vec![ODataId::new(format!("/redfish/v1/Chassis/{cid}"))],
             power_outlets: Vec::new(),
         },
         status: Status::enabled_ok(),

@@ -1,13 +1,17 @@
+use std::sync::Arc;
+
 use axum::Json;
+use axum::extract::State;
 use serde::Serialize;
 
 use super::types::{Collection, ODataId, Status};
+use crate::app_state::AppState;
 use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct ThermalSubsystemResource {
     #[serde(rename = "@odata.id")]
-    pub odata_id: &'static str,
+    pub odata_id: String,
     #[serde(rename = "@odata.type")]
     pub odata_type: &'static str,
     #[serde(rename = "Id")]
@@ -29,7 +33,7 @@ pub struct ThermalSubsystemResource {
 #[derive(Debug, Serialize)]
 pub struct ThermalMetricsResource {
     #[serde(rename = "@odata.id")]
-    pub odata_id: &'static str,
+    pub odata_id: String,
     #[serde(rename = "@odata.type")]
     pub odata_type: &'static str,
     #[serde(rename = "Id")]
@@ -57,7 +61,7 @@ pub struct MetricReading {
     #[serde(rename = "Reading")]
     pub reading: f64,
     #[serde(rename = "DataSourceUri", skip_serializing_if = "Option::is_none")]
-    pub data_source_uri: Option<&'static str>,
+    pub data_source_uri: Option<String>,
     #[serde(rename = "DeviceName", skip_serializing_if = "Option::is_none")]
     pub device_name: Option<&'static str>,
     #[serde(rename = "ApparentVA", skip_serializing_if = "Option::is_none")]
@@ -95,7 +99,7 @@ pub struct SummaryReading {
     #[serde(rename = "Reading")]
     pub reading: f64,
     #[serde(rename = "DataSourceUri")]
-    pub data_source_uri: Option<&'static str>,
+    pub data_source_uri: Option<String>,
     #[serde(rename = "DeviceName")]
     pub device_name: Option<&'static str>,
 }
@@ -103,7 +107,7 @@ pub struct SummaryReading {
 #[derive(Debug, Serialize)]
 pub struct TemperatureReading {
     #[serde(rename = "DataSourceUri")]
-    pub data_source_uri: &'static str,
+    pub data_source_uri: String,
     #[serde(rename = "Reading")]
     pub reading: u32,
     #[serde(rename = "DeviceName")]
@@ -135,7 +139,7 @@ pub struct FanLinks {
 #[derive(Debug, Serialize)]
 pub struct FanResource {
     #[serde(rename = "@odata.id")]
-    pub odata_id: &'static str,
+    pub odata_id: String,
     #[serde(rename = "@odata.type")]
     pub odata_type: &'static str,
     #[serde(rename = "Id")]
@@ -180,29 +184,39 @@ pub struct FanResource {
     pub status: Status,
 }
 
-pub async fn get_thermal_subsystem(_user: AuthenticatedUser) -> Json<ThermalSubsystemResource> {
+pub async fn get_thermal_subsystem(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<ThermalSubsystemResource> {
+    let cid = &state.chassis_id;
     Json(ThermalSubsystemResource {
-        odata_id: "/redfish/v1/Chassis/1/ThermalSubsystem",
+        odata_id: format!("/redfish/v1/Chassis/{cid}/ThermalSubsystem"),
         odata_type: "#ThermalSubsystem.v1_3_0.ThermalSubsystem",
         id: "ThermalSubsystem",
         name: "Thermal Subsystem",
         description: "Thermal subsystem for virtual chassis",
         status: Status::enabled_ok(),
-        thermal_metrics: ODataId::new("/redfish/v1/Chassis/1/ThermalSubsystem/ThermalMetrics"),
+        thermal_metrics: ODataId::new(format!(
+            "/redfish/v1/Chassis/{cid}/ThermalSubsystem/ThermalMetrics"
+        )),
         fan_redundancy: Vec::new(),
-        fans: ODataId::new("/redfish/v1/Chassis/1/ThermalSubsystem/Fans"),
+        fans: ODataId::new(format!("/redfish/v1/Chassis/{cid}/ThermalSubsystem/Fans")),
     })
 }
 
-pub async fn get_thermal_metrics(_user: AuthenticatedUser) -> Json<ThermalMetricsResource> {
+pub async fn get_thermal_metrics(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<ThermalMetricsResource> {
+    let cid = &state.chassis_id;
     Json(ThermalMetricsResource {
-        odata_id: "/redfish/v1/Chassis/1/ThermalSubsystem/ThermalMetrics",
+        odata_id: format!("/redfish/v1/Chassis/{cid}/ThermalSubsystem/ThermalMetrics"),
         odata_type: "#ThermalMetrics.v1_3_0.ThermalMetrics",
         id: "ThermalMetrics",
         name: "Thermal Metrics",
         description: "Thermal metrics for virtual chassis",
         temperature_readings_celsius: vec![TemperatureReading {
-            data_source_uri: "/redfish/v1/Chassis/1/Sensors/CpuTemp",
+            data_source_uri: format!("/redfish/v1/Chassis/{cid}/Sensors/CpuTemp"),
             reading: 35,
             device_name: "CPU Temperature",
             physical_context: "CPU",
@@ -211,22 +225,22 @@ pub async fn get_thermal_metrics(_user: AuthenticatedUser) -> Json<ThermalMetric
         temperature_summary_celsius: TemperatureSummary {
             internal: SummaryReading {
                 reading: 35.0,
-                data_source_uri: Some("/redfish/v1/Chassis/1/Sensors/CpuTemp"),
+                data_source_uri: Some(format!("/redfish/v1/Chassis/{cid}/Sensors/CpuTemp")),
                 device_name: Some("CPU"),
             },
             ambient: SummaryReading {
                 reading: 22.0,
-                data_source_uri: Some("/redfish/v1/Chassis/1/Sensors/AmbientTemp"),
+                data_source_uri: Some(format!("/redfish/v1/Chassis/{cid}/Sensors/AmbientTemp")),
                 device_name: Some("Ambient"),
             },
             exhaust: SummaryReading {
                 reading: 28.0,
-                data_source_uri: Some("/redfish/v1/Chassis/1/Sensors/ExhaustTemp"),
+                data_source_uri: Some(format!("/redfish/v1/Chassis/{cid}/Sensors/ExhaustTemp")),
                 device_name: Some("Exhaust"),
             },
             intake: SummaryReading {
                 reading: 20.0,
-                data_source_uri: Some("/redfish/v1/Chassis/1/Sensors/IntakeTemp"),
+                data_source_uri: Some(format!("/redfish/v1/Chassis/{cid}/Sensors/IntakeTemp")),
                 device_name: Some("Intake"),
             },
         },
@@ -285,22 +299,30 @@ pub async fn get_thermal_metrics(_user: AuthenticatedUser) -> Json<ThermalMetric
     })
 }
 
-pub async fn get_fans(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
-    let members = vec![ODataId::new(
-        "/redfish/v1/Chassis/1/ThermalSubsystem/Fans/0",
-    )];
+pub async fn get_fans(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<Collection<ODataId>> {
+    let cid = &state.chassis_id;
+    let members = vec![ODataId::new(format!(
+        "/redfish/v1/Chassis/{cid}/ThermalSubsystem/Fans/0"
+    ))];
 
     Json(Collection::new(
-        "/redfish/v1/Chassis/1/ThermalSubsystem/Fans",
+        format!("/redfish/v1/Chassis/{cid}/ThermalSubsystem/Fans"),
         "#FanCollection.FanCollection",
         "Fan Collection",
         members,
     ))
 }
 
-pub async fn get_fan(_user: AuthenticatedUser) -> Json<FanResource> {
+pub async fn get_fan(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<FanResource> {
+    let cid = &state.chassis_id;
     Json(FanResource {
-        odata_id: "/redfish/v1/Chassis/1/ThermalSubsystem/Fans/0",
+        odata_id: format!("/redfish/v1/Chassis/{cid}/ThermalSubsystem/Fans/0"),
         odata_type: "#Fan.v1_5_0.Fan",
         id: "0",
         name: "System Fan",
@@ -332,12 +354,16 @@ pub async fn get_fan(_user: AuthenticatedUser) -> Json<FanResource> {
             data_source_uri: None,
         },
         fan_links: FanLinks {
-            cooling_chassis: vec![super::types::ODataId::new("/redfish/v1/Chassis/1")],
+            cooling_chassis: vec![super::types::ODataId::new(format!(
+                "/redfish/v1/Chassis/{cid}"
+            ))],
         },
         location: super::types::RedfishLocation::new("Fan 0", "Bay", 0),
         part_number: "VBMC-FAN",
         replaceable: false,
-        assembly: ODataId::new("/redfish/v1/Chassis/1/ThermalSubsystem/Fans/0/Assembly"),
+        assembly: ODataId::new(format!(
+            "/redfish/v1/Chassis/{cid}/ThermalSubsystem/Fans/0/Assembly"
+        )),
         status: Status::enabled_ok(),
     })
 }

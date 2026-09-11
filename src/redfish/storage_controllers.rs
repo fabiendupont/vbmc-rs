@@ -279,7 +279,7 @@ pub async fn get_storage(
         auto_volume_create: "Disabled",
         hotspare_activation_policy: "OEM",
         links: StorageLinks {
-            enclosures: vec![ODataId::new("/redfish/v1/Chassis/1")],
+            enclosures: vec![ODataId::new(format!("/redfish/v1/Chassis/{}", state.chassis_id))],
             simple_storage: ODataId::new(format!(
                 "/redfish/v1/Systems/{system_id}/SimpleStorage/1"
             )),

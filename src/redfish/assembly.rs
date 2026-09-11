@@ -1,8 +1,12 @@
+use std::sync::Arc;
+
 use axum::Json;
+use axum::extract::State;
 use axum::http::Uri;
 use serde::Serialize;
 
 use super::error::RedfishApiError;
+use crate::app_state::AppState;
 use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
@@ -23,9 +27,12 @@ pub struct AssemblyResource {
     pub assemblies_count: usize,
 }
 
-pub async fn get_chassis_assembly(_user: AuthenticatedUser) -> Json<AssemblyResource> {
+pub async fn get_chassis_assembly(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<AssemblyResource> {
     Json(AssemblyResource {
-        odata_id: "/redfish/v1/Chassis/1/Assembly".to_string(),
+        odata_id: format!("/redfish/v1/Chassis/{}/Assembly", state.chassis_id),
         odata_type: "#Assembly.v1_5_0.Assembly",
         id: "Assembly",
         name: "Chassis Assembly",

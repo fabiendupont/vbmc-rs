@@ -489,7 +489,7 @@ pub async fn get_manager_ethernet_interface(
             tagged: false,
         },
         links: EthernetLinks {
-            chassis: ODataId::new("/redfish/v1/Chassis/1"),
+            chassis: ODataId::new(format!("/redfish/v1/Chassis/{}", state.chassis_id)),
         },
         status: Status::enabled_ok(),
     }))

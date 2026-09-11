@@ -589,17 +589,20 @@ pub async fn get_system(
         },
         hosting_roles: Vec::new(),
         links: ComputerSystemLinks {
-            chassis: vec![ODataId::new("/redfish/v1/Chassis/1")],
+            chassis: vec![ODataId::new(format!("/redfish/v1/Chassis/{}", state.chassis_id))],
             managed_by: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
             trusted_components: vec![ODataId::new(format!(
-                "/redfish/v1/Chassis/1/TrustedComponents/{system_id}"
+                "/redfish/v1/Chassis/{}/TrustedComponents/{system_id}",
+                state.chassis_id
             ))],
-            cooled_by: vec![ODataId::new(
-                "/redfish/v1/Chassis/1/ThermalSubsystem/Fans/0",
-            )],
-            powered_by: vec![ODataId::new(
-                "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/0",
-            )],
+            cooled_by: vec![ODataId::new(format!(
+                "/redfish/v1/Chassis/{}/ThermalSubsystem/Fans/0",
+                state.chassis_id
+            ))],
+            powered_by: vec![ODataId::new(format!(
+                "/redfish/v1/Chassis/{}/PowerSubsystem/PowerSupplies/0",
+                state.chassis_id
+            ))],
             consuming_computer_systems: Vec::new(),
             supplying_computer_systems: Vec::new(),
             offloaded_network_device_functions: Vec::new(),

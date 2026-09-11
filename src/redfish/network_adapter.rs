@@ -113,14 +113,15 @@ pub async fn get_network_adapters(
         if let Ok(info) = state.backend.vm_info(system_id).await {
             for (i, _nic) in info.nics.iter().enumerate() {
                 members.push(ODataId::new(format!(
-                    "/redfish/v1/Chassis/1/NetworkAdapters/{system_id}_NIC{i}"
+                    "/redfish/v1/Chassis/{}/NetworkAdapters/{system_id}_NIC{i}",
+                    state.chassis_id
                 )));
             }
         }
     }
 
     Json(Collection::new(
-        "/redfish/v1/Chassis/1/NetworkAdapters",
+        format!("/redfish/v1/Chassis/{}/NetworkAdapters", state.chassis_id),
         "#NetworkAdapterCollection.NetworkAdapterCollection",
         "Network Adapter Collection",
         members,
@@ -151,17 +152,19 @@ pub async fn get_network_adapter(
     }
 
     Ok(Json(NetworkAdapterResource {
-        odata_id: format!("/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}"),
+        odata_id: format!("/redfish/v1/Chassis/{}/NetworkAdapters/{adapter_id}", state.chassis_id),
         odata_type: "#NetworkAdapter.v1_10_0.NetworkAdapter",
         id: adapter_id.clone(),
         name: format!("Network Adapter {adapter_id}"),
         description: "Virtual network adapter",
         manufacturer: "Virtual",
         network_device_functions: ODataId::new(format!(
-            "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions"
+            "/redfish/v1/Chassis/{}/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions",
+            state.chassis_id
         )),
         assembly: ODataId::new(format!(
-            "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/Assembly"
+            "/redfish/v1/Chassis/{}/NetworkAdapters/{adapter_id}/Assembly",
+            state.chassis_id
         )),
         status: Status::enabled_ok(),
     }))
@@ -190,11 +193,12 @@ pub async fn get_network_device_functions(
     }
 
     let members = vec![ODataId::new(format!(
-        "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions/0"
+        "/redfish/v1/Chassis/{}/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions/0",
+        state.chassis_id
     ))];
 
     Ok(Json(Collection::new(
-        format!("/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions"),
+        format!("/redfish/v1/Chassis/{}/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions", state.chassis_id),
         "#NetworkDeviceFunctionCollection.NetworkDeviceFunctionCollection",
         "Network Device Function Collection",
         members,
@@ -238,7 +242,8 @@ pub async fn get_network_device_function(
 
     Ok(Json(NetworkDeviceFunction {
         odata_id: format!(
-            "/redfish/v1/Chassis/1/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions/{func_id}"
+            "/redfish/v1/Chassis/{}/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions/{func_id}",
+            state.chassis_id
         ),
         odata_type: "#NetworkDeviceFunction.v1_9_0.NetworkDeviceFunction",
         id: func_id,

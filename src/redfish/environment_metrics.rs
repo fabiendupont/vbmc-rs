@@ -1,13 +1,17 @@
+use std::sync::Arc;
+
 use axum::Json;
+use axum::extract::State;
 use serde::Serialize;
 
 use super::types::ODataId;
+use crate::app_state::AppState;
 use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct EnvironmentMetricsResource {
     #[serde(rename = "@odata.id")]
-    pub odata_id: &'static str,
+    pub odata_id: String,
     #[serde(rename = "@odata.type")]
     pub odata_type: &'static str,
     #[serde(rename = "Id")]
@@ -44,27 +48,39 @@ pub struct ControlExcerpt {
     pub control_mode: &'static str,
 }
 
-pub async fn get_environment_metrics(_user: AuthenticatedUser) -> Json<EnvironmentMetricsResource> {
+pub async fn get_environment_metrics(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<EnvironmentMetricsResource> {
+    let cid = &state.chassis_id;
     Json(EnvironmentMetricsResource {
-        odata_id: "/redfish/v1/Chassis/1/EnvironmentMetrics",
+        odata_id: format!("/redfish/v1/Chassis/{cid}/EnvironmentMetrics"),
         odata_type: "#EnvironmentMetrics.v1_3_0.EnvironmentMetrics",
         id: "EnvironmentMetrics",
         name: "Chassis Environment Metrics",
         description: "Environmental metrics for the virtual chassis",
         temperature_celsius: SensorExcerpt {
-            data_source_uri: ODataId::new("/redfish/v1/Chassis/1/Sensors/AmbientTemp"),
+            data_source_uri: ODataId::new(format!(
+                "/redfish/v1/Chassis/{cid}/Sensors/AmbientTemp"
+            )),
             reading: 25.0,
         },
         humidity_percent: SensorExcerpt {
-            data_source_uri: ODataId::new("/redfish/v1/Chassis/1/Sensors/AmbientTemp"),
+            data_source_uri: ODataId::new(format!(
+                "/redfish/v1/Chassis/{cid}/Sensors/AmbientTemp"
+            )),
             reading: 45.0,
         },
         power_watts: SensorExcerpt {
-            data_source_uri: ODataId::new("/redfish/v1/Chassis/1/Sensors/ChassisPower"),
+            data_source_uri: ODataId::new(format!(
+                "/redfish/v1/Chassis/{cid}/Sensors/ChassisPower"
+            )),
             reading: 120.0,
         },
         fan_speeds_percent: vec![SensorExcerpt {
-            data_source_uri: ODataId::new("/redfish/v1/Chassis/1/Sensors/SystemFanSpeed"),
+            data_source_uri: ODataId::new(format!(
+                "/redfish/v1/Chassis/{cid}/Sensors/SystemFanSpeed"
+            )),
             reading: 40.0,
         }],
         power_limit_watts: ControlExcerpt {

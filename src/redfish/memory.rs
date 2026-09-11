@@ -327,7 +327,7 @@ pub async fn get_memory(
             "/redfish/v1/Systems/{system_id}/Memory/DIMM0/MemoryMetrics"
         )),
         links: MemoryLinks {
-            chassis: ODataId::new("/redfish/v1/Chassis/1"),
+            chassis: ODataId::new(format!("/redfish/v1/Chassis/{}", state.chassis_id)),
             processors: vec![ODataId::new(format!(
                 "/redfish/v1/Systems/{system_id}/Processors/CPU0"
             ))],

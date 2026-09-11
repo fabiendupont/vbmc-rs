@@ -107,7 +107,7 @@ pub async fn get_simple_storage(
         description: "Simple storage view",
         devices,
         links: SimpleStorageLinks {
-            chassis: ODataId::new("/redfish/v1/Chassis/1"),
+            chassis: ODataId::new(format!("/redfish/v1/Chassis/{}", state.chassis_id)),
             storage: ODataId::new(format!("/redfish/v1/Systems/{system_id}/Storage/Virtio")),
         },
         status: Status::enabled_ok(),

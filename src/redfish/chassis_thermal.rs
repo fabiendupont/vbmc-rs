@@ -1,13 +1,17 @@
+use std::sync::Arc;
+
 use axum::Json;
+use axum::extract::State;
 use serde::Serialize;
 
 use super::types::{ODataId, Status};
+use crate::app_state::AppState;
 use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct ThermalResource {
     #[serde(rename = "@odata.id")]
-    pub odata_id: &'static str,
+    pub odata_id: String,
     #[serde(rename = "@odata.type")]
     pub odata_type: &'static str,
     #[serde(rename = "Id")]
@@ -132,15 +136,19 @@ pub struct Fan {
     pub status: Status,
 }
 
-pub async fn get_thermal(_user: AuthenticatedUser) -> Json<ThermalResource> {
+pub async fn get_thermal(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<ThermalResource> {
+    let cid = &state.chassis_id;
     Json(ThermalResource {
-        odata_id: "/redfish/v1/Chassis/1/Thermal",
+        odata_id: format!("/redfish/v1/Chassis/{cid}/Thermal"),
         odata_type: "#Thermal.v1_7_2.Thermal",
         id: "Thermal",
         name: "Thermal",
         description: "Thermal sensors and fans",
         temperatures: vec![Temperature {
-            odata_id: "/redfish/v1/Chassis/1/Thermal#/Temperatures/0".to_string(),
+            odata_id: format!("/redfish/v1/Chassis/{cid}/Thermal#/Temperatures/0"),
             member_id: "0",
             name: "CPU Temperature",
             reading_celsius: 35,
@@ -162,11 +170,11 @@ pub async fn get_thermal(_user: AuthenticatedUser) -> Json<ThermalResource> {
             delta_physical_context: "Exhaust",
             physical_context: "CPU",
             sensor_number: 1,
-            related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
+            related_item: vec![ODataId::new(format!("/redfish/v1/Chassis/{cid}"))],
             status: Status::enabled_ok(),
         }],
         fans: vec![Fan {
-            odata_id: "/redfish/v1/Chassis/1/Thermal#/Fans/0".to_string(),
+            odata_id: format!("/redfish/v1/Chassis/{cid}/Thermal#/Fans/0"),
             member_id: "0",
             name: "System Fan",
             reading: 3000,
@@ -185,7 +193,7 @@ pub async fn get_thermal(_user: AuthenticatedUser) -> Json<ThermalResource> {
             lower_threshold_critical: 500,
             lower_threshold_fatal: 0,
             lower_threshold_non_critical: 1000,
-            related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
+            related_item: vec![ODataId::new(format!("/redfish/v1/Chassis/{cid}"))],
             spare_part_number: "VBMC-FAN-SPARE",
             location: super::types::RedfishLocation::new("Fan 0", "Bay", 0),
             hot_pluggable: false,

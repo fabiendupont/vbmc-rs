@@ -1,13 +1,17 @@
+use std::sync::Arc;
+
 use axum::Json;
+use axum::extract::State;
 use serde::Serialize;
 
 use super::types::{ODataId, Status};
+use crate::app_state::AppState;
 use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
 pub struct PowerResource {
     #[serde(rename = "@odata.id")]
-    pub odata_id: &'static str,
+    pub odata_id: String,
     #[serde(rename = "@odata.type")]
     pub odata_type: &'static str,
     #[serde(rename = "Id")]
@@ -176,15 +180,19 @@ pub struct LegacyInputRange {
     pub output_wattage: u32,
 }
 
-pub async fn get_power(_user: AuthenticatedUser) -> Json<PowerResource> {
+pub async fn get_power(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<PowerResource> {
+    let cid = &state.chassis_id;
     Json(PowerResource {
-        odata_id: "/redfish/v1/Chassis/1/Power",
+        odata_id: format!("/redfish/v1/Chassis/{cid}/Power"),
         odata_type: "#Power.v1_7_2.Power",
         id: "Power",
         name: "Power",
         description: "Power consumption and supplies",
         power_control: vec![PowerControl {
-            odata_id: "/redfish/v1/Chassis/1/Power#/PowerControl/0".to_string(),
+            odata_id: format!("/redfish/v1/Chassis/{cid}/Power#/PowerControl/0"),
             member_id: "0",
             name: "System Power Control",
             power_consumed_watts: 50,
@@ -204,11 +212,11 @@ pub async fn get_power(_user: AuthenticatedUser) -> Json<PowerResource> {
             power_allocated_watts: 500,
             power_available_watts: 450,
             power_requested_watts: 50,
-            related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
+            related_item: vec![ODataId::new(format!("/redfish/v1/Chassis/{cid}"))],
             status: Status::enabled_ok(),
         }],
         power_supplies: vec![PowerSupply {
-            odata_id: "/redfish/v1/Chassis/1/Power#/PowerSupplies/0".to_string(),
+            odata_id: format!("/redfish/v1/Chassis/{cid}/Power#/PowerSupplies/0"),
             member_id: "0",
             name: "Virtual PSU",
             power_capacity_watts: 500,
@@ -235,11 +243,11 @@ pub async fn get_power(_user: AuthenticatedUser) -> Json<PowerResource> {
             location: super::types::RedfishLocation::new("PSU 0", "Bay", 0),
             hot_pluggable: false,
             indicator_led: "Off",
-            related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
+            related_item: vec![ODataId::new(format!("/redfish/v1/Chassis/{cid}"))],
             status: Status::enabled_ok(),
         }],
         voltages: vec![Voltage {
-            odata_id: "/redfish/v1/Chassis/1/Power#/Voltages/0".to_string(),
+            odata_id: format!("/redfish/v1/Chassis/{cid}/Power#/Voltages/0"),
             member_id: "0",
             name: "12V Rail",
             reading_volts: 12.1,
@@ -254,7 +262,7 @@ pub async fn get_power(_user: AuthenticatedUser) -> Json<PowerResource> {
             upper_threshold_fatal: 14.0,
             lower_threshold_fatal: 10.0,
             status: Status::enabled_ok(),
-            related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
+            related_item: vec![ODataId::new(format!("/redfish/v1/Chassis/{cid}"))],
         }],
     })
 }

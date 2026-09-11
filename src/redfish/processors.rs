@@ -303,7 +303,7 @@ pub async fn get_processor(
             "/redfish/v1/Systems/{system_id}/Processors/CPU0/ProcessorMetrics"
         )),
         proc_links: ProcessorLinks {
-            chassis: ODataId::new("/redfish/v1/Chassis/1"),
+            chassis: ODataId::new(format!("/redfish/v1/Chassis/{}", state.chassis_id)),
             memory: vec![ODataId::new(format!(
                 "/redfish/v1/Systems/{system_id}/Memory/DIMM0"
             ))],

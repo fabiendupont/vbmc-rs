@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use axum::Json;
-use axum::extract::Path;
+use axum::extract::{Path, State};
 use serde::Serialize;
 
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
+use crate::app_state::AppState;
 use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
@@ -316,14 +319,18 @@ const SENSORS: &[SensorDef] = &[
     },
 ];
 
-pub async fn get_sensors(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
+pub async fn get_sensors(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<Collection<ODataId>> {
+    let cid = &state.chassis_id;
     let members: Vec<ODataId> = SENSORS
         .iter()
-        .map(|s| ODataId::new(format!("/redfish/v1/Chassis/1/Sensors/{}", s.id)))
+        .map(|s| ODataId::new(format!("/redfish/v1/Chassis/{cid}/Sensors/{}", s.id)))
         .collect();
 
     Json(Collection::new(
-        "/redfish/v1/Chassis/1/Sensors",
+        format!("/redfish/v1/Chassis/{cid}/Sensors"),
         "#SensorCollection.SensorCollection",
         "Sensor Collection",
         members,
@@ -341,9 +348,11 @@ fn make_threshold(reading: f64, activation: &'static str) -> ThresholdValue {
 }
 
 pub async fn get_sensor(
+    State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
     Path(sensor_id): Path<String>,
 ) -> Result<Json<SensorResource>, RedfishApiError> {
+    let cid = &state.chassis_id;
     let def = SENSORS
         .iter()
         .find(|s| s.id == sensor_id)
@@ -355,7 +364,7 @@ pub async fn get_sensor(
     let is_electrical = def.is_electrical;
 
     Ok(Json(SensorResource {
-        odata_id: format!("/redfish/v1/Chassis/1/Sensors/{}", def.id),
+        odata_id: format!("/redfish/v1/Chassis/{cid}/Sensors/{}", def.id),
         odata_type: "#Sensor.v1_9_0.Sensor",
         id: def.id.to_string(),
         name: def.name.to_string(),
@@ -419,7 +428,7 @@ pub async fn get_sensor(
         calibration: 0.0,
         calibration_time: "2026-01-01T00:00:00Z",
         lifetime_start_date_time: "2026-01-01T00:00:00Z",
-        related_item: vec![ODataId::new("/redfish/v1/Chassis/1")],
+        related_item: vec![ODataId::new(format!("/redfish/v1/Chassis/{cid}"))],
         location: super::types::RedfishLocation::new(def.id, "Embedded", 0),
         status: Status::enabled_ok(),
     }))

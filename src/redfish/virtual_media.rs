@@ -177,6 +177,40 @@ async fn do_insert_media(
     system_id: &str,
     body: &InsertMediaRequest,
 ) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    // Try backend-native ISO insertion (KubeVirt CDI path).
+    // Falls back to download-and-hotplug for all other backends.
+    if state
+        .backend
+        .vm_insert_iso(system_id, &body.image, "cd")
+        .await
+        .is_ok()
+    {
+        let mut vm_state = state.get_vm_state(system_id);
+        vm_state.virtual_media.inserted = body.inserted;
+        vm_state.virtual_media.image_url = Some(body.image.clone());
+        vm_state.virtual_media.write_protected = body.write_protected;
+        vm_state.virtual_media.media_type = Some("CD".to_string());
+        vm_state.virtual_media.device_id = Some("cd".to_string());
+        state.save_vm_state(system_id, &vm_state);
+
+        state.event_bus.emit(RedfishEvent {
+            event_type: EVENT_TYPE_RESOURCE_UPDATED.to_string(),
+            event_id: uuid::Uuid::new_v4().to_string(),
+            event_timestamp: Utc::now(),
+            message_id: MSG_VIRTUAL_MEDIA_INSERTED.to_string(),
+            message: format!("Virtual media inserted on system '{system_id}'"),
+            origin_of_condition: Some(format!(
+                "/redfish/v1/Systems/{system_id}/VirtualMedia/Cd"
+            )),
+            severity: SEVERITY_OK.to_string(),
+            actor: None,
+            payload: None,
+        });
+
+        return Ok(Json(serde_json::json!({"message": "Media inserted"})));
+    }
+
+    // Download-and-hotplug path for CH, QEMU, libvirt.
     let download_dir = state
         .config
         .systems
@@ -188,7 +222,6 @@ async fn do_insert_media(
         .await
         .map_err(|e| RedfishApiError::InternalError(format!("Failed to download image: {e}")))?;
 
-    // Try hot-plug if VM is running
     if let Ok(info) = state.backend.vm_info(system_id).await
         && info.power_state == VmPowerState::On
     {
@@ -284,14 +317,21 @@ pub async fn eject_media(
 
     let _lock = state.system_lock(&system_id).await;
 
-    // Try hot-unplug if VM is running
+    // Try backend-native eject (KubeVirt CDI: hotunplug + PVC + VIS cleanup).
+    let device_id = state
+        .get_vm_state(&system_id)
+        .virtual_media
+        .device_id
+        .clone()
+        .unwrap_or_else(|| "_vbmc_cdrom".to_string());
+
+    let _ = state.backend.vm_eject_iso(&system_id, &device_id).await;
+
+    // Also try plain hotunplug for backends that use vm_add_disk (no-op if already handled).
     if let Ok(info) = state.backend.vm_info(&system_id).await
         && info.power_state == VmPowerState::On
     {
-        let _ = state
-            .backend
-            .vm_remove_device(&system_id, "_vbmc_cdrom")
-            .await;
+        let _ = state.backend.vm_remove_device(&system_id, &device_id).await;
     }
 
     // Update state
