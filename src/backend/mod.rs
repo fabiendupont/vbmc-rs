@@ -299,7 +299,9 @@ pub mod mock {
             _system_id: &str,
             _device_id: &str,
         ) -> Result<(), BackendError> {
-            Err(BackendError::NotSupported("use vm_remove_device".to_string()))
+            Err(BackendError::NotSupported(
+                "use vm_remove_device".to_string(),
+            ))
         }
     }
 }

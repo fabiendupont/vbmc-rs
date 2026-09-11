@@ -272,7 +272,10 @@ pub async fn get_component_integrity(
         component_integrity_type: "SPDM",
         component_integrity_type_version: "1.0",
         component_integrity_enabled: true,
-        target_component_uri: format!("/redfish/v1/Chassis/{}/TrustedComponents/{system_id}", state.chassis_id),
+        target_component_uri: format!(
+            "/redfish/v1/Chassis/{}/TrustedComponents/{system_id}",
+            state.chassis_id
+        ),
         last_updated: vm_state
             .attestation
             .last_checked

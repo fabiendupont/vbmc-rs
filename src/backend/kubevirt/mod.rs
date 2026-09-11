@@ -170,7 +170,13 @@ fn parse_memory_string(s: &str) -> u64 {
 fn sanitize_k8s_name(s: &str) -> String {
     s.to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .to_string()
@@ -483,17 +489,17 @@ impl VmmBackend for KubeVirtBackend {
             let vm_api = self.vm_api(ns);
             let vm = vm_api.get(vm_name).await.map_err(map_kube_error)?;
 
-            let template_spec = vm
-                .spec
-                .template
-                .as_ref()
-                .and_then(|t| t.spec.as_ref());
+            let template_spec = vm.spec.template.as_ref().and_then(|t| t.spec.as_ref());
 
             let mut disks: Vec<serde_json::Value> = template_spec
                 .and_then(|s| s.domain.as_ref())
                 .and_then(|d| d.devices.as_ref())
                 .and_then(|d| d.disks.as_ref())
-                .map(|v| v.iter().map(|d| serde_json::to_value(d).unwrap_or_default()).collect())
+                .map(|v| {
+                    v.iter()
+                        .map(|d| serde_json::to_value(d).unwrap_or_default())
+                        .collect()
+                })
                 .unwrap_or_default();
             disks.retain(|d| d.get("name").and_then(|n| n.as_str()) != Some(dev.as_str()));
             disks.push(serde_json::json!({
@@ -503,7 +509,11 @@ impl VmmBackend for KubeVirtBackend {
 
             let mut volumes: Vec<serde_json::Value> = template_spec
                 .and_then(|s| s.volumes.as_ref())
-                .map(|v| v.iter().map(|vol| serde_json::to_value(vol).unwrap_or_default()).collect())
+                .map(|v| {
+                    v.iter()
+                        .map(|vol| serde_json::to_value(vol).unwrap_or_default())
+                        .collect()
+                })
                 .unwrap_or_default();
             volumes.retain(|v| v.get("name").and_then(|n| n.as_str()) != Some(dev.as_str()));
             volumes.push(serde_json::json!({
@@ -554,7 +564,9 @@ impl VmmBackend for KubeVirtBackend {
 
         // Delete PVC and VolumeImportSource (best-effort; ignore errors).
         let _ = self
-            .api_delete(&format!("/api/v1/namespaces/{ns}/persistentvolumeclaims/{pvc_name}"))
+            .api_delete(&format!(
+                "/api/v1/namespaces/{ns}/persistentvolumeclaims/{pvc_name}"
+            ))
             .await;
         let _ = self
             .api_delete(&format!(

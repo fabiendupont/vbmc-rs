@@ -199,9 +199,7 @@ async fn do_insert_media(
             event_timestamp: Utc::now(),
             message_id: MSG_VIRTUAL_MEDIA_INSERTED.to_string(),
             message: format!("Virtual media inserted on system '{system_id}'"),
-            origin_of_condition: Some(format!(
-                "/redfish/v1/Systems/{system_id}/VirtualMedia/Cd"
-            )),
+            origin_of_condition: Some(format!("/redfish/v1/Systems/{system_id}/VirtualMedia/Cd")),
             severity: SEVERITY_OK.to_string(),
             actor: None,
             payload: None,

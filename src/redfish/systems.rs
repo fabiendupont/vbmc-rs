@@ -589,7 +589,10 @@ pub async fn get_system(
         },
         hosting_roles: Vec::new(),
         links: ComputerSystemLinks {
-            chassis: vec![ODataId::new(format!("/redfish/v1/Chassis/{}", state.chassis_id))],
+            chassis: vec![ODataId::new(format!(
+                "/redfish/v1/Chassis/{}",
+                state.chassis_id
+            ))],
             managed_by: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
             trusted_components: vec![ODataId::new(format!(
                 "/redfish/v1/Chassis/{}/TrustedComponents/{system_id}",

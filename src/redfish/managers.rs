@@ -184,7 +184,10 @@ pub async fn get_manager(
         log_services: Some(ODataId::new("/redfish/v1/Managers/vbmc/LogServices")),
         links: ManagerLinks {
             manager_for_servers,
-            manager_for_chassis: vec![ODataId::new(format!("/redfish/v1/Chassis/{}", state.chassis_id))],
+            manager_for_chassis: vec![ODataId::new(format!(
+                "/redfish/v1/Chassis/{}",
+                state.chassis_id
+            ))],
             manager_in_chassis: ODataId::new(format!("/redfish/v1/Chassis/{}", state.chassis_id)),
             managed_by: Vec::new(),
             manager_for_managers: Vec::new(),

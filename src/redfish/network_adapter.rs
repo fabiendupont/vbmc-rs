@@ -152,7 +152,10 @@ pub async fn get_network_adapter(
     }
 
     Ok(Json(NetworkAdapterResource {
-        odata_id: format!("/redfish/v1/Chassis/{}/NetworkAdapters/{adapter_id}", state.chassis_id),
+        odata_id: format!(
+            "/redfish/v1/Chassis/{}/NetworkAdapters/{adapter_id}",
+            state.chassis_id
+        ),
         odata_type: "#NetworkAdapter.v1_10_0.NetworkAdapter",
         id: adapter_id.clone(),
         name: format!("Network Adapter {adapter_id}"),
@@ -198,7 +201,10 @@ pub async fn get_network_device_functions(
     ))];
 
     Ok(Json(Collection::new(
-        format!("/redfish/v1/Chassis/{}/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions", state.chassis_id),
+        format!(
+            "/redfish/v1/Chassis/{}/NetworkAdapters/{adapter_id}/NetworkDeviceFunctions",
+            state.chassis_id
+        ),
         "#NetworkDeviceFunctionCollection.NetworkDeviceFunctionCollection",
         "Network Device Function Collection",
         members,

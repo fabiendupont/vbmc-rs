@@ -60,15 +60,11 @@ pub async fn get_environment_metrics(
         name: "Chassis Environment Metrics",
         description: "Environmental metrics for the virtual chassis",
         temperature_celsius: SensorExcerpt {
-            data_source_uri: ODataId::new(format!(
-                "/redfish/v1/Chassis/{cid}/Sensors/AmbientTemp"
-            )),
+            data_source_uri: ODataId::new(format!("/redfish/v1/Chassis/{cid}/Sensors/AmbientTemp")),
             reading: 25.0,
         },
         humidity_percent: SensorExcerpt {
-            data_source_uri: ODataId::new(format!(
-                "/redfish/v1/Chassis/{cid}/Sensors/AmbientTemp"
-            )),
+            data_source_uri: ODataId::new(format!("/redfish/v1/Chassis/{cid}/Sensors/AmbientTemp")),
             reading: 45.0,
         },
         power_watts: SensorExcerpt {
