@@ -131,7 +131,7 @@ pub async fn get_network_adapters(
 pub async fn get_network_adapter(
     State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
-    Path(adapter_id): Path<String>,
+    Path((_, adapter_id)): Path<(String, String)>,
 ) -> Result<Json<NetworkAdapterResource>, RedfishApiError> {
     // adapter_id format: "{system_id}_NIC{idx}"
     let (system_id, nic_suffix) = adapter_id.rsplit_once('_').ok_or_else(|| {
@@ -176,7 +176,7 @@ pub async fn get_network_adapter(
 pub async fn get_network_device_functions(
     State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
-    Path(adapter_id): Path<String>,
+    Path((_, adapter_id)): Path<(String, String)>,
 ) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
     let (system_id, nic_suffix) = adapter_id.rsplit_once('_').ok_or_else(|| {
         RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found"))
@@ -214,7 +214,7 @@ pub async fn get_network_device_functions(
 pub async fn get_network_device_function(
     State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
-    Path((adapter_id, func_id)): Path<(String, String)>,
+    Path((_, adapter_id, func_id)): Path<(String, String, String)>,
 ) -> Result<Json<NetworkDeviceFunction>, RedfishApiError> {
     let (system_id, nic_suffix) = adapter_id.rsplit_once('_').ok_or_else(|| {
         RedfishApiError::NotFound(format!("NetworkAdapter '{adapter_id}' not found"))

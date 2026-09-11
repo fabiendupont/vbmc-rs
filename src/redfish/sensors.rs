@@ -350,7 +350,7 @@ fn make_threshold(reading: f64, activation: &'static str) -> ThresholdValue {
 pub async fn get_sensor(
     State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
-    Path(sensor_id): Path<String>,
+    Path((_, sensor_id)): Path<(String, String)>,
 ) -> Result<Json<SensorResource>, RedfishApiError> {
     let cid = &state.chassis_id;
     let def = SENSORS

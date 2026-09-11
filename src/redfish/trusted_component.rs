@@ -299,7 +299,7 @@ pub struct TrustedComponentLinks {
 pub async fn get_trusted_component(
     State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
-    Path(component_id): Path<String>,
+    Path((_, component_id)): Path<(String, String)>,
 ) -> Result<Json<TrustedComponentResource>, RedfishApiError> {
     if !state.config.systems.contains_key(&component_id) {
         return Err(RedfishApiError::NotFound(format!(
