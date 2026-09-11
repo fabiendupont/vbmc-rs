@@ -168,6 +168,7 @@ fn has_libvirt_volume(pod: &serde_json::Value) -> Option<String> {
     None
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_patch(
     sidecar_image: &str,
     bmc_network: &str,
