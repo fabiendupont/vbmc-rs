@@ -140,6 +140,23 @@ pub trait VmmBackend: Send + Sync {
         &self,
         system_id: &str,
     ) -> impl std::future::Future<Output = Result<SerialConsoleInfo, BackendError>> + Send;
+
+    /// Insert an ISO image as virtual media using a backend-native mechanism.
+    /// Returns `NotSupported` for backends that use the download-and-hotplug path.
+    fn vm_insert_iso(
+        &self,
+        system_id: &str,
+        image_url: &str,
+        device_id: &str,
+    ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send;
+
+    /// Eject virtual media inserted via `vm_insert_iso` and clean up backend resources.
+    /// Returns `NotSupported` for backends that use the download-and-hotplug path.
+    fn vm_eject_iso(
+        &self,
+        system_id: &str,
+        device_id: &str,
+    ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send;
 }
 
 pub enum Backend {
@@ -266,6 +283,23 @@ pub mod mock {
             Err(BackendError::NotSupported(
                 "serial console not available in mock backend".to_string(),
             ))
+        }
+
+        async fn vm_insert_iso(
+            &self,
+            _system_id: &str,
+            _image_url: &str,
+            _device_id: &str,
+        ) -> Result<(), BackendError> {
+            Err(BackendError::NotSupported("use download path".to_string()))
+        }
+
+        async fn vm_eject_iso(
+            &self,
+            _system_id: &str,
+            _device_id: &str,
+        ) -> Result<(), BackendError> {
+            Err(BackendError::NotSupported("use vm_remove_device".to_string()))
         }
     }
 }
@@ -467,6 +501,41 @@ impl VmmBackend for Backend {
             Self::Mockup(b) => b.vm_serial_console(system_id).await,
             #[cfg(any(test, feature = "test-support"))]
             Self::Mock(b) => b.vm_serial_console(system_id).await,
+        }
+    }
+
+    async fn vm_insert_iso(
+        &self,
+        system_id: &str,
+        image_url: &str,
+        device_id: &str,
+    ) -> Result<(), BackendError> {
+        match self {
+            Self::CloudHypervisor(b) => b.vm_insert_iso(system_id, image_url, device_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_insert_iso(system_id, image_url, device_id).await,
+            #[cfg(feature = "qemu")]
+            Self::Qemu(b) => b.vm_insert_iso(system_id, image_url, device_id).await,
+            #[cfg(feature = "libvirt")]
+            Self::Libvirt(b) => b.vm_insert_iso(system_id, image_url, device_id).await,
+            Self::Mockup(b) => b.vm_insert_iso(system_id, image_url, device_id).await,
+            #[cfg(any(test, feature = "test-support"))]
+            Self::Mock(b) => b.vm_insert_iso(system_id, image_url, device_id).await,
+        }
+    }
+
+    async fn vm_eject_iso(&self, system_id: &str, device_id: &str) -> Result<(), BackendError> {
+        match self {
+            Self::CloudHypervisor(b) => b.vm_eject_iso(system_id, device_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_eject_iso(system_id, device_id).await,
+            #[cfg(feature = "qemu")]
+            Self::Qemu(b) => b.vm_eject_iso(system_id, device_id).await,
+            #[cfg(feature = "libvirt")]
+            Self::Libvirt(b) => b.vm_eject_iso(system_id, device_id).await,
+            Self::Mockup(b) => b.vm_eject_iso(system_id, device_id).await,
+            #[cfg(any(test, feature = "test-support"))]
+            Self::Mock(b) => b.vm_eject_iso(system_id, device_id).await,
         }
     }
 }

@@ -503,6 +503,19 @@ impl VmmBackend for MockupBackend {
             "serial console not available in mockup backend".to_string(),
         ))
     }
+
+    async fn vm_insert_iso(
+        &self,
+        _system_id: &str,
+        _image_url: &str,
+        _device_id: &str,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::NotSupported("use download path".to_string()))
+    }
+
+    async fn vm_eject_iso(&self, _system_id: &str, _device_id: &str) -> Result<(), BackendError> {
+        Err(BackendError::NotSupported("use vm_remove_device".to_string()))
+    }
 }
 
 impl MockupBackend {

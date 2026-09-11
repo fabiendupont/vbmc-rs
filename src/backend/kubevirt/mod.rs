@@ -123,6 +123,29 @@ impl KubeVirtBackend {
             .map_err(map_kube_error)?;
         Ok(())
     }
+
+    async fn api_post(&self, url: &str, body: Vec<u8>) -> Result<(), BackendError> {
+        let req = http::Request::post(url)
+            .header("Content-Type", "application/json")
+            .body(body)
+            .map_err(|e| BackendError::ApiError(e.to_string()))?;
+        self.client
+            .request::<serde_json::Value>(req)
+            .await
+            .map_err(map_kube_error)?;
+        Ok(())
+    }
+
+    async fn api_delete(&self, url: &str) -> Result<(), BackendError> {
+        let req = http::Request::delete(url)
+            .body(vec![])
+            .map_err(|e| BackendError::ApiError(e.to_string()))?;
+        self.client
+            .request::<serde_json::Value>(req)
+            .await
+            .map_err(map_kube_error)?;
+        Ok(())
+    }
 }
 
 fn parse_memory_string(s: &str) -> u64 {
@@ -142,6 +165,15 @@ fn parse_memory_string(s: &str) -> u64 {
     } else {
         s.parse::<u64>().unwrap_or(0)
     }
+}
+
+fn sanitize_k8s_name(s: &str) -> String {
+    s.to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
 }
 
 impl VmmBackend for KubeVirtBackend {
@@ -379,6 +411,158 @@ impl VmmBackend for KubeVirtBackend {
             pty_path: None,
             websocket_url: Some(url),
         })
+    }
+
+    async fn vm_insert_iso(
+        &self,
+        system_id: &str,
+        image_url: &str,
+        device_id: &str,
+    ) -> Result<(), BackendError> {
+        let m = self.mapping_for(system_id)?;
+        let ns = &m.namespace;
+        let vm_name = &m.vm_name;
+        let dev = sanitize_k8s_name(device_id);
+        let vis_name = format!("vbmc-iso-{vm_name}-{dev}");
+        let pvc_name = format!("vbmc-media-{vm_name}-{dev}");
+
+        // Create VolumeImportSource — CDI downloads the ISO into a Block PVC.
+        let vis = serde_json::json!({
+            "apiVersion": "cdi.kubevirt.io/v1beta1",
+            "kind": "VolumeImportSource",
+            "metadata": { "name": vis_name, "namespace": ns },
+            "spec": { "source": { "http": { "url": image_url } } }
+        });
+        self.api_post(
+            &format!("/apis/cdi.kubevirt.io/v1beta1/namespaces/{ns}/volumeimportsources"),
+            serde_json::to_vec(&vis).map_err(|e| BackendError::ApiError(e.to_string()))?,
+        )
+        .await?;
+
+        // Create PVC that CDI will populate from the VolumeImportSource.
+        let pvc = serde_json::json!({
+            "apiVersion": "v1",
+            "kind": "PersistentVolumeClaim",
+            "metadata": { "name": pvc_name, "namespace": ns },
+            "spec": {
+                "accessModes": ["ReadWriteOnce"],
+                "volumeMode": "Block",
+                "dataSourceRef": {
+                    "apiGroup": "cdi.kubevirt.io",
+                    "kind": "VolumeImportSource",
+                    "name": vis_name
+                },
+                "resources": { "requests": { "storage": "2Gi" } }
+            }
+        });
+        self.api_post(
+            &format!("/api/v1/namespaces/{ns}/persistentvolumeclaims"),
+            serde_json::to_vec(&pvc).map_err(|e| BackendError::ApiError(e.to_string()))?,
+        )
+        .await?;
+
+        // If the VM is running, hotplug the PVC as a CDRom.
+        // If not running, patch the VM spec so the device is attached on next boot.
+        if self.vmi_api(ns).get(vm_name).await.is_ok() {
+            let body = serde_json::json!({
+                "name": dev,
+                "disk": { "name": dev, "cdrom": { "bus": "sata", "readonly": true } },
+                "volumeSource": {
+                    "persistentVolumeClaim": { "claimName": pvc_name, "readOnly": true }
+                }
+            });
+            self.subresource_put(
+                "virtualmachines",
+                ns,
+                vm_name,
+                "addvolume",
+                serde_json::to_vec(&body).map_err(|e| BackendError::ApiError(e.to_string()))?,
+            )
+            .await?;
+        } else {
+            let vm_api = self.vm_api(ns);
+            let vm = vm_api.get(vm_name).await.map_err(map_kube_error)?;
+
+            let template_spec = vm
+                .spec
+                .template
+                .as_ref()
+                .and_then(|t| t.spec.as_ref());
+
+            let mut disks: Vec<serde_json::Value> = template_spec
+                .and_then(|s| s.domain.as_ref())
+                .and_then(|d| d.devices.as_ref())
+                .and_then(|d| d.disks.as_ref())
+                .map(|v| v.iter().map(|d| serde_json::to_value(d).unwrap_or_default()).collect())
+                .unwrap_or_default();
+            disks.retain(|d| d.get("name").and_then(|n| n.as_str()) != Some(dev.as_str()));
+            disks.push(serde_json::json!({
+                "name": dev,
+                "cdrom": { "bus": "sata", "readonly": true }
+            }));
+
+            let mut volumes: Vec<serde_json::Value> = template_spec
+                .and_then(|s| s.volumes.as_ref())
+                .map(|v| v.iter().map(|vol| serde_json::to_value(vol).unwrap_or_default()).collect())
+                .unwrap_or_default();
+            volumes.retain(|v| v.get("name").and_then(|n| n.as_str()) != Some(dev.as_str()));
+            volumes.push(serde_json::json!({
+                "name": dev,
+                "persistentVolumeClaim": { "claimName": pvc_name, "readOnly": true }
+            }));
+
+            let patch = serde_json::json!({
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "domain": { "devices": { "disks": disks } },
+                            "volumes": volumes
+                        }
+                    }
+                }
+            });
+            vm_api
+                .patch(vm_name, &PatchParams::default(), &Patch::Merge(patch))
+                .await
+                .map_err(map_kube_error)?;
+        }
+
+        Ok(())
+    }
+
+    async fn vm_eject_iso(&self, system_id: &str, device_id: &str) -> Result<(), BackendError> {
+        let m = self.mapping_for(system_id)?;
+        let ns = &m.namespace;
+        let vm_name = &m.vm_name;
+        let dev = sanitize_k8s_name(device_id);
+        let vis_name = format!("vbmc-iso-{vm_name}-{dev}");
+        let pvc_name = format!("vbmc-media-{vm_name}-{dev}");
+
+        // Hotunplug if running.
+        if self.vmi_api(ns).get(vm_name).await.is_ok() {
+            let body = serde_json::json!({ "name": dev });
+            let _ = self
+                .subresource_put(
+                    "virtualmachines",
+                    ns,
+                    vm_name,
+                    "removevolume",
+                    serde_json::to_vec(&body).map_err(|e| BackendError::ApiError(e.to_string()))?,
+                )
+                .await;
+        }
+
+        // Delete PVC and VolumeImportSource (best-effort; ignore errors).
+        let _ = self
+            .api_delete(&format!("/api/v1/namespaces/{ns}/persistentvolumeclaims/{pvc_name}"))
+            .await;
+        let _ = self
+            .api_delete(&format!(
+                "/apis/cdi.kubevirt.io/v1beta1/namespaces/{ns}/volumeimportsources/{vis_name}"
+            ))
+            .await;
+
+        Ok(())
     }
 }
 
