@@ -26,6 +26,9 @@ pub struct AppState {
     pub tls_config: Option<axum_server::tls_rustls::RustlsConfig>,
     pub instance_uuid: String,
     pub mockup_store: Option<Arc<MockupStore>>,
+    /// Chassis ID derived from config: the unique chassis_id across all systems,
+    /// defaulting to "1" when none is set.
+    pub chassis_id: String,
     system_locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
@@ -52,6 +55,22 @@ impl AppState {
 
         let security_policy = std::sync::RwLock::new(config.security_policy.clone());
 
+        // Derive chassis_id: collect unique chassis_id values from all systems.
+        // A single sidecar always has one chassis (its namespace); fall back to "1".
+        let chassis_id = {
+            let mut ids: Vec<&str> = config
+                .systems
+                .values()
+                .filter_map(|s| s.chassis_id.as_deref())
+                .collect();
+            ids.dedup();
+            if ids.len() == 1 {
+                ids[0].to_string()
+            } else {
+                "1".to_string()
+            }
+        };
+
         Self {
             config,
             backend,
@@ -65,6 +84,7 @@ impl AppState {
             subscription_store: SubscriptionStore::new(),
             instance_uuid: uuid::Uuid::new_v4().to_string(),
             mockup_store,
+            chassis_id,
             system_locks: DashMap::new(),
         }
     }

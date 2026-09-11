@@ -33,6 +33,7 @@ pub fn aggregator_router(state: Arc<AggregatorState>) -> Router {
         .route("/redfish/v1/$metadata", get(get_metadata))
         .route("/redfish/v1/odata", get(get_odata_service_document))
         .route("/redfish/v1/Systems", get(get_aggregated_systems))
+        .route("/redfish/v1/Chassis", get(get_aggregated_chassis))
         .route(
             "/redfish/v1/Systems/{system_id}",
             get(proxy_system_get)
@@ -321,20 +322,86 @@ async fn proxy_system_sub_mutate(
         .await
 }
 
+async fn get_aggregated_chassis(
+    State(state): State<Arc<AggregatorState>>,
+    user: KubernetesUser,
+) -> Json<serde_json::Value> {
+    let endpoints = state.registry.list();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut members = Vec::new();
+
+    for ep in &endpoints {
+        // Use chassis_id (namespace) when present, otherwise fall back to system_id.
+        let chassis_id = if ep.namespace.is_empty() {
+            ep.system_id.clone()
+        } else {
+            ep.namespace.clone()
+        };
+
+        if seen.contains(&chassis_id) {
+            continue;
+        }
+        if !check_endpoint_access(&state, &user, ep).await {
+            continue;
+        }
+        seen.insert(chassis_id.clone());
+        members.push(serde_json::json!({
+            "@odata.id": format!("/redfish/v1/Chassis/{chassis_id}")
+        }));
+    }
+
+    Json(serde_json::json!({
+        "@odata.id": "/redfish/v1/Chassis",
+        "@odata.type": "#ChassisCollection.ChassisCollection",
+        "Name": "Chassis Collection",
+        "Members": members,
+        "Members@odata.count": members.len()
+    }))
+}
+
 async fn proxy_chassis_get(
     State(state): State<Arc<AggregatorState>>,
     user: KubernetesUser,
-    Path(system_id): Path<String>,
+    Path(chassis_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+    // If chassis_id matches a known namespace, synthesize a chassis resource
+    // listing all accessible VMs in that namespace.
+    let endpoints = state.registry.list();
+    let ns_members: Vec<_> = {
+        let mut v = Vec::new();
+        for ep in &endpoints {
+            if ep.namespace == chassis_id && check_endpoint_access(&state, &user, ep).await {
+                v.push(serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{}", ep.system_id)
+                }));
+            }
+        }
+        v
+    };
+
+    if !ns_members.is_empty() {
+        let body = serde_json::json!({
+            "@odata.id": format!("/redfish/v1/Chassis/{chassis_id}"),
+            "@odata.type": "#Chassis.v1_22_0.Chassis",
+            "Id": chassis_id,
+            "Name": chassis_id,
+            "ChassisType": "Virtual",
+            "Status": { "State": "Enabled", "Health": "OK" },
+            "Links": { "ComputerSystems": ns_members }
+        });
+        return Ok(Json(body).into_response());
+    }
+
+    // Fall back to proxying to the sidecar (chassis_id treated as system_id).
     let endpoint = state
         .registry
-        .get(&system_id)
+        .get(&chassis_id)
         .ok_or(StatusCode::NOT_FOUND)?;
     if !check_endpoint_access(&state, &user, &endpoint).await {
         return Err(StatusCode::FORBIDDEN);
     }
-    let path = format!("/redfish/v1/Chassis/{system_id}");
+    let path = format!("/redfish/v1/Chassis/{chassis_id}");
     state
         .proxy
         .forward(

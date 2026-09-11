@@ -83,6 +83,13 @@ pub async fn handle_mutate(
         .and_then(|l| l.get("vbmc-rs/system-id"))
         .and_then(|v| v.as_str());
 
+    let namespace = request
+        .object
+        .pointer("/metadata/namespace")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default")
+        .to_string();
+
     let (is_match, system_id_value) = match (is_virt_launcher, system_id) {
         (true, Some(id)) => (true, id.to_string()),
         _ => (false, String::new()),
@@ -114,6 +121,7 @@ pub async fn handle_mutate(
         config.keylime_url.as_deref(),
         config.swtpm_socket.as_deref(),
         &system_id_value,
+        &namespace,
         &request.object,
     );
     let patch_json = serde_json::to_string(&patch).expect("patch serialization cannot fail");
@@ -167,6 +175,7 @@ fn build_patch(
     keylime_url: Option<&str>,
     swtpm_socket: Option<&str>,
     system_id: &str,
+    namespace: &str,
     pod: &serde_json::Value,
 ) -> Vec<serde_json::Value> {
     let mut patch = Vec::new();
@@ -211,8 +220,8 @@ fn build_patch(
 
     let inline_config = format!(
         "backend = \"libvirt\"\n\
-         state_directory = \"/tmp/vbmc-state\"\n\
-         audit_log = \"/tmp/vbmc-audit.jsonl\"\n\
+         state_directory = \"/var/run/kubevirt-private/vbmc-state\"\n\
+         audit_log = \"/var/run/kubevirt-private/vbmc-audit.jsonl\"\n\
          audit_log_target = \"stdout\"\n\
          \n\
          [server]\n\
@@ -231,6 +240,7 @@ fn build_patch(
          \n\
          [systems.{system_id}]\n\
          name = \"{system_id}\"\n\
+         chassis_id = \"{namespace}\"\n\
          connection_uri = \"qemu+unix:///session?socket=/var/run/libvirt/virtqemud-sock\"\n"
     );
 

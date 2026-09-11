@@ -220,6 +220,8 @@ pub struct SystemConfig {
     #[serde(default)]
     pub vm_name: Option<String>,
     #[serde(default)]
+    pub chassis_id: Option<String>,
+    #[serde(default)]
     pub attestation: Option<AttestationConfig>,
     #[serde(default)]
     pub ipmi_socket: Option<PathBuf>,
