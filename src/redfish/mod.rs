@@ -588,7 +588,12 @@ async fn mockup_fallback(
 
     // Normalize: strip trailing slash so /redfish/v1/ and /redfish/v1 both hit the same key.
     let raw = req.uri().path();
-    let path = if raw.len() > 1 { raw.trim_end_matches('/') } else { raw }.to_string();
+    let path = if raw.len() > 1 {
+        raw.trim_end_matches('/')
+    } else {
+        raw
+    }
+    .to_string();
     let method = req.method().clone();
 
     match method {

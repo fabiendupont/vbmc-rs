@@ -186,6 +186,49 @@ impl MockupStore {
             );
 
             store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/Storage/NVMe"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/Storage/NVMe"),
+                    "@odata.type": "#Storage.v1_15_0.Storage",
+                    "Id": "NVMe",
+                    "Name": "NVMe Storage",
+                    "Status": {"State": "Enabled", "Health": "OK"},
+                    "Drives": [
+                        {"@odata.id": format!("/redfish/v1/Systems/{id}/Storage/NVMe/Drives/0")}
+                    ],
+                    "Drives@odata.count": 1,
+                    "StorageControllers": [
+                        {
+                            "@odata.id": format!("/redfish/v1/Systems/{id}/Storage/NVMe#/StorageControllers/0"),
+                            "MemberId": "0",
+                            "Name": "NVMe Controller",
+                            "Manufacturer": "vbmc-rs",
+                            "Model": "Virtual NVMe Controller",
+                            "SupportedDeviceProtocols": ["NVMe"],
+                            "Status": {"State": "Enabled", "Health": "OK"}
+                        }
+                    ]
+                }),
+            );
+
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/Storage/NVMe/Drives/0"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/Storage/NVMe/Drives/0"),
+                    "@odata.type": "#Drive.v1_18_0.Drive",
+                    "Id": "0",
+                    "Name": "NVMe Drive 0",
+                    "MediaType": "SSD",
+                    "Protocol": "NVMe",
+                    "CapacityBytes": 512_110_190_592_i64,
+                    "Manufacturer": "vbmc-rs",
+                    "Model": "Virtual NVMe SSD",
+                    "SerialNumber": "VBMC-NVME-0000",
+                    "Status": {"State": "Enabled", "Health": "OK"}
+                }),
+            );
+
+            store.resources.insert(
                 format!("/redfish/v1/Systems/{id}/SecureBoot"),
                 serde_json::json!({
                     "@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot"),
@@ -610,7 +653,11 @@ impl MockupStore {
                 "Managers": {"@odata.id": "/redfish/v1/Managers"},
                 "AccountService": {"@odata.id": "/redfish/v1/AccountService"},
                 "SessionService": {"@odata.id": "/redfish/v1/SessionService"},
-                "ComponentIntegrity": {"@odata.id": "/redfish/v1/ComponentIntegrity"}
+                "ComponentIntegrity": {"@odata.id": "/redfish/v1/ComponentIntegrity"},
+                "Links": {
+                    "Sessions": {"@odata.id": "/redfish/v1/SessionService/Sessions"},
+                    "ManagerProvidingService": {"@odata.id": "/redfish/v1/Managers/vbmc"}
+                }
             }),
         );
 
