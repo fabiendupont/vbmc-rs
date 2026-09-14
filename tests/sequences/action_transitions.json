@@ -1,0 +1,110 @@
+{
+  "description": "Simulate-mode actions mutate state and hand back resolvable task links",
+  "systems": 1,
+  "steps": [
+    {
+      "name": "stage a pending BIOS attribute",
+      "request": {
+        "method": "PATCH",
+        "path": "/redfish/v1/Systems/Server1/Bios/Settings",
+        "body": { "Attributes": { "BootMode": "Uefi" } }
+      },
+      "expect": {
+        "status": 200,
+        "body_contains": { "Attributes": { "BootMode": "Uefi" } }
+      }
+    },
+    {
+      "name": "ResetBios acknowledges",
+      "request": { "method": "POST", "path": "/redfish/v1/Systems/Server1/Bios/Actions/Bios.ResetBios" },
+      "expect": { "status": 200 }
+    },
+    {
+      "name": "ResetBios actually cleared the staged attribute",
+      "request": { "method": "GET", "path": "/redfish/v1/Systems/Server1/Bios/Settings" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "Id": "Settings", "Attributes": {} },
+        "body_lacks": ["Attributes.BootMode"]
+      }
+    },
+    {
+      "name": "malformed BIOS action path is not accepted",
+      "request": { "method": "POST", "path": "/redfish/v1/Systems/Server1/Bios/Actions/Bios.ResetBiosNope" },
+      "expect": { "status": 405 }
+    },
+    {
+      "name": "SecureBoot certificate collection starts empty",
+      "request": { "method": "GET", "path": "/redfish/v1/Systems/Server1/SecureBoot/SecureBootDatabases/db/Certificates" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "Members@odata.count": 0 }
+      }
+    },
+    {
+      "name": "adding a certificate returns a resolvable task",
+      "request": {
+        "method": "POST",
+        "path": "/redfish/v1/Systems/Server1/SecureBoot/SecureBootDatabases/db/Certificates",
+        "body": { "CertificateString": "-----BEGIN CERTIFICATE-----\nMII\n-----END CERTIFICATE-----", "CertificateType": "PEM" }
+      },
+      "expect": {
+        "status": 200,
+        "body_contains": {
+          "@odata.id": "/redfish/v1/TaskService/Tasks/1",
+          "TaskState": "Completed"
+        }
+      }
+    },
+    {
+      "name": "the certificate collection now reports the added member",
+      "request": { "method": "GET", "path": "/redfish/v1/Systems/Server1/SecureBoot/SecureBootDatabases/db/Certificates" },
+      "expect": {
+        "status": 200,
+        "body_contains": {
+          "Members@odata.count": 1,
+          "Members": [ { "@odata.id": "/redfish/v1/Systems/Server1/SecureBoot/SecureBootDatabases/db/Certificates/1" } ]
+        }
+      }
+    },
+    {
+      "name": "the added certificate resolves",
+      "request": { "method": "GET", "path": "/redfish/v1/Systems/Server1/SecureBoot/SecureBootDatabases/db/Certificates/1" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "Id": "1", "CertificateType": "PEM" }
+      }
+    },
+    {
+      "name": "Manager.Reset is acknowledged",
+      "request": { "method": "POST", "path": "/redfish/v1/Managers/vbmc/Actions/Manager.Reset" },
+      "expect": { "status": 200 }
+    },
+    {
+      "name": "Manager.Reset on a non-manager resource is rejected",
+      "request": { "method": "POST", "path": "/redfish/v1/Systems/Server1/Actions/Manager.Reset" },
+      "expect": { "status": 404 }
+    },
+    {
+      "name": "SPDM action on a missing component is rejected",
+      "request": { "method": "POST", "path": "/redfish/v1/ComponentIntegrity/GARBAGE/Actions/ComponentIntegrity.SPDMGetSignedMeasurements" },
+      "expect": { "status": 404 }
+    },
+    {
+      "name": "SPDM measurements action returns a resolvable task",
+      "request": { "method": "POST", "path": "/redfish/v1/ComponentIntegrity/TPM0/Actions/ComponentIntegrity.SPDMGetSignedMeasurements" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "@odata.id": "/redfish/v1/TaskService/Tasks/2", "TaskState": "Completed" }
+      }
+    },
+    {
+      "name": "the SPDM task link resolves",
+      "request": { "method": "GET", "path": "/redfish/v1/TaskService/Tasks/2" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "Id": "2", "TaskState": "Completed" }
+      }
+    }
+  ]
+}

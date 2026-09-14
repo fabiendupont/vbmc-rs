@@ -1,0 +1,51 @@
+{
+  "description": "Service root discovery and storage-link reachability against a generated 1-system fleet",
+  "systems": 1,
+  "steps": [
+    {
+      "name": "service root advertises required Links.Sessions",
+      "request": { "method": "GET", "path": "/redfish/v1/" },
+      "expect": {
+        "status": 200,
+        "body_contains": {
+          "@odata.id": "/redfish/v1",
+          "Links": { "Sessions": { "@odata.id": "/redfish/v1/SessionService/Sessions" } }
+        }
+      }
+    },
+    {
+      "name": "systems collection lists exactly one member",
+      "request": { "method": "GET", "path": "/redfish/v1/Systems" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "Members@odata.count": 1 }
+      }
+    },
+    {
+      "name": "storage collection links the NVMe member",
+      "request": { "method": "GET", "path": "/redfish/v1/Systems/Server1/Storage" },
+      "expect": {
+        "status": 200,
+        "body_contains": {
+          "Members": [ { "@odata.id": "/redfish/v1/Systems/Server1/Storage/NVMe" } ]
+        }
+      }
+    },
+    {
+      "name": "advertised NVMe storage member resolves (guards against dangling link)",
+      "request": { "method": "GET", "path": "/redfish/v1/Systems/Server1/Storage/NVMe" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "Id": "NVMe", "Drives@odata.count": 1 }
+      }
+    },
+    {
+      "name": "backing drive resolves",
+      "request": { "method": "GET", "path": "/redfish/v1/Systems/Server1/Storage/NVMe/Drives/0" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "Id": "0", "Protocol": "NVMe" }
+      }
+    }
+  ]
+}
