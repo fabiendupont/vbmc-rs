@@ -28,9 +28,15 @@ name = "vbmc-rs-webhook"
 path = "src/webhook/main.rs"
 required-features = ["webhook"]
 
+[[bin]]
+name = "vbmc-rs-pldm-gen"
+path = "src/pldm_gen/main.rs"
+required-features = ["pldm-gen"]
+
 [features]
 default = ["cloud-hypervisor"]
 cloud-hypervisor = []
+pldm-gen = []
 qemu = []
 libvirt = ["dep:quick-xml", "dep:virt"]
 kubevirt = ["dep:kube", "dep:k8s-openapi", "dep:schemars", "dep:http"]
@@ -42,7 +48,7 @@ nvidia-cc = []
 test-support = []
 
 [dependencies]
-axum = { version = "0.8", features = ["macros", "ws"] }
+axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
 axum-server = { version = "0.8", features = ["tls-rustls"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

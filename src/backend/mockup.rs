@@ -766,6 +766,16 @@ impl MockupStore {
         Ok(store)
     }
 
+    /// Empty store for unit tests. Production code builds a store via `generate`
+    /// or `load`; tests seed only the resources they exercise.
+    #[cfg(test)]
+    pub(crate) fn for_test() -> Self {
+        Self {
+            resources: DashMap::new(),
+            next_task_id: AtomicU64::new(1),
+        }
+    }
+
     pub fn get(&self, path: &str) -> Option<serde_json::Value> {
         self.resources.get(path).map(|v| v.clone())
     }
