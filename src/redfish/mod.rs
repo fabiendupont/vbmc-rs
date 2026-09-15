@@ -19,6 +19,10 @@ pub mod manager_network;
 pub mod managers;
 pub mod memory;
 pub mod memory_metrics;
+// Timed Task lifecycle for mockup mode, driven by the update handlers.
+pub mod mockup_tasks;
+// Firmware-update handlers for mockup mode.
+pub mod mockup_update;
 pub mod network_adapter;
 pub mod network_interfaces;
 pub mod odata;
@@ -548,6 +552,21 @@ pub fn router(state: Arc<AppState>) -> Router {
 
 fn mockup_router(state: Arc<AppState>) -> Router {
     Router::new()
+        // Firmware-update entry points. Explicit routes take precedence over the
+        // fallback, so these dynamic handlers mutate the store while every other
+        // path falls through to the static fixture JSON.
+        .route(
+            "/redfish/v1/UpdateService/update-multipart",
+            post(mockup_update::update_multipart),
+        )
+        .route(
+            "/redfish/v1/UpdateService/update",
+            post(mockup_update::update_push),
+        )
+        .route(
+            "/redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate",
+            post(mockup_update::simple_update),
+        )
         .fallback(mockup_fallback)
         .layer(ODataComplianceLayer)
         .layer(axum::middleware::from_fn(
