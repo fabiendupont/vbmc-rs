@@ -168,10 +168,10 @@ async fn replay(path: &Path) {
             let actual: Value = serde_json::from_slice(&bytes).unwrap_or_else(|e| {
                 panic!("[{file}] step '{}': response is not JSON: {e}", step.name)
             });
-            if let Some(expected) = &step.expect.body_contains {
-                if let Err(loc) = json_contains(&actual, expected) {
-                    panic!("[{file}] step '{}': body mismatch at {loc}", step.name);
-                }
+            if let Some(expected) = &step.expect.body_contains
+                && let Err(loc) = json_contains(&actual, expected)
+            {
+                panic!("[{file}] step '{}': body mismatch at {loc}", step.name);
             }
             if let Some(expected) = &step.expect.body_equals {
                 assert_eq!(
