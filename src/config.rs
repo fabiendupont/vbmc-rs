@@ -341,12 +341,20 @@ impl AppConfig {
     }
 
     pub fn simulate(port: u16) -> Self {
+        Self::simulate_with_tls(port, None, None)
+    }
+
+    pub fn simulate_with_tls(
+        port: u16,
+        tls_cert: Option<PathBuf>,
+        tls_key: Option<PathBuf>,
+    ) -> Self {
         Self {
             server: ServerConfig {
                 bind_address: "127.0.0.1".to_string(),
                 port,
-                tls_cert: None,
-                tls_key: None,
+                tls_cert,
+                tls_key,
                 tls_client_ca: None,
             },
             backend: BackendType::Mockup,

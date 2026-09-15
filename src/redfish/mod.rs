@@ -556,6 +556,24 @@ fn mockup_router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
+/// Insert a completed Task into the mockup store and return its representation,
+/// so the `@odata.id` handed back to the caller resolves on a follow-up GET.
+/// The id is allocated store-wide so tasks never collide across callers.
+fn complete_task(store: &crate::backend::mockup::MockupStore, name: &str) -> serde_json::Value {
+    let id = store.next_task_id();
+    let task_path = format!("/redfish/v1/TaskService/Tasks/{id}");
+    let task = serde_json::json!({
+        "@odata.id": task_path,
+        "@odata.type": "#Task.v1_7_1.Task",
+        "Id": id.to_string(),
+        "Name": name,
+        "TaskState": "Completed",
+        "TaskStatus": "OK"
+    });
+    store.set(&task_path, task.clone());
+    task
+}
+
 async fn mockup_fallback(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
     req: axum::http::Request<axum::body::Body>,
@@ -568,7 +586,14 @@ async fn mockup_fallback(
         None => return StatusCode::NOT_FOUND.into_response(),
     };
 
-    let path = req.uri().path().to_string();
+    // Normalize: strip trailing slash so /redfish/v1/ and /redfish/v1 both hit the same key.
+    let raw = req.uri().path();
+    let path = if raw.len() > 1 {
+        raw.trim_end_matches('/')
+    } else {
+        raw
+    }
+    .to_string();
     let method = req.method().clone();
 
     match method {
@@ -609,6 +634,85 @@ async fn mockup_fallback(
                 };
                 store.patch(&system_path, &serde_json::json!({"PowerState": new_state}));
                 StatusCode::OK.into_response()
+            } else if path.ends_with("/Actions/Bios.ResetBios") {
+                // Reset pending BIOS settings. A merge patch of `{}` would not clear
+                // existing attributes, so overwrite the Attributes object wholesale.
+                let settings_path = path.replace("/Actions/Bios.ResetBios", "/Settings");
+                match store.get(&settings_path) {
+                    Some(mut settings) => {
+                        if let Some(obj) = settings.as_object_mut() {
+                            obj.insert("Attributes".to_string(), serde_json::json!({}));
+                        }
+                        store.set(&settings_path, settings);
+                        StatusCode::OK.into_response()
+                    }
+                    None => StatusCode::NOT_FOUND.into_response(),
+                }
+            } else if path.ends_with("/Actions/Manager.Reset") {
+                // The simulated manager stays enabled; acknowledge the reset.
+                // Only a Manager resource owns this action — a suffix match alone
+                // would also accept e.g. /Systems/Server1/Actions/Manager.Reset.
+                let manager_path = path.split("/Actions/").next().unwrap_or(&path);
+                if manager_path.starts_with("/redfish/v1/Managers/") && store.contains(manager_path)
+                {
+                    StatusCode::OK.into_response()
+                } else {
+                    StatusCode::NOT_FOUND.into_response()
+                }
+            } else if path.ends_with("/Certificates") && path.contains("SecureBootDatabases") {
+                // Add a certificate to a SecureBoot database: atomically append a
+                // member to the collection and serve a completed Task whose link
+                // resolves.
+                if !store.contains(&path) {
+                    return StatusCode::NOT_FOUND.into_response();
+                }
+                let body = match axum::body::to_bytes(req.into_body(), 1_000_000).await {
+                    Ok(b) => b,
+                    Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+                };
+                let cert_req: serde_json::Value = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+                };
+
+                let cert_path_for_member = path.clone();
+                let cert_id = match store.append_member(
+                    &path,
+                    |id| serde_json::json!({"@odata.id": format!("{cert_path_for_member}/{id}")}),
+                ) {
+                    Some(id) => id,
+                    None => return StatusCode::NOT_FOUND.into_response(),
+                };
+                let cert_path = format!("{path}/{cert_id}");
+                store.set(
+                    &cert_path,
+                    serde_json::json!({
+                        "@odata.id": cert_path,
+                        "@odata.type": "#Certificate.v1_9_0.Certificate",
+                        "Id": cert_id.to_string(),
+                        "Name": "Certificate",
+                        "CertificateType": cert_req
+                            .get("CertificateType")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("PEM"),
+                        "CertificateString": cert_req
+                            .get("CertificateString")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default(),
+                    }),
+                );
+
+                let task = complete_task(store, "Add Certificate");
+                axum::Json(task).into_response()
+            } else if path.ends_with("/Actions/ComponentIntegrity.SPDMGetSignedMeasurements") {
+                // Trigger evidence collection. Serve a completed Task whose link
+                // resolves, but only if the target component actually exists.
+                let component_path = path.split("/Actions/").next().unwrap_or(&path);
+                if !store.contains(component_path) {
+                    return StatusCode::NOT_FOUND.into_response();
+                }
+                let task = complete_task(store, "SPDM Get Signed Measurements");
+                axum::Json(task).into_response()
             } else {
                 StatusCode::METHOD_NOT_ALLOWED.into_response()
             }

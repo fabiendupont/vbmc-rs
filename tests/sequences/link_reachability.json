@@ -1,0 +1,81 @@
+{
+  "description": "Every navigation link advertised by the simulate service root resolves (guards against dangling links)",
+  "systems": 1,
+  "steps": [
+    {
+      "name": "SessionService advertised by the service root resolves",
+      "request": { "method": "GET", "path": "/redfish/v1/SessionService" },
+      "expect": {
+        "status": 200,
+        "body_contains": {
+          "@odata.id": "/redfish/v1/SessionService",
+          "Sessions": { "@odata.id": "/redfish/v1/SessionService/Sessions" }
+        }
+      }
+    },
+    {
+      "name": "Links.Sessions target resolves",
+      "request": { "method": "GET", "path": "/redfish/v1/SessionService/Sessions" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "@odata.id": "/redfish/v1/SessionService/Sessions", "Members@odata.count": 0 }
+      }
+    },
+    {
+      "name": "Manager NetworkProtocol link resolves",
+      "request": { "method": "GET", "path": "/redfish/v1/Managers/vbmc/NetworkProtocol" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "@odata.id": "/redfish/v1/Managers/vbmc/NetworkProtocol", "Id": "NetworkProtocol" }
+      }
+    },
+    {
+      "name": "ComponentIntegrity collection carries identity and links its member",
+      "request": { "method": "GET", "path": "/redfish/v1/ComponentIntegrity" },
+      "expect": {
+        "status": 200,
+        "body_contains": {
+          "@odata.id": "/redfish/v1/ComponentIntegrity",
+          "@odata.type": "#ComponentIntegrityCollection.ComponentIntegrityCollection",
+          "Members@odata.count": 1,
+          "Members": [ { "@odata.id": "/redfish/v1/ComponentIntegrity/TPM0" } ]
+        }
+      }
+    },
+    {
+      "name": "ComponentIntegrity member resolves",
+      "request": { "method": "GET", "path": "/redfish/v1/ComponentIntegrity/TPM0" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "Id": "TPM0", "ComponentIntegrityType": "SPDM" }
+      }
+    },
+    {
+      "name": "ComponentIntegrity SPDM @Redfish.ActionInfo link resolves",
+      "request": { "method": "GET", "path": "/redfish/v1/ComponentIntegrity/TPM0/SPDMGetSignedMeasurementsActionInfo" },
+      "expect": {
+        "status": 200,
+        "body_contains": {
+          "@odata.id": "/redfish/v1/ComponentIntegrity/TPM0/SPDMGetSignedMeasurementsActionInfo",
+          "Id": "SPDMGetSignedMeasurementsActionInfo"
+        }
+      }
+    },
+    {
+      "name": "GPU sensor collection members resolve individually",
+      "request": { "method": "GET", "path": "/redfish/v1/Chassis/GPU0/Sensors/Temp0" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "Id": "Temp0", "ReadingType": "Temperature" }
+      }
+    },
+    {
+      "name": "GPU power sensor resolves",
+      "request": { "method": "GET", "path": "/redfish/v1/Chassis/GPU0/Sensors/Power0" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "Id": "Power0", "ReadingType": "Power" }
+      }
+    }
+  ]
+}

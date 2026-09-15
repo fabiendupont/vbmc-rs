@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use dashmap::DashMap;
 use tracing::info;
@@ -9,12 +10,15 @@ use super::{BackendError, VmmBackend};
 
 pub struct MockupStore {
     resources: DashMap<String, serde_json::Value>,
+    /// Monotonic source of store-wide-unique Task IDs.
+    next_task_id: AtomicU64,
 }
 
 impl MockupStore {
-    pub fn generate(count: usize) -> Self {
+    pub fn generate(count: usize, port: u16, tls_enabled: bool) -> Self {
         let store = Self {
             resources: DashMap::new(),
+            next_task_id: AtomicU64::new(1),
         };
 
         let mut members = Vec::new();
@@ -182,6 +186,49 @@ impl MockupStore {
             );
 
             store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/Storage/NVMe"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/Storage/NVMe"),
+                    "@odata.type": "#Storage.v1_15_0.Storage",
+                    "Id": "NVMe",
+                    "Name": "NVMe Storage",
+                    "Status": {"State": "Enabled", "Health": "OK"},
+                    "Drives": [
+                        {"@odata.id": format!("/redfish/v1/Systems/{id}/Storage/NVMe/Drives/0")}
+                    ],
+                    "Drives@odata.count": 1,
+                    "StorageControllers": [
+                        {
+                            "@odata.id": format!("/redfish/v1/Systems/{id}/Storage/NVMe#/StorageControllers/0"),
+                            "MemberId": "0",
+                            "Name": "NVMe Controller",
+                            "Manufacturer": "vbmc-rs",
+                            "Model": "Virtual NVMe Controller",
+                            "SupportedDeviceProtocols": ["NVMe"],
+                            "Status": {"State": "Enabled", "Health": "OK"}
+                        }
+                    ]
+                }),
+            );
+
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/Storage/NVMe/Drives/0"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/Storage/NVMe/Drives/0"),
+                    "@odata.type": "#Drive.v1_18_0.Drive",
+                    "Id": "0",
+                    "Name": "NVMe Drive 0",
+                    "MediaType": "SSD",
+                    "Protocol": "NVMe",
+                    "CapacityBytes": 512_110_190_592_i64,
+                    "Manufacturer": "vbmc-rs",
+                    "Model": "Virtual NVMe SSD",
+                    "SerialNumber": "VBMC-NVME-0000",
+                    "Status": {"State": "Enabled", "Health": "OK"}
+                }),
+            );
+
+            store.resources.insert(
                 format!("/redfish/v1/Systems/{id}/SecureBoot"),
                 serde_json::json!({
                     "@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot"),
@@ -191,6 +238,161 @@ impl MockupStore {
                     "SecureBootEnable": false,
                     "SecureBootCurrentBoot": "Disabled",
                     "SecureBootMode": "UserMode"
+                }),
+            );
+
+            let bios_attrs = serde_json::json!({
+                "BootMode": "UEFI",
+                "NumCores": 4,
+                "HyperThreadingEnabled": true,
+                "VirtualizationEnabled": true,
+                "SecureBootState": "Disabled"
+            });
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/Bios"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/Bios"),
+                    "@odata.type": "#Bios.v1_2_0.Bios",
+                    "Id": "Bios",
+                    "Name": "BIOS Configuration",
+                    "Attributes": bios_attrs,
+                    "@Redfish.Settings": {
+                        "SettingsObject": {"@odata.id": format!("/redfish/v1/Systems/{id}/Bios/Settings")}
+                    },
+                    "Actions": {
+                        "#Bios.ResetBios": {
+                            "target": format!("/redfish/v1/Systems/{id}/Bios/Actions/Bios.ResetBios")
+                        }
+                    }
+                }),
+            );
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/Bios/Settings"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/Bios/Settings"),
+                    "@odata.type": "#Bios.v1_2_0.Bios",
+                    "Id": "Settings",
+                    "Name": "BIOS Pending Settings",
+                    "Attributes": {}
+                }),
+            );
+
+            // GPU chassis for systems with a GPU index
+            let gpu_id = format!("GPU{}", i - 1);
+            let gpu_sensor_path = format!("/redfish/v1/Chassis/{gpu_id}/Sensors");
+            store.resources.insert(
+                format!("/redfish/v1/Chassis/{gpu_id}"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Chassis/{gpu_id}"),
+                    "@odata.type": "#Chassis.v1_24_0.Chassis",
+                    "Id": gpu_id,
+                    "Name": format!("Simulated GPU {}", i - 1),
+                    "ChassisType": "Card",
+                    "Manufacturer": "vbmc-rs",
+                    "Model": "Virtual GPU",
+                    "Status": {"State": "Enabled", "Health": "OK"},
+                    "Sensors": {"@odata.id": gpu_sensor_path}
+                }),
+            );
+            store.resources.insert(
+                format!("/redfish/v1/Chassis/{gpu_id}/Sensors"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Chassis/{gpu_id}/Sensors"),
+                    "@odata.type": "#SensorCollection.SensorCollection",
+                    "Name": "GPU Sensor Collection",
+                    "Members@odata.count": 2,
+                    "Members": [
+                        {
+                            "@odata.id": format!("/redfish/v1/Chassis/{gpu_id}/Sensors/Temp0"),
+                            "@odata.type": "#Sensor.v1_6_0.Sensor",
+                            "Id": "Temp0",
+                            "Name": "GPU Temperature",
+                            "PhysicalContext": "GPU",
+                            "Reading": 65.0_f64,
+                            "ReadingType": "Temperature",
+                            "ReadingUnits": "Cel",
+                            "Status": {"State": "Enabled", "Health": "OK"}
+                        },
+                        {
+                            "@odata.id": format!("/redfish/v1/Chassis/{gpu_id}/Sensors/Power0"),
+                            "@odata.type": "#Sensor.v1_6_0.Sensor",
+                            "Id": "Power0",
+                            "Name": "GPU Power",
+                            "PhysicalContext": "GPUSubsystem",
+                            "Reading": 150.0_f64,
+                            "ReadingType": "Power",
+                            "ReadingUnits": "W",
+                            "Status": {"State": "Enabled", "Health": "OK"}
+                        }
+                    ]
+                }),
+            );
+            // Serve the individual sensor members advertised above.
+            store.resources.insert(
+                format!("/redfish/v1/Chassis/{gpu_id}/Sensors/Temp0"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Chassis/{gpu_id}/Sensors/Temp0"),
+                    "@odata.type": "#Sensor.v1_6_0.Sensor",
+                    "Id": "Temp0",
+                    "Name": "GPU Temperature",
+                    "PhysicalContext": "GPU",
+                    "Reading": 65.0_f64,
+                    "ReadingType": "Temperature",
+                    "ReadingUnits": "Cel",
+                    "Status": {"State": "Enabled", "Health": "OK"}
+                }),
+            );
+            store.resources.insert(
+                format!("/redfish/v1/Chassis/{gpu_id}/Sensors/Power0"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Chassis/{gpu_id}/Sensors/Power0"),
+                    "@odata.type": "#Sensor.v1_6_0.Sensor",
+                    "Id": "Power0",
+                    "Name": "GPU Power",
+                    "PhysicalContext": "GPUSubsystem",
+                    "Reading": 150.0_f64,
+                    "ReadingType": "Power",
+                    "ReadingUnits": "W",
+                    "Status": {"State": "Enabled", "Health": "OK"}
+                }),
+            );
+
+            // SecureBoot database collections
+            for db in &["db", "kek"] {
+                store.resources.insert(
+                    format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/{db}"),
+                    serde_json::json!({
+                        "@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/{db}"),
+                        "@odata.type": "#SecureBootDatabase.v1_0_0.SecureBootDatabase",
+                        "Id": db,
+                        "Name": format!("Secure Boot {}", db.to_uppercase()),
+                        "Certificates": {
+                            "@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/{db}/Certificates")
+                        }
+                    }),
+                );
+                store.resources.insert(
+                    format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/{db}/Certificates"),
+                    serde_json::json!({
+                        "@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/{db}/Certificates"),
+                        "@odata.type": "#CertificateCollection.CertificateCollection",
+                        "Name": "Certificate Collection",
+                        "Members": [],
+                        "Members@odata.count": 0
+                    }),
+                );
+            }
+            store.resources.insert(
+                format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases"),
+                serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases"),
+                    "@odata.type": "#SecureBootDatabaseCollection.SecureBootDatabaseCollection",
+                    "Name": "SecureBoot Database Collection",
+                    "Members": [
+                        {"@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/db")},
+                        {"@odata.id": format!("/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/kek")}
+                    ],
+                    "Members@odata.count": 2
                 }),
             );
 
@@ -208,6 +410,233 @@ impl MockupStore {
             }),
         );
 
+        let bmc_mac = "52:54:00:ff:00:01";
+
+        store.resources.insert(
+            "/redfish/v1/Managers".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Managers",
+                "@odata.type": "#ManagerCollection.ManagerCollection",
+                "Name": "Manager Collection",
+                "Members": [{"@odata.id": "/redfish/v1/Managers/vbmc"}],
+                "Members@odata.count": 1
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/Managers/vbmc".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Managers/vbmc",
+                "@odata.type": "#Manager.v1_18_0.Manager",
+                "Id": "vbmc",
+                "Name": "vbmc-rs Manager",
+                "ManagerType": "BMC",
+                "FirmwareVersion": "0.1.0",
+                "Status": {"State": "Enabled", "Health": "OK"},
+                "EthernetInterfaces": {"@odata.id": "/redfish/v1/Managers/vbmc/EthernetInterfaces"},
+                "NetworkProtocol": {"@odata.id": "/redfish/v1/Managers/vbmc/NetworkProtocol"},
+                "Actions": {
+                    "#Manager.Reset": {
+                        "target": "/redfish/v1/Managers/vbmc/Actions/Manager.Reset",
+                        "ResetType@Redfish.AllowableValues": ["GracefulRestart", "ForceRestart"]
+                    }
+                }
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/Managers/vbmc/NetworkProtocol".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Managers/vbmc/NetworkProtocol",
+                "@odata.type": "#ManagerNetworkProtocol.v1_9_0.ManagerNetworkProtocol",
+                "Id": "NetworkProtocol",
+                "Name": "Manager Network Protocol",
+                "Status": {"State": "Enabled", "Health": "OK"},
+                // Reflect the transport the fleet actually listens on: HTTPS when a
+                // TLS cert/key was supplied, plain HTTP otherwise. Advertising HTTPS
+                // unconditionally would mislead clients that follow NetworkProtocol.
+                "HTTP": {"ProtocolEnabled": !tls_enabled, "Port": if tls_enabled { 0 } else { port }},
+                "HTTPS": {"ProtocolEnabled": tls_enabled, "Port": if tls_enabled { port } else { 0 }},
+                "SSDP": {"ProtocolEnabled": false}
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/Managers/vbmc/EthernetInterfaces".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Managers/vbmc/EthernetInterfaces",
+                "@odata.type": "#EthernetInterfaceCollection.EthernetInterfaceCollection",
+                "Name": "Ethernet Interface Collection",
+                "Members": [{"@odata.id": "/redfish/v1/Managers/vbmc/EthernetInterfaces/eth0"}],
+                "Members@odata.count": 1
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/Managers/vbmc/EthernetInterfaces/eth0".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Managers/vbmc/EthernetInterfaces/eth0",
+                "@odata.type": "#EthernetInterface.v1_9_0.EthernetInterface",
+                "Id": "eth0",
+                "Name": "BMC Ethernet Interface",
+                "MACAddress": bmc_mac,
+                "SpeedMbps": 1000,
+                "Status": {"State": "Enabled", "Health": "OK"}
+            }),
+        );
+
+        // Simulated TPM/SPDM attestation resources
+        let fake_cert = "-----BEGIN CERTIFICATE-----\n\
+            MIIBpTCCAUygAwIBAgIUVbmcrSEGsUeK7jLvl6GFAAAAAA0wCgYIKoZIzj0EAwIw\n\
+            AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==\n\
+            -----END CERTIFICATE-----";
+        let evidence_action_path = "/redfish/v1/ComponentIntegrity/TPM0/Actions/ComponentIntegrity.SPDMGetSignedMeasurements";
+        let ca_cert_path = "/redfish/v1/ComponentIntegrity/TPM0/Certificates/0";
+
+        store.resources.insert(
+            "/redfish/v1/ComponentIntegrity".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/ComponentIntegrity",
+                "@odata.type": "#ComponentIntegrityCollection.ComponentIntegrityCollection",
+                "Name": "Component Integrity Collection",
+                "Members@odata.count": 1,
+                "Members": [{"@odata.id": "/redfish/v1/ComponentIntegrity/TPM0"}]
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/ComponentIntegrity/TPM0".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/ComponentIntegrity/TPM0",
+                "@odata.type": "#ComponentIntegrity.v1_2_0.ComponentIntegrity",
+                "ComponentIntegrityEnabled": true,
+                "ComponentIntegrityType": "SPDM",
+                "ComponentIntegrityTypeVersion": "1.1",
+                "Id": "TPM0",
+                "Name": "Simulated TPM",
+                "SPDM": {
+                    "IdentityAuthentication": {
+                        "ResponderAuthentication": {
+                            "ComponentCertificate": {"@odata.id": ca_cert_path}
+                        }
+                    },
+                    "Requester": {"@odata.id": "/redfish/v1/Managers/vbmc"}
+                },
+                "Actions": {
+                    "#ComponentIntegrity.SPDMGetSignedMeasurements": {
+                        "@Redfish.ActionInfo": "/redfish/v1/ComponentIntegrity/TPM0/SPDMGetSignedMeasurementsActionInfo",
+                        "target": evidence_action_path
+                    }
+                }
+            }),
+        );
+
+        // The component advertises an @Redfish.ActionInfo link for the SPDM
+        // action; store it so clients that follow the link get a resource
+        // instead of a 404 (mockup GETs only resolve stored paths).
+        store.resources.insert(
+            "/redfish/v1/ComponentIntegrity/TPM0/SPDMGetSignedMeasurementsActionInfo".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/ComponentIntegrity/TPM0/SPDMGetSignedMeasurementsActionInfo",
+                "@odata.type": "#ActionInfo.v1_4_2.ActionInfo",
+                "Id": "SPDMGetSignedMeasurementsActionInfo",
+                "Name": "SPDMGetSignedMeasurements Action Info",
+                "Parameters": [
+                    {
+                        "Name": "MeasurementIndices",
+                        "Required": false,
+                        "DataType": "NumberArray"
+                    },
+                    {
+                        "Name": "Nonce",
+                        "Required": false,
+                        "DataType": "String"
+                    },
+                    {
+                        "Name": "SlotId",
+                        "Required": false,
+                        "DataType": "Number"
+                    }
+                ]
+            }),
+        );
+
+        store.resources.insert(
+            ca_cert_path.to_string(),
+            serde_json::json!({
+                "CertificateString": fake_cert,
+                "CertificateType": "PEM",
+                "CertificateUsageTypes": ["Platform"],
+                "Id": "0",
+                "Name": "TPM Certificate",
+                "SPDM": {"SlotId": 0}
+            }),
+        );
+
+        // GET evidence at action_path + /data
+        store.resources.insert(
+            format!("{evidence_action_path}/data"),
+            serde_json::json!({
+                "HashingAlgorithm": "SHA256",
+                "SignedMeasurements": "AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899",
+                "SigningAlgorithm": "ECDSA_ECC_NIST_P256",
+                "Version": "1.1"
+            }),
+        );
+
+        let mut chassis_members = vec![serde_json::json!({"@odata.id": "/redfish/v1/Chassis/1"})];
+        for i in 1..=count {
+            chassis_members.push(serde_json::json!({
+                "@odata.id": format!("/redfish/v1/Chassis/GPU{}", i - 1)
+            }));
+        }
+        let chassis_count = chassis_members.len();
+        store.resources.insert(
+            "/redfish/v1/Chassis".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Chassis",
+                "@odata.type": "#ChassisCollection.ChassisCollection",
+                "Name": "Chassis Collection",
+                "Members": chassis_members,
+                "Members@odata.count": chassis_count
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/Chassis/1".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Chassis/1",
+                "@odata.type": "#Chassis.v1_24_0.Chassis",
+                "Id": "1",
+                "Name": "vbmc-rs Chassis",
+                "ChassisType": "RackMount",
+                "Manufacturer": "vbmc-rs",
+                "Model": "Virtual Server 1U",
+                "Status": {"State": "Enabled", "Health": "OK"},
+                "Assembly": {"@odata.id": "/redfish/v1/Chassis/1/Assembly"}
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/Chassis/1/Assembly".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/Chassis/1/Assembly",
+                "@odata.type": "#Assembly.v1_5_0.Assembly",
+                "Id": "Assembly",
+                "Name": "Chassis Assembly",
+                "Assemblies": [
+                    {
+                        "@odata.id": "/redfish/v1/Chassis/1/Assembly#/Assemblies/0",
+                        "MemberId": "0",
+                        "Name": "Motherboard",
+                        "Model": "Virtual Motherboard 1U",
+                        "Manufacturer": "vbmc-rs",
+                        "Status": {"State": "Enabled", "Health": "OK"}
+                    }
+                ]
+            }),
+        );
+
         store.resources.insert(
             "/redfish/v1".to_string(),
             serde_json::json!({
@@ -216,16 +645,71 @@ impl MockupStore {
                 "Id": "RootService",
                 "Name": "vbmc-rs Simulated BMC",
                 "RedfishVersion": "1.21.0",
+                "Vendor": "vbmc-rs",
+                "Product": "Virtual BMC",
                 "UUID": uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_DNS, b"vbmc-rs-simulate").to_string(),
                 "Systems": {"@odata.id": "/redfish/v1/Systems"},
                 "Chassis": {"@odata.id": "/redfish/v1/Chassis"},
-                "Managers": {"@odata.id": "/redfish/v1/Managers"}
+                "Managers": {"@odata.id": "/redfish/v1/Managers"},
+                "AccountService": {"@odata.id": "/redfish/v1/AccountService"},
+                "SessionService": {"@odata.id": "/redfish/v1/SessionService"},
+                "ComponentIntegrity": {"@odata.id": "/redfish/v1/ComponentIntegrity"},
+                "Links": {
+                    "Sessions": {"@odata.id": "/redfish/v1/SessionService/Sessions"},
+                    "ManagerProvidingService": {"@odata.id": "/redfish/v1/Managers/vbmc"}
+                }
             }),
         );
 
         store.resources.insert(
             "/redfish".to_string(),
             serde_json::json!({"v1": "/redfish/v1"}),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/AccountService".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/AccountService",
+                "@odata.type": "#AccountService.v1_13_0.AccountService",
+                "Id": "AccountService",
+                "Name": "Account Service",
+                "Accounts": {"@odata.id": "/redfish/v1/AccountService/Accounts"}
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/AccountService/Accounts".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/AccountService/Accounts",
+                "@odata.type": "#ManagerAccountCollection.ManagerAccountCollection",
+                "Name": "Accounts Collection",
+                "Members": [],
+                "Members@odata.count": 0
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/SessionService".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/SessionService",
+                "@odata.type": "#SessionService.v1_1_9.SessionService",
+                "Id": "SessionService",
+                "Name": "Session Service",
+                "ServiceEnabled": true,
+                "SessionTimeout": 30,
+                "Sessions": {"@odata.id": "/redfish/v1/SessionService/Sessions"}
+            }),
+        );
+
+        store.resources.insert(
+            "/redfish/v1/SessionService/Sessions".to_string(),
+            serde_json::json!({
+                "@odata.id": "/redfish/v1/SessionService/Sessions",
+                "@odata.type": "#SessionCollection.SessionCollection",
+                "Name": "Session Collection",
+                "Members": [],
+                "Members@odata.count": 0
+            }),
         );
 
         info!(systems = count, "Generated simulated BMC fleet");
@@ -235,6 +719,7 @@ impl MockupStore {
     pub fn load(dir: &Path) -> anyhow::Result<Self> {
         let store = Self {
             resources: DashMap::new(),
+            next_task_id: AtomicU64::new(1),
         };
         let dir_str = dir
             .to_str()
@@ -261,6 +746,22 @@ impl MockupStore {
             count += 1;
         }
 
+        // A loaded mockup may already contain TaskService tasks. Start the
+        // counter past the highest existing id so freshly minted tasks never
+        // overwrite loaded ones.
+        let max_task_id = store
+            .resources
+            .iter()
+            .filter_map(|e| {
+                e.key()
+                    .strip_prefix("/redfish/v1/TaskService/Tasks/")
+                    .and_then(|s| s.parse::<u64>().ok())
+            })
+            .max();
+        if let Some(max) = max_task_id {
+            store.next_task_id.store(max + 1, Ordering::Relaxed);
+        }
+
         info!(directory = %dir.display(), resources = count, "Loaded mockup data");
         Ok(store)
     }
@@ -273,6 +774,45 @@ impl MockupStore {
         if let Some(mut entry) = self.resources.get_mut(path) {
             merge_json(entry.value_mut(), patch);
         }
+    }
+
+    /// Insert or overwrite a resource wholesale (unlike `patch`, which deep-merges).
+    pub fn set(&self, path: &str, value: serde_json::Value) {
+        self.resources.insert(path.to_string(), value);
+    }
+
+    /// Whether a resource exists at `path`.
+    pub fn contains(&self, path: &str) -> bool {
+        self.resources.contains_key(path)
+    }
+
+    /// Atomically append a member to a collection: under a single entry lock,
+    /// reserve the next 1-based id, build the member with `build`, push it, and
+    /// bump `Members@odata.count`. Returns the reserved id, or `None` if the
+    /// collection is missing or malformed. Avoids the read-then-write race of
+    /// computing the id from a separate `get`.
+    pub fn append_member<F>(&self, collection_path: &str, build: F) -> Option<u64>
+    where
+        F: FnOnce(u64) -> serde_json::Value,
+    {
+        let mut entry = self.resources.get_mut(collection_path)?;
+        let obj = entry.value_mut().as_object_mut()?;
+        let id = obj
+            .get("Members@odata.count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+            + 1;
+        let member = build(id);
+        obj.get_mut("Members")
+            .and_then(|m| m.as_array_mut())?
+            .push(member);
+        obj.insert("Members@odata.count".to_string(), serde_json::json!(id));
+        Some(id)
+    }
+
+    /// Store-wide-unique, monotonically increasing Task id.
+    pub fn next_task_id(&self) -> u64 {
+        self.next_task_id.fetch_add(1, Ordering::Relaxed)
     }
 
     pub fn system_ids(&self) -> Vec<String> {
