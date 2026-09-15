@@ -22,9 +22,17 @@ use serde_json::{Value, json};
 
 use crate::app_state::AppState;
 use crate::backend::mockup::MockupStore;
-use crate::redfish::mockup_tasks::{TaskProgress, spawn_task};
+use crate::redfish::mockup_tasks::{TaskOutcome, TaskProgress, spawn_task};
 
 const FW_INVENTORY: &str = "/redfish/v1/UpdateService/FirmwareInventory";
+const CHASSIS_COLLECTION: &str = "/redfish/v1/Chassis";
+const BACKGROUND_COPY_POINTER: &str = "/Oem/Nvidia/BackgroundCopyStatus";
+
+/// Env var selecting a firmware-update failure to inject (a runtime toggle for
+/// exercising a client's failure path). Unset means every update succeeds; `*`
+/// or `all` fails every update; any other value fails an update when a resolved
+/// component name contains it (case-insensitive).
+const FAIL_INJECT_ENV: &str = "VBMC_SIM_FW_UPDATE_FAIL";
 
 /// POST to the MultipartHttpPushUri (`/redfish/v1/UpdateService/update-multipart`).
 ///
@@ -116,15 +124,39 @@ fn accept_update(store: Arc<MockupStore>, targets: Vec<String>) -> Response {
     let resolved = resolve_targets(&store, &targets);
     let messages = install_messages(&resolved);
 
+    // Failure injection: a runtime toggle can force this update to fail so a
+    // client's failure-handling path can be exercised against the simulation.
+    let fail_pattern = std::env::var(FAIL_INJECT_ENV).ok();
+    let component_names: Vec<&str> = resolved.iter().map(|p| component_name(p)).collect();
+    let should_fail = update_should_fail(fail_pattern.as_deref(), &component_names);
+    let outcome = if should_fail {
+        TaskOutcome::failure(failure_messages(&resolved))
+    } else {
+        TaskOutcome::success()
+    };
+
+    // Wait-mode fidelity: flipping the firmware bank triggers a background copy
+    // on the chassis that expose `Oem.Nvidia.BackgroundCopyStatus`. Report it as
+    // `InProgress` for the duration of the task and restore `Completed` when the
+    // task settles (on success or failure — the copy ends either way).
+    let chassis = chassis_with_background_copy(&store);
+    set_background_copy_status(&store, &chassis, "InProgress");
+
     let bump = resolved.clone();
+    let restore = chassis.clone();
+    let succeeded = outcome.is_success();
     let task_path = spawn_task(
         store.clone(),
         "Firmware Update",
         TaskProgress::default(),
         messages,
+        outcome,
         move |s| {
-            for path in &bump {
-                bump_component_version(s, path);
+            set_background_copy_status(s, &restore, "Completed");
+            if succeeded {
+                for path in &bump {
+                    bump_component_version(s, path);
+                }
             }
         },
     );
@@ -140,6 +172,97 @@ fn accept_update(store: Arc<MockupStore>, targets: Vec<String>) -> Response {
     response
 }
 
+/// Decide whether an update should be failed given the configured pattern.
+///
+/// `None`/empty never fails; `*` or `all` (case-insensitive) fails every update;
+/// otherwise an update fails when any resolved component name contains the
+/// pattern (case-insensitive).
+fn update_should_fail(pattern: Option<&str>, components: &[&str]) -> bool {
+    let Some(pattern) = pattern else {
+        return false;
+    };
+    let pattern = pattern.trim();
+    if pattern.is_empty() {
+        return false;
+    }
+    if pattern == "*" || pattern.eq_ignore_ascii_case("all") {
+        return true;
+    }
+    let needle = pattern.to_ascii_lowercase();
+    components
+        .iter()
+        .any(|c| c.to_ascii_lowercase().contains(&needle))
+}
+
+/// Build the terminal failure `Messages` a wait-mode client reads as a failed
+/// update (a message id whose terminal segment carries a failure marker, plus a
+/// `Critical` severity).
+fn failure_messages(resolved: &[String]) -> Vec<Value> {
+    let components: Vec<&str> = if resolved.is_empty() {
+        vec!["firmware"]
+    } else {
+        resolved.iter().map(|p| component_name(p)).collect()
+    };
+    components
+        .into_iter()
+        .map(|comp| {
+            json!({
+                "@odata.type": "#Message.v1_1_1.Message",
+                "MessageId": "Update.1.0.ApplyFailedOnComponent",
+                "Message": format!("Failed to apply image on component '{comp}'."),
+                "MessageArgs": ["firmware image", comp],
+                "Severity": "Critical",
+                "Resolution": "Retry the firmware update."
+            })
+        })
+        .collect()
+}
+
+/// Last path segment of a resource path (the component name).
+fn component_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// Enumerate `Chassis` members that expose `Oem.Nvidia.BackgroundCopyStatus`.
+///
+/// These are exactly the resources a wait-mode client (nvfwupd/RMS) polls for
+/// its background-copy precondition, so they are the ones the simulation drives
+/// through the `InProgress` -> `Completed` transition during an update.
+fn chassis_with_background_copy(store: &MockupStore) -> Vec<String> {
+    let Some(collection) = store.get(CHASSIS_COLLECTION) else {
+        return Vec::new();
+    };
+    let Some(members) = collection.get("Members").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    members
+        .iter()
+        .filter_map(|m| m.get("@odata.id").and_then(Value::as_str))
+        .map(|p| p.trim_end_matches('/').to_string())
+        .filter(|p| {
+            store
+                .get(p)
+                .map(|r| r.pointer(BACKGROUND_COPY_POINTER).is_some())
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+/// Set `Oem.Nvidia.BackgroundCopyStatus` to `status` on each chassis path.
+fn set_background_copy_status(store: &MockupStore, chassis: &[String], status: &str) {
+    for path in chassis {
+        let Some(mut resource) = store.get(path) else {
+            continue;
+        };
+        // The pointer is only listed for chassis that already expose it, so the
+        // Oem/Nvidia objects are present; assign through them defensively.
+        if let Some(slot) = resource.pointer_mut(BACKGROUND_COPY_POINTER) {
+            *slot = json!(status);
+            store.set(path, resource);
+        }
+    }
+}
+
 /// Build the Redfish task `Messages` a wait-mode client watches for.
 ///
 /// nvfwupd/RMS block on a start-detection loop until they see a message whose
@@ -151,10 +274,7 @@ fn install_messages(resolved: &[String]) -> Vec<Value> {
     let components: Vec<&str> = if resolved.is_empty() {
         vec!["firmware"]
     } else {
-        resolved
-            .iter()
-            .map(|p| p.rsplit('/').next().unwrap_or(p.as_str()))
-            .collect()
+        resolved.iter().map(|p| component_name(p)).collect()
     };
     components
         .into_iter()
@@ -357,6 +477,7 @@ mod tests {
                 steps: 3,
             },
             messages,
+            TaskOutcome::success(),
             move |s| {
                 for path in &resolved {
                     bump_component_version(s, path);
@@ -393,5 +514,91 @@ mod tests {
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0]["MessageId"], "Update.1.0.InstallingOnComponent");
         assert_eq!(msgs[0]["MessageArgs"][1], "firmware");
+    }
+
+    fn seed_chassis(store: &MockupStore) {
+        store.set(
+            CHASSIS_COLLECTION,
+            json!({
+                "@odata.id": CHASSIS_COLLECTION,
+                "Members": [
+                    {"@odata.id": "/redfish/v1/Chassis/Bluefield_ERoT"},
+                    {"@odata.id": "/redfish/v1/Chassis/Bluefield_BMC"}
+                ],
+                "Members@odata.count": 2
+            }),
+        );
+        store.set(
+            "/redfish/v1/Chassis/Bluefield_ERoT",
+            json!({
+                "@odata.id": "/redfish/v1/Chassis/Bluefield_ERoT",
+                "Oem": {"Nvidia": {"BackgroundCopyStatus": "Completed"}}
+            }),
+        );
+        // A chassis without the property must be ignored by the precondition.
+        store.set(
+            "/redfish/v1/Chassis/Bluefield_BMC",
+            json!({"@odata.id": "/redfish/v1/Chassis/Bluefield_BMC"}),
+        );
+    }
+
+    #[test]
+    fn no_fail_pattern_never_fails() {
+        assert!(!update_should_fail(None, &["BMC_Firmware"]));
+        assert!(!update_should_fail(Some(""), &["BMC_Firmware"]));
+        assert!(!update_should_fail(Some("  "), &["BMC_Firmware"]));
+    }
+
+    #[test]
+    fn wildcard_fail_pattern_fails_any_update() {
+        assert!(update_should_fail(Some("*"), &["BMC_Firmware"]));
+        assert!(update_should_fail(Some("all"), &["BMC_Firmware"]));
+        assert!(update_should_fail(Some("ALL"), &[]));
+    }
+
+    #[test]
+    fn substring_fail_pattern_matches_component_name() {
+        assert!(update_should_fail(Some("bmc"), &["BMC_Firmware", "DPU_NIC"]));
+        assert!(!update_should_fail(Some("bmc"), &["DPU_NIC"]));
+    }
+
+    #[test]
+    fn failure_messages_carry_a_failure_marker_id() {
+        let msgs = failure_messages(&[
+            "/redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware".to_string(),
+        ]);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0]["MessageId"], "Update.1.0.ApplyFailedOnComponent");
+        assert_eq!(msgs[0]["Severity"], "Critical");
+        assert_eq!(msgs[0]["MessageArgs"][1], "BMC_Firmware");
+    }
+
+    #[test]
+    fn only_chassis_exposing_background_copy_are_selected() {
+        let store = MockupStore::for_test();
+        seed_chassis(&store);
+        let chassis = chassis_with_background_copy(&store);
+        assert_eq!(chassis, vec!["/redfish/v1/Chassis/Bluefield_ERoT".to_string()]);
+    }
+
+    #[test]
+    fn set_background_copy_status_updates_only_selected_chassis() {
+        let store = MockupStore::for_test();
+        seed_chassis(&store);
+        let chassis = chassis_with_background_copy(&store);
+
+        set_background_copy_status(&store, &chassis, "InProgress");
+        let erot = store.get("/redfish/v1/Chassis/Bluefield_ERoT").unwrap();
+        assert_eq!(
+            erot.pointer(BACKGROUND_COPY_POINTER).and_then(Value::as_str),
+            Some("InProgress")
+        );
+
+        set_background_copy_status(&store, &chassis, "Completed");
+        let erot = store.get("/redfish/v1/Chassis/Bluefield_ERoT").unwrap();
+        assert_eq!(
+            erot.pointer(BACKGROUND_COPY_POINTER).and_then(Value::as_str),
+            Some("Completed")
+        );
     }
 }

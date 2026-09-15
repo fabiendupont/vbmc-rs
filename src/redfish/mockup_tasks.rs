@@ -42,6 +42,54 @@ impl Default for TaskProgress {
     }
 }
 
+/// Terminal state a spawned task settles into once its progress finishes.
+///
+/// A wait-mode client (nvfwupd/RMS) decides success or failure from the
+/// terminal `TaskState`/`TaskStatus` and any failure `Messages`: `Exception`
+/// (or a `Critical` status, or a message id containing a failure marker) is
+/// read as a failed update. This lets the update handler inject failures.
+#[derive(Debug, Clone)]
+pub struct TaskOutcome {
+    /// Terminal `TaskState` (e.g. `Completed` or `Exception`).
+    pub state: String,
+    /// Terminal `TaskStatus` (e.g. `OK` or `Critical`).
+    pub status: String,
+    /// Messages appended to the lifecycle messages at the terminal snapshot,
+    /// e.g. an `Update.1.0.ApplyFailedOnComponent` detail on failure.
+    pub final_messages: Vec<Value>,
+}
+
+impl TaskOutcome {
+    /// A successful completion: `Completed` / `OK`, no extra messages.
+    pub fn success() -> Self {
+        Self {
+            state: "Completed".to_string(),
+            status: "OK".to_string(),
+            final_messages: Vec::new(),
+        }
+    }
+
+    /// A terminal failure: `Exception` / `Critical`, carrying failure messages.
+    pub fn failure(final_messages: Vec<Value>) -> Self {
+        Self {
+            state: "Exception".to_string(),
+            status: "Critical".to_string(),
+            final_messages,
+        }
+    }
+
+    /// Whether this outcome represents a successful completion.
+    pub fn is_success(&self) -> bool {
+        self.state == "Completed"
+    }
+}
+
+impl Default for TaskOutcome {
+    fn default() -> Self {
+        Self::success()
+    }
+}
+
 /// A snapshot of a Task at one point in its lifecycle, rendered by [`task_json`].
 struct TaskSnapshot<'a> {
     id: u64,
@@ -91,11 +139,18 @@ fn task_json(s: &TaskSnapshot) -> Value {
 /// Wait-mode clients (nvfwupd/RMS) poll for an `Update.1.0.InstallingOnComponent`
 /// entry to detect that the update has started; without it they block on their
 /// start-detection loop for the full timeout even though the task completes.
+///
+/// `outcome` selects the terminal state: [`TaskOutcome::success`] flips the task
+/// to `Completed`/`OK`; [`TaskOutcome::failure`] flips it to `Exception`/`Critical`
+/// with the supplied failure messages, which a wait-mode client reads as a failed
+/// update. `on_complete` still runs in both cases (so a handler can restore
+/// side effects like background-copy status regardless of outcome).
 pub fn spawn_task<F>(
     store: Arc<MockupStore>,
     name: &str,
     progress: TaskProgress,
     messages: Vec<Value>,
+    outcome: TaskOutcome,
     on_complete: F,
 ) -> String
 where
@@ -133,27 +188,37 @@ where
     let name = name.to_string();
 
     tokio::spawn(async move {
+        let mut last_percent = 0u8;
         for step in 1..=steps {
             tokio::time::sleep(step_delay).await;
             // Cap intermediate progress at 99 so 100% is only ever visible once
             // the task is actually Completed.
-            let percent = ((step * 100) / steps).min(99) as u8;
-            store.patch(&task_path_bg, &json!({ "PercentComplete": percent }));
+            last_percent = ((step * 100) / steps).min(99) as u8;
+            store.patch(&task_path_bg, &json!({ "PercentComplete": last_percent }));
         }
-        // Apply the caller's effect, then flip to Completed in one wholesale set.
+        // Apply the caller's effect, then flip to the terminal state in one set.
         on_complete(&store);
         let end = Utc::now().to_rfc3339();
+        // A successful task reports 100%; a failure reports where it stopped.
+        let percent = if outcome.is_success() {
+            100
+        } else {
+            last_percent
+        };
+        // Lifecycle messages plus any terminal (e.g. failure) messages.
+        let mut final_messages = messages;
+        final_messages.extend(outcome.final_messages);
         store.set(
             &task_path_bg,
             task_json(&TaskSnapshot {
                 id,
                 name: &name,
-                state: "Completed",
-                status: "OK",
-                percent: 100,
+                state: &outcome.state,
+                status: &outcome.status,
+                percent,
                 start: &start,
                 end: Some(&end),
-                messages: &messages,
+                messages: &final_messages,
             }),
         );
     });
@@ -189,7 +254,14 @@ mod tests {
             duration: Duration::from_millis(60),
             steps: 3,
         };
-        let task_path = spawn_task(store.clone(), "Test Update", progress, Vec::new(), |_| {});
+        let task_path = spawn_task(
+            store.clone(),
+            "Test Update",
+            progress,
+            Vec::new(),
+            TaskOutcome::success(),
+            |_| {},
+        );
 
         // Immediately Running at 0% before any tick elapses.
         let task = store.get(&task_path).unwrap();
@@ -214,9 +286,16 @@ mod tests {
             duration: Duration::from_millis(60),
             steps: 3,
         };
-        let task_path = spawn_task(store.clone(), "Test Update", progress, Vec::new(), move |_| {
-            fired_cb.store(true, Ordering::SeqCst);
-        });
+        let task_path = spawn_task(
+            store.clone(),
+            "Test Update",
+            progress,
+            Vec::new(),
+            TaskOutcome::success(),
+            move |_| {
+                fired_cb.store(true, Ordering::SeqCst);
+            },
+        );
 
         // Wait comfortably past the total duration.
         tokio::time::sleep(Duration::from_millis(250)).await;
@@ -244,7 +323,14 @@ mod tests {
             duration: Duration::from_millis(60),
             steps: 3,
         };
-        let task_path = spawn_task(store.clone(), "Test Update", progress, messages, |_| {});
+        let task_path = spawn_task(
+            store.clone(),
+            "Test Update",
+            progress,
+            messages,
+            TaskOutcome::success(),
+            |_| {},
+        );
 
         // Present while Running.
         let running = store.get(&task_path).unwrap();
@@ -264,6 +350,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failure_outcome_flips_task_to_exception_with_messages() {
+        let store = Arc::new(MockupStore::for_test());
+        seed_tasks_collection(&store);
+
+        let progress = TaskProgress {
+            duration: Duration::from_millis(60),
+            steps: 3,
+        };
+        let failure = TaskOutcome::failure(vec![json!({
+            "MessageId": "Update.1.0.ApplyFailedOnComponent",
+            "Severity": "Critical",
+            "MessageArgs": ["firmware image", "BMC_Firmware"],
+        })]);
+        let task_path =
+            spawn_task(store.clone(), "Test Update", progress, Vec::new(), failure, |_| {});
+
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
+        let task = store.get(&task_path).unwrap();
+        assert_eq!(task["TaskState"], "Exception");
+        assert_eq!(task["TaskStatus"], "Critical");
+        // A failed task must not claim 100%.
+        assert_ne!(task["PercentComplete"], 100);
+        assert_eq!(
+            task["Messages"][0]["MessageId"],
+            "Update.1.0.ApplyFailedOnComponent"
+        );
+    }
+
+    #[tokio::test]
     async fn intermediate_progress_never_reaches_100_before_completed() {
         let store = Arc::new(MockupStore::for_test());
         seed_tasks_collection(&store);
@@ -272,7 +388,14 @@ mod tests {
             duration: Duration::from_millis(120),
             steps: 4,
         };
-        let task_path = spawn_task(store.clone(), "Test Update", progress, Vec::new(), |_| {});
+        let task_path = spawn_task(
+            store.clone(),
+            "Test Update",
+            progress,
+            Vec::new(),
+            TaskOutcome::success(),
+            |_| {},
+        );
 
         // Sample mid-flight: state must still be Running and percent < 100.
         tokio::time::sleep(Duration::from_millis(70)).await;
