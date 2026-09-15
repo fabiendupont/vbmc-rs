@@ -50,15 +50,22 @@ enum Command {
         /// Shell type
         shell: Shell,
     },
-    /// Start a simulated BMC fleet with no config file or hypervisor needed
+    /// Start a simulated BMC fleet with no config file or hypervisor needed.
+    /// Use --dir to serve an existing Redfish mockup directory (index.json tree)
+    /// instead of generating an in-memory fleet.
     Simulate {
-        /// Number of simulated servers
+        /// Number of simulated servers (ignored when --dir is given)
         #[arg(short, long, default_value_t = 1)]
         systems: usize,
 
         /// Listen port
         #[arg(short, long, default_value_t = 8000)]
         port: u16,
+
+        /// Load a Redfish mockup directory instead of generating servers.
+        /// The directory must contain index.json files mirroring the Redfish path tree.
+        #[arg(long)]
+        dir: Option<PathBuf>,
 
         /// TLS certificate file (PEM). When both --cert and --key are given, HTTPS is used.
         #[arg(long)]
@@ -186,6 +193,7 @@ async fn main() -> anyhow::Result<()> {
         Some(Command::Simulate {
             systems,
             port,
+            dir,
             cert,
             key,
         }) => {
@@ -197,7 +205,10 @@ async fn main() -> anyhow::Result<()> {
                 .init();
 
             let tls_enabled = cert.is_some() && key.is_some();
-            let store = Arc::new(MockupStore::generate(systems, port, tls_enabled));
+            let store = Arc::new(match dir {
+                Some(ref d) => MockupStore::load(d)?,
+                None => MockupStore::generate(systems, port, tls_enabled),
+            });
             let config = config::AppConfig::simulate_with_tls(port, cert, key);
             config.server.validate_tls()?;
 
@@ -224,9 +235,21 @@ async fn main() -> anyhow::Result<()> {
             let addr = SocketAddr::new("127.0.0.1".parse()?, port);
             let app = redfish::router(app_state);
 
+            let scheme = if rustls_config.is_some() {
+                "https"
+            } else {
+                "http"
+            };
+            match &dir {
+                Some(d) => info!("Serving mockup {} at {}://{}", d.display(), scheme, addr),
+                None => info!("Simulating {} server(s) at {}://{}", systems, scheme, addr),
+            }
+            info!(
+                "Try: curl -sk {}://{}/redfish/v1/Systems | jq .",
+                scheme, addr
+            );
+
             if let Some(rustls_config) = rustls_config {
-                info!("Simulating {} server(s) at https://{}", systems, addr);
-                info!("Try: curl -sk https://{}/redfish/v1/Systems | jq .", addr);
                 let handle = axum_server::Handle::new();
                 let handle_clone = handle.clone();
                 tokio::spawn(async move {
@@ -239,8 +262,6 @@ async fn main() -> anyhow::Result<()> {
                     .serve(app.into_make_service())
                     .await?;
             } else {
-                info!("Simulating {} server(s) at http://{}", systems, addr);
-                info!("Try: curl -s http://{}/redfish/v1/Systems | jq .", addr);
                 let listener = TcpListener::bind(addr).await?;
                 axum::serve(listener, app)
                     .with_graceful_shutdown(async {
