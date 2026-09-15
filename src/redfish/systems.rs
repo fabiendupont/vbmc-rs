@@ -666,6 +666,35 @@ pub async fn patch_system(
     Ok(Json(serde_json::json!({"message": "System updated"})))
 }
 
+const DEFAULT_BOOT_ORDER: &[&str] = &["Hdd", "Pxe", "Cd", "None"];
+
+pub async fn set_default_boot_order(
+    State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
+    Path(system_id): Path<String>,
+) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    if !has_privilege(&user.role, Privilege::ConfigureComponents) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
+    if !state.config.systems.contains_key(&system_id) {
+        return Err(RedfishApiError::NotFound(format!(
+            "System '{system_id}' not found"
+        )));
+    }
+
+    let mut vm_state = state.get_vm_state(&system_id);
+    vm_state.boot_override = crate::state::BootOverride::default();
+    state.save_vm_state(&system_id, &vm_state);
+
+    Ok(Json(serde_json::json!({
+        "BootOrder": DEFAULT_BOOT_ORDER,
+        "message": "Boot order reset to defaults"
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -704,33 +733,4 @@ mod tests {
         assert_eq!(s.state.as_deref(), Some("UnavailableOffline"));
         assert_eq!(s.health.as_deref(), Some("Critical"));
     }
-}
-
-const DEFAULT_BOOT_ORDER: &[&str] = &["Hdd", "Pxe", "Cd", "None"];
-
-pub async fn set_default_boot_order(
-    State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
-    Path(system_id): Path<String>,
-) -> Result<Json<serde_json::Value>, RedfishApiError> {
-    if !has_privilege(&user.role, Privilege::ConfigureComponents) {
-        return Err(RedfishApiError::Forbidden(
-            "Insufficient privileges".to_string(),
-        ));
-    }
-
-    if !state.config.systems.contains_key(&system_id) {
-        return Err(RedfishApiError::NotFound(format!(
-            "System '{system_id}' not found"
-        )));
-    }
-
-    let mut vm_state = state.get_vm_state(&system_id);
-    vm_state.boot_override = crate::state::BootOverride::default();
-    state.save_vm_state(&system_id, &vm_state);
-
-    Ok(Json(serde_json::json!({
-        "BootOrder": DEFAULT_BOOT_ORDER,
-        "message": "Boot order reset to defaults"
-    })))
 }
