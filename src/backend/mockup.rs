@@ -797,6 +797,17 @@ impl MockupStore {
         }
     }
 
+    /// Empty store carrying a specific twin config, for tests that exercise the
+    /// twin seam (bindings, ingest routing, fleet identity).
+    #[cfg(test)]
+    pub(crate) fn for_test_with_twin(twin: TwinConfig) -> Self {
+        Self {
+            resources: DashMap::new(),
+            next_task_id: AtomicU64::new(1),
+            twin,
+        }
+    }
+
     pub fn get(&self, path: &str) -> Option<serde_json::Value> {
         let mut value = self.resources.get(path).map(|v| v.clone())?;
         // With no bindings this is a no-op, so the returned clone is identical
@@ -875,6 +886,16 @@ impl MockupStore {
     /// The twin's control-intent webhook URL, if actuation is configured.
     pub fn twin_control_webhook(&self) -> Option<String> {
         self.twin.control_webhook().map(str::to_string)
+    }
+
+    /// This node's fleet identity (`[twin] system_id`), if configured (P5).
+    pub fn twin_system_id(&self) -> Option<String> {
+        self.twin.system_id().map(str::to_string)
+    }
+
+    /// Whether a twin sample addressed to `target` should be ingested here (P5).
+    pub fn twin_accepts_system_id(&self, target: Option<&str>) -> bool {
+        self.twin.accepts_system_id(target)
     }
 
     /// Store-wide-unique, monotonically increasing Task id.

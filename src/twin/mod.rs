@@ -20,6 +20,14 @@
 //! (e.g. `ComputerSystem.Reset`), vbmc-rs applies its usual local optimistic
 //! mutation for instant feedback and, if a `control_webhook` is configured,
 //! relays a [`ControlIntent`] to the twin so the model stays authoritative.
+//!
+//! Fleet (P5): a node may declare its own `system_id` (`[twin] system_id`). One
+//! twin then drives many nodes by keying every sample by `system_id` — see
+//! [`TwinConfig::accepts_system_id`]. A node ingests only the samples addressed
+//! to it (or carrying no address, i.e. broadcast) and stamps that identity on the
+//! [`ControlIntent`]s it emits, so the twin can route the relayed action back to
+//! the right modeled node. A node without a configured `system_id` accepts every
+//! sample, so single-node behaviour is unchanged.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -171,6 +179,10 @@ pub struct TwinConfig {
     /// Optional URL a [`ControlIntent`] is POSTed to when a client issues a
     /// control action (P4 actuation). `None` keeps today's local-only behaviour.
     control_webhook: Option<String>,
+    /// Optional fleet identity for this node (P5). When set, ingest accepts only
+    /// samples addressed to this `system_id` (or carrying none), and outbound
+    /// control intents are stamped with it. `None` = single-node: accept all.
+    system_id: Option<String>,
     /// Reference instant that formula waveforms are measured from.
     start: Instant,
 }
@@ -184,6 +196,7 @@ impl TwinConfig {
             freshness_ttl: Duration::from_secs(DEFAULT_FRESHNESS_TTL_SECS),
             tick_interval: Duration::from_secs(DEFAULT_TICK_INTERVAL_SECS),
             control_webhook: None,
+            system_id: None,
             start: Instant::now(),
         }
     }
@@ -213,6 +226,7 @@ impl TwinConfig {
             freshness_ttl: Duration::from_secs(spec.freshness_ttl_seconds),
             tick_interval: Duration::from_secs(spec.tick_interval_seconds.max(1)),
             control_webhook: spec.control_webhook.filter(|s| !s.is_empty()),
+            system_id: spec.system_id.filter(|s| !s.is_empty()),
             start: Instant::now(),
         })
     }
@@ -220,6 +234,26 @@ impl TwinConfig {
     /// The URL control intents are relayed to, if actuation is configured.
     pub fn control_webhook(&self) -> Option<&str> {
         self.control_webhook.as_deref()
+    }
+
+    /// This node's fleet identity, if one is configured (P5).
+    pub fn system_id(&self) -> Option<&str> {
+        self.system_id.as_deref()
+    }
+
+    /// Whether a sample addressed to `target` should be ingested by this node.
+    ///
+    /// A sample with no address (`None`) is a broadcast and is always accepted.
+    /// A node with no configured `system_id` has no fleet identity and accepts
+    /// every sample. Otherwise the sample is kept only when its `system_id`
+    /// matches this node's — a foreign node's telemetry is rejected, mirroring a
+    /// real BMC that only ever observes its own hardware.
+    pub fn accepts_system_id(&self, target: Option<&str>) -> bool {
+        match (self.system_id.as_deref(), target) {
+            (_, None) => true,
+            (None, Some(_)) => true,
+            (Some(mine), Some(theirs)) => mine == theirs,
+        }
     }
 
     /// Record an external reading for `key`, timestamped now and stamped with the
@@ -348,6 +382,9 @@ struct TwinSpec {
     /// Optional URL control intents are POSTed to (P4 actuation).
     #[serde(default)]
     control_webhook: Option<String>,
+    /// Optional fleet identity for this node (P5 ingest/intent routing key).
+    #[serde(default)]
+    system_id: Option<String>,
     #[serde(default)]
     binding: Vec<BindingToml>,
 }
@@ -762,6 +799,39 @@ mod tests {
                 "params": { "ResetType": "ForceOff" },
             })
         );
+    }
+
+    #[test]
+    fn system_id_is_none_when_absent_or_blank() {
+        let cfg = TwinConfig::from_toml("[twin]\n").unwrap();
+        assert_eq!(cfg.system_id(), None);
+        let blank = TwinConfig::from_toml("[twin]\nsystem_id = \"\"\n").unwrap();
+        assert_eq!(blank.system_id(), None);
+    }
+
+    #[test]
+    fn system_id_is_parsed_when_set() {
+        let cfg = TwinConfig::from_toml("[twin]\nsystem_id = \"tray-01\"\n").unwrap();
+        assert_eq!(cfg.system_id(), Some("tray-01"));
+    }
+
+    #[test]
+    fn node_with_identity_accepts_only_its_own_or_unaddressed_samples() {
+        let cfg = TwinConfig::from_toml("[twin]\nsystem_id = \"tray-01\"\n").unwrap();
+        // Unaddressed broadcast: always accepted.
+        assert!(cfg.accepts_system_id(None));
+        // Addressed to this node: accepted.
+        assert!(cfg.accepts_system_id(Some("tray-01")));
+        // Addressed to another node: rejected.
+        assert!(!cfg.accepts_system_id(Some("tray-02")));
+    }
+
+    #[test]
+    fn node_without_identity_accepts_every_sample() {
+        let cfg = TwinConfig::from_toml("[twin]\n").unwrap();
+        assert!(cfg.accepts_system_id(None));
+        assert!(cfg.accepts_system_id(Some("tray-01")));
+        assert!(cfg.accepts_system_id(Some("anything")));
     }
 
     #[test]

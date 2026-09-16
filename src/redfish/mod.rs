@@ -683,11 +683,16 @@ async fn mockup_fallback(
                 // the model stays authoritative. The local flip above is instant
                 // client feedback; the webhook call never blocks this response.
                 if let Some(webhook) = store.twin_control_webhook() {
-                    let system_id = system_path
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or_default()
-                        .to_string();
+                    // P5 fleet: stamp this node's configured `system_id` so the
+                    // twin can route the relayed intent back to the right modeled
+                    // node; fall back to the Redfish resource id for a single node.
+                    let system_id = store.twin_system_id().unwrap_or_else(|| {
+                        system_path
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or_default()
+                            .to_string()
+                    });
                     mockup_control::emit_control_intent(
                         webhook,
                         crate::twin::ControlIntent {
