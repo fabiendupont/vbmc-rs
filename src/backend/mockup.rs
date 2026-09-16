@@ -1,17 +1,25 @@
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use dashmap::DashMap;
 use tracing::info;
 
 use super::types as bt;
 use super::{BackendError, VmmBackend};
+use crate::twin::TwinConfig;
+
+/// Filename of the optional twin binding sidecar in a mockup directory.
+const TWIN_SIDECAR: &str = "twin.toml";
 
 pub struct MockupStore {
     resources: DashMap<String, serde_json::Value>,
     /// Monotonic source of store-wide-unique Task IDs.
     next_task_id: AtomicU64,
+    /// Digital-twin binding table. Empty unless a `twin.toml` sidecar is loaded,
+    /// in which case `get()` resolves dynamic fields over the base resource.
+    twin: TwinConfig,
 }
 
 impl MockupStore {
@@ -19,6 +27,7 @@ impl MockupStore {
         let store = Self {
             resources: DashMap::new(),
             next_task_id: AtomicU64::new(1),
+            twin: TwinConfig::empty(),
         };
 
         let mut members = Vec::new();
@@ -717,9 +726,10 @@ impl MockupStore {
     }
 
     pub fn load(dir: &Path) -> anyhow::Result<Self> {
-        let store = Self {
+        let mut store = Self {
             resources: DashMap::new(),
             next_task_id: AtomicU64::new(1),
+            twin: TwinConfig::empty(),
         };
         let dir_str = dir
             .to_str()
@@ -762,6 +772,16 @@ impl MockupStore {
             store.next_task_id.store(max + 1, Ordering::Relaxed);
         }
 
+        // Optional digital-twin sidecar: binds dynamic fields (formulas now,
+        // external feed later) over the loaded base resources. Absent by
+        // default, in which case `get()` stays byte-identical to the fixture.
+        let twin_path = dir.join(TWIN_SIDECAR);
+        if twin_path.is_file() {
+            let text = std::fs::read_to_string(&twin_path)?;
+            store.twin = TwinConfig::from_toml(&text)?;
+            info!(sidecar = %twin_path.display(), "Loaded twin bindings");
+        }
+
         info!(directory = %dir.display(), resources = count, "Loaded mockup data");
         Ok(store)
     }
@@ -773,11 +793,18 @@ impl MockupStore {
         Self {
             resources: DashMap::new(),
             next_task_id: AtomicU64::new(1),
+            twin: TwinConfig::empty(),
         }
     }
 
     pub fn get(&self, path: &str) -> Option<serde_json::Value> {
-        self.resources.get(path).map(|v| v.clone())
+        let mut value = self.resources.get(path).map(|v| v.clone())?;
+        // With no bindings this is a no-op, so the returned clone is identical
+        // to the stored resource (regression-safe seam).
+        if !self.twin.is_empty() {
+            self.twin.resolve(path, &mut value, Instant::now());
+        }
+        Some(value)
     }
 
     pub fn patch(&self, path: &str, patch: &serde_json::Value) {
@@ -1198,6 +1225,64 @@ mod tests {
         assert!(store.get("/redfish/v1/Systems").is_some());
         assert!(store.get("/redfish/v1/Systems/Server1").is_some());
         assert!(store.get("/nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_twin_sidecar_resolves_formula_binding() {
+        let dir = create_mockup_dir();
+
+        // A sensor resource with a static base Reading.
+        let sensor = dir.path().join("redfish/v1/Chassis/GPU_0/Sensors/Temp0");
+        std::fs::create_dir_all(&sensor).unwrap();
+        std::fs::write(
+            sensor.join("index.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "@odata.id": "/redfish/v1/Chassis/GPU_0/Sensors/Temp0",
+                "@odata.type": "#Sensor.v1_2_0.Sensor",
+                "Name": "Temp0",
+                "Reading": 0.0,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        // A twin.toml binding the sensor's Reading to a bounded formula.
+        std::fs::write(
+            dir.path().join(super::TWIN_SIDECAR),
+            r#"
+[twin]
+[[twin.binding]]
+path = "/redfish/v1/Chassis/GPU_0/Sensors/Temp0"
+pointer = "/Reading"
+source = "formula"
+formula = { kind = "sine", min = 30.0, max = 90.0, period_s = 60 }
+"#,
+        )
+        .unwrap();
+
+        let store = MockupStore::load(dir.path()).unwrap();
+
+        // The bound field is resolved into [min, max]; the base 0.0 is replaced.
+        let sensor = store
+            .get("/redfish/v1/Chassis/GPU_0/Sensors/Temp0")
+            .unwrap();
+        let reading = sensor["Reading"].as_f64().unwrap();
+        assert!(
+            (30.0..=90.0).contains(&reading),
+            "resolved reading {reading} out of bounds"
+        );
+        // Unbound fields are untouched.
+        assert_eq!(sensor["Name"], "Temp0");
+    }
+
+    #[test]
+    fn test_no_twin_sidecar_is_byte_identical() {
+        // Without a twin.toml, get() returns the stored resource verbatim.
+        let dir = create_mockup_dir();
+        let store = MockupStore::load(dir.path()).unwrap();
+        let sys = store.get("/redfish/v1/Systems/Server1").unwrap();
+        assert_eq!(sys["Name"], "Test Server");
+        assert_eq!(sys["PowerState"], "On");
     }
 
     #[test]
