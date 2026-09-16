@@ -180,7 +180,10 @@ where
     // but the member must reference the task path we already minted, so the
     // closure ignores that id.
     let member_path = task_path.clone();
-    let _ = store.append_member(TASKS_COLLECTION, move |_| json!({ "@odata.id": member_path }));
+    let _ = store.append_member(
+        TASKS_COLLECTION,
+        move |_| json!({ "@odata.id": member_path }),
+    );
 
     let steps = progress.steps.max(1);
     let step_delay = progress.duration / steps;
@@ -363,8 +366,14 @@ mod tests {
             "Severity": "Critical",
             "MessageArgs": ["firmware image", "BMC_Firmware"],
         })]);
-        let task_path =
-            spawn_task(store.clone(), "Test Update", progress, Vec::new(), failure, |_| {});
+        let task_path = spawn_task(
+            store.clone(),
+            "Test Update",
+            progress,
+            Vec::new(),
+            failure,
+            |_| {},
+        );
 
         tokio::time::sleep(Duration::from_millis(250)).await;
 
