@@ -54,7 +54,12 @@ struct Args {
 
     /// Component as NAME=VERSION. Repeat for multiple components; each becomes a
     /// component image with a deterministic placeholder payload.
-    #[arg(short, long = "component", value_name = "NAME=VERSION", required = true)]
+    #[arg(
+        short,
+        long = "component",
+        value_name = "NAME=VERSION",
+        required = true
+    )]
     components: Vec<String>,
 
     /// IANA Enterprise ID for the initial device descriptor.
@@ -215,7 +220,10 @@ fn run() -> Result<(), String> {
     debug_assert_eq!(pkg.len() as u32, header_len);
     for (i, _) in components.iter().enumerate() {
         // Fill each payload with a per-component byte so unpack output differs.
-        pkg.extend(std::iter::repeat_n((i + 1) as u8, args.payload_size as usize));
+        pkg.extend(std::iter::repeat_n(
+            (i + 1) as u8,
+            args.payload_size as usize,
+        ));
     }
 
     fs::write(&args.out, &pkg).map_err(|e| format!("cannot write {}: {e}", args.out))?;

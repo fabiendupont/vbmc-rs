@@ -466,8 +466,7 @@ mod tests {
         seed_inventory(&store);
 
         // Force a fast task so the test does not wait the default 3s.
-        let resolved =
-            vec!["/redfish/v1/UpdateService/FirmwareInventory/DPU_BSP".to_string()];
+        let resolved = vec!["/redfish/v1/UpdateService/FirmwareInventory/DPU_BSP".to_string()];
         let messages = install_messages(&resolved);
         let task_path = spawn_task(
             store.clone(),
@@ -558,14 +557,17 @@ mod tests {
 
     #[test]
     fn substring_fail_pattern_matches_component_name() {
-        assert!(update_should_fail(Some("bmc"), &["BMC_Firmware", "DPU_NIC"]));
+        assert!(update_should_fail(
+            Some("bmc"),
+            &["BMC_Firmware", "DPU_NIC"]
+        ));
         assert!(!update_should_fail(Some("bmc"), &["DPU_NIC"]));
     }
 
     #[test]
     fn failure_messages_carry_a_failure_marker_id() {
         let msgs = failure_messages(&[
-            "/redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware".to_string(),
+            "/redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware".to_string()
         ]);
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0]["MessageId"], "Update.1.0.ApplyFailedOnComponent");
@@ -578,7 +580,10 @@ mod tests {
         let store = MockupStore::for_test();
         seed_chassis(&store);
         let chassis = chassis_with_background_copy(&store);
-        assert_eq!(chassis, vec!["/redfish/v1/Chassis/Bluefield_ERoT".to_string()]);
+        assert_eq!(
+            chassis,
+            vec!["/redfish/v1/Chassis/Bluefield_ERoT".to_string()]
+        );
     }
 
     #[test]
@@ -590,14 +595,16 @@ mod tests {
         set_background_copy_status(&store, &chassis, "InProgress");
         let erot = store.get("/redfish/v1/Chassis/Bluefield_ERoT").unwrap();
         assert_eq!(
-            erot.pointer(BACKGROUND_COPY_POINTER).and_then(Value::as_str),
+            erot.pointer(BACKGROUND_COPY_POINTER)
+                .and_then(Value::as_str),
             Some("InProgress")
         );
 
         set_background_copy_status(&store, &chassis, "Completed");
         let erot = store.get("/redfish/v1/Chassis/Bluefield_ERoT").unwrap();
         assert_eq!(
-            erot.pointer(BACKGROUND_COPY_POINTER).and_then(Value::as_str),
+            erot.pointer(BACKGROUND_COPY_POINTER)
+                .and_then(Value::as_str),
             Some("Completed")
         );
     }

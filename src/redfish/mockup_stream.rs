@@ -221,10 +221,7 @@ fn threshold_event(
 
 /// Assemble the twin MetricReport from the metric-bearing samples, or `None` if
 /// no binding declares a `metric`.
-fn build_metric_report(
-    samples: &[crate::twin::StreamSample],
-    ts: DateTime<Utc>,
-) -> Option<Value> {
+fn build_metric_report(samples: &[crate::twin::StreamSample], ts: DateTime<Utc>) -> Option<Value> {
     let ts = ts.to_rfc3339();
     let values: Vec<Value> = samples
         .iter()
@@ -376,7 +373,11 @@ mod tests {
     #[test]
     fn build_metric_report_includes_only_metric_bindings() {
         let samples = vec![
-            sample("/redfish/v1/Chassis/GPU_0/Sensors/Temp0", 57.5, Some("GpuTemperature")),
+            sample(
+                "/redfish/v1/Chassis/GPU_0/Sensors/Temp0",
+                57.5,
+                Some("GpuTemperature"),
+            ),
             sample("/redfish/v1/Chassis/GPU_0/Sensors/Power0", 150.0, None),
         ];
         let report = build_metric_report(&samples, Utc::now()).unwrap();
@@ -401,7 +402,11 @@ mod tests {
     #[test]
     fn resource_updated_event_targets_the_path() {
         let mut seq = 0;
-        let ev = resource_updated_event("/redfish/v1/Chassis/GPU_0/Sensors/Temp0", Utc::now(), &mut seq);
+        let ev = resource_updated_event(
+            "/redfish/v1/Chassis/GPU_0/Sensors/Temp0",
+            Utc::now(),
+            &mut seq,
+        );
         assert_eq!(ev.event_type, "ResourceUpdated");
         assert_eq!(ev.event_id, "1");
         assert_eq!(
@@ -461,7 +466,14 @@ warning = 70.0
         let mut alerts = HashMap::new();
         let mut seq = 0;
 
-        run_tick(&store, &bus, &mut alerts, &mut seq, Instant::now(), Utc::now());
+        run_tick(
+            &store,
+            &bus,
+            &mut alerts,
+            &mut seq,
+            Instant::now(),
+            Utc::now(),
+        );
 
         // MetricReport was written with the live reading.
         let report = store.get(TWIN_REPORT_PATH).unwrap();
