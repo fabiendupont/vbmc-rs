@@ -19,6 +19,8 @@ pub mod manager_network;
 pub mod managers;
 pub mod memory;
 pub mod memory_metrics;
+// Stream-out (events + MetricReports) tick for mockup mode.
+pub mod mockup_stream;
 // Timed Task lifecycle for mockup mode, driven by the update handlers.
 pub mod mockup_tasks;
 // Firmware-update handlers for mockup mode.
@@ -566,6 +568,18 @@ fn mockup_router(state: Arc<AppState>) -> Router {
         .route(
             "/redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate",
             post(mockup_update::simple_update),
+        )
+        // Stream-out: the fixture is fallback-only, so the SSE stream and the
+        // (runtime) subscription lifecycle are mounted explicitly here. The
+        // stream tick drives events over the same EventBus these read from.
+        .route("/redfish/v1/EventService/SSE", get(event_service::sse_stream))
+        .route(
+            "/redfish/v1/EventService/Subscriptions",
+            post(event_service::create_subscription),
+        )
+        .route(
+            "/redfish/v1/EventService/Subscriptions/{sub_id}",
+            get(event_service::get_subscription).delete(event_service::delete_subscription),
         )
         .fallback(mockup_fallback)
         .layer(ODataComplianceLayer)

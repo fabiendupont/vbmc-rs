@@ -233,6 +233,9 @@ async fn main() -> anyhow::Result<()> {
                 Some(store),
             ));
             let addr = SocketAddr::new("127.0.0.1".parse()?, port);
+            // Start the twin stream-out tick (no-op unless a twin.toml is loaded):
+            // periodic ResourceUpdated events + MetricReport refresh over the store.
+            redfish::mockup_stream::spawn_stream(app_state.clone());
             let app = redfish::router(app_state);
 
             let scheme = if rustls_config.is_some() {
