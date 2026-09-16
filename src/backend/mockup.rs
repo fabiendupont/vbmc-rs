@@ -862,6 +862,16 @@ impl MockupStore {
         self.twin.stream_snapshot(now)
     }
 
+    /// Record an external-twin reading for `key` (from `POST /twin/v1/state`).
+    pub fn twin_ingest(&self, key: &str, value: serde_json::Value) {
+        self.twin.ingest(key, value);
+    }
+
+    /// Whether any twin binding consumes external readings for `key`.
+    pub fn twin_has_external_key(&self, key: &str) -> bool {
+        self.twin.has_external_key(key)
+    }
+
     /// Store-wide-unique, monotonically increasing Task id.
     pub fn next_task_id(&self) -> u64 {
         self.next_task_id.fetch_add(1, Ordering::Relaxed)

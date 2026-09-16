@@ -11,13 +11,15 @@
 //! value at its JSON pointer. With no bindings the clone is returned untouched,
 //! so a store without a `twin.toml` behaves byte-for-byte as before.
 //!
-//! This module implements the seam (P0) and the local [`Source::Formula`]
-//! waveform (P1). [`Source::External`] and [`Sample`] describe the external-twin
-//! feed wired up by a later phase (ingest over `POST /twin/v1/state`).
+//! This module implements the seam (P0), the local [`Source::Formula`] waveform
+//! (P1), and the external-twin feed (P2): [`Source::External`] resolves from an
+//! ingested value map ([`Sample`]) fed over `POST /twin/v1/state`, clamped to
+//! the binding's bounds, going offline when a reading is missing or stale.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use dashmap::DashMap;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -79,23 +81,21 @@ pub enum Source {
     Static,
     /// A local waveform computed from the store clock; no external twin.
     Formula(FormulaSpec),
-    /// The value comes from external-twin ingest, clamped to `[min, max]`.
-    /// Resolution is wired up by the ingest phase; declared here so the seam's
-    /// shape is complete.
-    #[allow(dead_code)] // TODO(twin P6): resolved from the external value map.
+    /// The value comes from external-twin ingest (`POST /twin/v1/state`),
+    /// clamped to `[min, max]`. A fresh sample overrides the base value; a
+    /// missing or stale reading marks the field offline.
     External { key: String, min: f64, max: f64 },
 }
 
-impl Source {
-    /// Resolve the override value at `elapsed`, or `None` to keep the base value.
-    fn value(&self, elapsed: Duration) -> Option<Value> {
-        match self {
-            Source::Static => None,
-            Source::Formula(spec) => Some(json!(spec.eval(elapsed))),
-            // Filled in when external ingest lands; until then it keeps the base.
-            Source::External { .. } => None,
-        }
-    }
+/// Outcome of resolving one binding at a point in time.
+enum Resolution {
+    /// Keep the base value untouched (Static source).
+    Keep,
+    /// Overwrite the bound pointer with this value.
+    Set(Value),
+    /// The external feed is missing or stale: null the bound pointer and mark
+    /// the resource `UnavailableOffline`.
+    Offline,
 }
 
 /// A dynamic field: a JSON `pointer` inside the resource at `path`, fed by
@@ -129,8 +129,7 @@ pub struct StreamSample {
 }
 
 /// One external-twin reading, with the freshness metadata used to detect a
-/// stale feed. Written by ingest, read during resolution (later phase).
-#[allow(dead_code)] // TODO(twin P6): populated by POST /twin/v1/state ingest.
+/// stale feed. Written by ingest, read during resolution.
 pub struct Sample {
     pub value: Value,
     pub ts: Instant,
@@ -141,8 +140,11 @@ pub struct Sample {
 pub struct TwinConfig {
     /// Bindings grouped by the resource path they apply to.
     bindings: HashMap<String, Vec<Binding>>,
-    /// Freshness window for external samples (consumed by the ingest phase).
-    #[allow(dead_code)] // TODO(twin P6): used to mark stale feeds offline.
+    /// Latest external reading per key, written by `POST /twin/v1/state` ingest
+    /// and read during resolution. Interior-mutable so ingest works over `&self`.
+    external: DashMap<String, Sample>,
+    /// Freshness window applied to external samples at ingest: past it a reading
+    /// is stale and its binding goes offline.
     freshness_ttl: Duration,
     /// Cadence of the stream-out tick (events + MetricReport refresh).
     tick_interval: Duration,
@@ -155,6 +157,7 @@ impl TwinConfig {
     pub fn empty() -> Self {
         Self {
             bindings: HashMap::new(),
+            external: DashMap::new(),
             freshness_ttl: Duration::from_secs(DEFAULT_FRESHNESS_TTL_SECS),
             tick_interval: Duration::from_secs(DEFAULT_TICK_INTERVAL_SECS),
             start: Instant::now(),
@@ -174,15 +177,62 @@ impl TwinConfig {
         let mut bindings: HashMap<String, Vec<Binding>> = HashMap::new();
         for raw in spec.binding {
             let binding = raw.into_binding()?;
-            bindings.entry(binding.path.clone()).or_default().push(binding);
+            bindings
+                .entry(binding.path.clone())
+                .or_default()
+                .push(binding);
         }
 
         Ok(Self {
             bindings,
+            external: DashMap::new(),
             freshness_ttl: Duration::from_secs(spec.freshness_ttl_seconds),
             tick_interval: Duration::from_secs(spec.tick_interval_seconds.max(1)),
             start: Instant::now(),
         })
+    }
+
+    /// Record an external reading for `key`, timestamped now and stamped with the
+    /// config's freshness TTL. Overwrites any prior reading for the same key.
+    pub fn ingest(&self, key: &str, value: Value) {
+        self.external.insert(
+            key.to_string(),
+            Sample {
+                value,
+                ts: Instant::now(),
+                ttl: self.freshness_ttl,
+            },
+        );
+    }
+
+    /// Whether any binding consumes external readings for `key` (used to report
+    /// unknown keys on ingest without failing the batch).
+    pub fn has_external_key(&self, key: &str) -> bool {
+        self.bindings
+            .values()
+            .flatten()
+            .any(|b| matches!(&b.source, Source::External { key: k, .. } if k == key))
+    }
+
+    /// Resolve one binding's source at `now`. Formula uses `elapsed` since start;
+    /// External looks up the (possibly stale) ingested reading.
+    fn resolve_source(&self, source: &Source, elapsed: Duration, now: Instant) -> Resolution {
+        match source {
+            Source::Static => Resolution::Keep,
+            Source::Formula(spec) => Resolution::Set(json!(spec.eval(elapsed))),
+            Source::External { key, min, max } => match self.external.get(key) {
+                Some(sample) if now.saturating_duration_since(sample.ts) < sample.ttl => {
+                    match sample.value.as_f64() {
+                        // Numeric readings are clamped to the declared bounds.
+                        Some(v) => Resolution::Set(json!(v.clamp(*min, *max))),
+                        // Non-numeric readings (e.g. a state string) pass through.
+                        None => Resolution::Set(sample.value.clone()),
+                    }
+                }
+                // Never ingested, or the last reading has aged past its TTL.
+                _ => Resolution::Offline,
+            },
+        }
     }
 
     /// Cadence of the stream-out tick (events + MetricReport refresh).
@@ -199,8 +249,12 @@ impl TwinConfig {
         let mut out = Vec::new();
         for bindings in self.bindings.values() {
             for binding in bindings {
-                let Some(value) = binding.source.value(elapsed) else {
-                    continue;
+                let value = match self.resolve_source(&binding.source, elapsed, now) {
+                    Resolution::Keep => continue,
+                    Resolution::Set(value) => value,
+                    // A stale/absent external feed still streams: it reports the
+                    // field as offline (null) so consumers see the drop-out.
+                    Resolution::Offline => Value::Null,
                 };
                 out.push(StreamSample {
                     path: binding.path.clone(),
@@ -225,11 +279,23 @@ impl TwinConfig {
         };
         let elapsed = now.saturating_duration_since(self.start);
         for binding in bindings {
-            let Some(value) = binding.source.value(elapsed) else {
-                continue;
-            };
-            if let Some(slot) = base.pointer_mut(&binding.pointer) {
-                *slot = value;
+            match self.resolve_source(&binding.source, elapsed, now) {
+                Resolution::Keep => {}
+                Resolution::Set(value) => {
+                    if let Some(slot) = base.pointer_mut(&binding.pointer) {
+                        *slot = value;
+                    }
+                }
+                Resolution::Offline => {
+                    // Null the bound reading and, if the resource carries a
+                    // Status, mark it offline so a stale feed is unmistakable.
+                    if let Some(slot) = base.pointer_mut(&binding.pointer) {
+                        *slot = Value::Null;
+                    }
+                    if let Some(slot) = base.pointer_mut("/Status/State") {
+                        *slot = json!("UnavailableOffline");
+                    }
+                }
             }
         }
     }
@@ -300,7 +366,10 @@ impl BindingToml {
             BindingSource::Static => Source::Static,
             BindingSource::Formula => {
                 let spec = self.formula.ok_or_else(|| {
-                    anyhow::anyhow!("binding {} has source=formula but no [formula] table", self.path)
+                    anyhow::anyhow!(
+                        "binding {} has source=formula but no [formula] table",
+                        self.path
+                    )
                 })?;
                 Source::Formula(spec)
             }
@@ -342,7 +411,11 @@ mod tests {
     fn resolve_without_bindings_leaves_value_untouched() {
         let cfg = TwinConfig::empty();
         let mut value = json!({ "Reading": 42 });
-        cfg.resolve("/redfish/v1/Chassis/GPU_0/Sensors/Temp0", &mut value, Instant::now());
+        cfg.resolve(
+            "/redfish/v1/Chassis/GPU_0/Sensors/Temp0",
+            &mut value,
+            Instant::now(),
+        );
         assert_eq!(value, json!({ "Reading": 42 }));
     }
 
@@ -360,10 +433,17 @@ mod tests {
         assert!(!cfg.is_empty());
 
         let mut value = json!({ "Reading": 0, "Name": "Temp0" });
-        cfg.resolve("/redfish/v1/Chassis/GPU_0/Sensors/Temp0", &mut value, Instant::now());
+        cfg.resolve(
+            "/redfish/v1/Chassis/GPU_0/Sensors/Temp0",
+            &mut value,
+            Instant::now(),
+        );
 
         let reading = value["Reading"].as_f64().unwrap();
-        assert!((20.0..=90.0).contains(&reading), "reading {reading} out of bounds");
+        assert!(
+            (20.0..=90.0).contains(&reading),
+            "reading {reading} out of bounds"
+        );
         // Untouched fields are preserved.
         assert_eq!(value["Name"], "Temp0");
     }
@@ -381,7 +461,11 @@ mod tests {
         let cfg = TwinConfig::from_toml(toml).unwrap();
 
         let mut other = json!({ "Reading": 7 });
-        cfg.resolve("/redfish/v1/Chassis/GPU_0/Sensors/Power0", &mut other, Instant::now());
+        cfg.resolve(
+            "/redfish/v1/Chassis/GPU_0/Sensors/Power0",
+            &mut other,
+            Instant::now(),
+        );
         assert_eq!(other, json!({ "Reading": 7 }));
     }
 
@@ -508,10 +592,108 @@ mod tests {
     #[test]
     fn tick_interval_defaults_and_is_clamped_to_at_least_one_second() {
         let cfg = TwinConfig::from_toml("[twin]\n").unwrap();
-        assert_eq!(cfg.tick_interval(), Duration::from_secs(DEFAULT_TICK_INTERVAL_SECS));
+        assert_eq!(
+            cfg.tick_interval(),
+            Duration::from_secs(DEFAULT_TICK_INTERVAL_SECS)
+        );
 
         let zero = TwinConfig::from_toml("[twin]\ntick_interval_seconds = 0\n").unwrap();
         assert_eq!(zero.tick_interval(), Duration::from_secs(1));
+    }
+
+    #[test]
+    fn external_fresh_sample_clamps_within_bounds() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/redfish/v1/Chassis/GPU_0/Sensors/Temp0"
+            pointer = "/Reading"
+            source = "external"
+            key = "gpu0.temp_c"
+            min = 0.0
+            max = 100.0
+        "#;
+        let cfg = TwinConfig::from_toml(toml).unwrap();
+        assert!(cfg.has_external_key("gpu0.temp_c"));
+        assert!(!cfg.has_external_key("nope"));
+
+        // Over-max reading is clamped to the bound.
+        cfg.ingest("gpu0.temp_c", json!(150.0));
+        let mut value = json!({ "Reading": 0.0, "Status": { "State": "Enabled" } });
+        cfg.resolve(
+            "/redfish/v1/Chassis/GPU_0/Sensors/Temp0",
+            &mut value,
+            Instant::now(),
+        );
+        assert_eq!(value["Reading"], json!(100.0));
+        // A fresh feed leaves the Status untouched.
+        assert_eq!(value["Status"]["State"], "Enabled");
+    }
+
+    #[test]
+    fn external_without_ingest_marks_offline() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/redfish/v1/Chassis/GPU_0/Sensors/Temp0"
+            pointer = "/Reading"
+            source = "external"
+            key = "gpu0.temp_c"
+            min = 0.0
+            max = 100.0
+        "#;
+        let cfg = TwinConfig::from_toml(toml).unwrap();
+        let mut value = json!({ "Reading": 42.0, "Status": { "State": "Enabled" } });
+        cfg.resolve(
+            "/redfish/v1/Chassis/GPU_0/Sensors/Temp0",
+            &mut value,
+            Instant::now(),
+        );
+        // No reading ever ingested => offline.
+        assert_eq!(value["Reading"], Value::Null);
+        assert_eq!(value["Status"]["State"], "UnavailableOffline");
+    }
+
+    #[test]
+    fn external_stale_sample_goes_offline() {
+        // freshness_ttl_seconds = 0 => any sample is stale the instant it lands.
+        let toml = r#"
+            [twin]
+            freshness_ttl_seconds = 0
+            [[twin.binding]]
+            path = "/x"
+            pointer = "/Reading"
+            source = "external"
+            key = "k"
+            min = 0.0
+            max = 10.0
+        "#;
+        let cfg = TwinConfig::from_toml(toml).unwrap();
+        cfg.ingest("k", json!(5.0));
+        let mut value = json!({ "Reading": 1.0, "Status": { "State": "Enabled" } });
+        cfg.resolve("/x", &mut value, Instant::now());
+        assert_eq!(value["Reading"], Value::Null);
+        assert_eq!(value["Status"]["State"], "UnavailableOffline");
+    }
+
+    #[test]
+    fn external_reingest_overrides_previous_reading() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/x"
+            pointer = "/Reading"
+            source = "external"
+            key = "k"
+            min = 0.0
+            max = 100.0
+        "#;
+        let cfg = TwinConfig::from_toml(toml).unwrap();
+        cfg.ingest("k", json!(10.0));
+        cfg.ingest("k", json!(20.0));
+        let mut value = json!({ "Reading": 0.0 });
+        cfg.resolve("/x", &mut value, Instant::now());
+        assert_eq!(value["Reading"], json!(20.0));
     }
 
     #[test]
