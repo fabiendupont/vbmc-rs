@@ -24,6 +24,11 @@ use serde_json::{Value, json};
 /// Default freshness window for external samples when `twin.toml` omits it.
 const DEFAULT_FRESHNESS_TTL_SECS: u64 = 10;
 
+/// Default cadence for the stream-out tick when `twin.toml` omits it. The tick
+/// drives `ResourceUpdated` events and MetricReport refreshes (see the stream
+/// module); it is only spawned when the binding table is non-empty.
+const DEFAULT_TICK_INTERVAL_SECS: u64 = 5;
+
 /// Shape of a local waveform for a [`Source::Formula`] binding.
 ///
 /// The value sweeps `[min, max]` over `period_s`, starting at `min` at t=0.
@@ -100,6 +105,27 @@ pub struct Binding {
     pub path: String,
     pub pointer: String,
     pub source: Source,
+    /// Optional MetricId. When set, the resolved value is also published in the
+    /// twin MetricReport and streamed via the TelemetryService (P5).
+    pub metric: Option<String>,
+    /// Optional upper threshold: a resolved value at or above this raises a
+    /// `Warning` alert event (cleared when it drops back below).
+    pub warning: Option<f64>,
+    /// Optional upper threshold: a resolved value at or above this raises a
+    /// `Critical` alert event. Takes precedence over `warning`.
+    pub critical: Option<f64>,
+}
+
+/// One resolved dynamic value at tick time, consumed by the stream-out loop to
+/// emit events, refresh the MetricReport, and evaluate alert thresholds.
+#[derive(Debug, Clone)]
+pub struct StreamSample {
+    pub path: String,
+    pub pointer: String,
+    pub value: Value,
+    pub metric: Option<String>,
+    pub warning: Option<f64>,
+    pub critical: Option<f64>,
 }
 
 /// One external-twin reading, with the freshness metadata used to detect a
@@ -118,6 +144,8 @@ pub struct TwinConfig {
     /// Freshness window for external samples (consumed by the ingest phase).
     #[allow(dead_code)] // TODO(twin P6): used to mark stale feeds offline.
     freshness_ttl: Duration,
+    /// Cadence of the stream-out tick (events + MetricReport refresh).
+    tick_interval: Duration,
     /// Reference instant that formula waveforms are measured from.
     start: Instant,
 }
@@ -128,6 +156,7 @@ impl TwinConfig {
         Self {
             bindings: HashMap::new(),
             freshness_ttl: Duration::from_secs(DEFAULT_FRESHNESS_TTL_SECS),
+            tick_interval: Duration::from_secs(DEFAULT_TICK_INTERVAL_SECS),
             start: Instant::now(),
         }
     }
@@ -151,8 +180,40 @@ impl TwinConfig {
         Ok(Self {
             bindings,
             freshness_ttl: Duration::from_secs(spec.freshness_ttl_seconds),
+            tick_interval: Duration::from_secs(spec.tick_interval_seconds.max(1)),
             start: Instant::now(),
         })
+    }
+
+    /// Cadence of the stream-out tick (events + MetricReport refresh).
+    pub fn tick_interval(&self) -> Duration {
+        self.tick_interval
+    }
+
+    /// Resolve every dynamic binding at `now` into a flat list of samples,
+    /// sorted by `(path, pointer)` for deterministic ordering. `Static` bindings
+    /// (and sources that yield no value) are skipped. Used by the stream-out
+    /// loop; `resolve` remains the read-path (per-`get`) entry point.
+    pub fn stream_snapshot(&self, now: Instant) -> Vec<StreamSample> {
+        let elapsed = now.saturating_duration_since(self.start);
+        let mut out = Vec::new();
+        for bindings in self.bindings.values() {
+            for binding in bindings {
+                let Some(value) = binding.source.value(elapsed) else {
+                    continue;
+                };
+                out.push(StreamSample {
+                    path: binding.path.clone(),
+                    pointer: binding.pointer.clone(),
+                    value,
+                    metric: binding.metric.clone(),
+                    warning: binding.warning,
+                    critical: binding.critical,
+                });
+            }
+        }
+        out.sort_by(|a, b| (&a.path, &a.pointer).cmp(&(&b.path, &b.pointer)));
+        out
     }
 
     /// Apply every binding for `path`, writing each resolved value at its JSON
@@ -186,12 +247,18 @@ struct TwinFile {
 struct TwinSpec {
     #[serde(default = "default_freshness_ttl_seconds")]
     freshness_ttl_seconds: u64,
+    #[serde(default = "default_tick_interval_seconds")]
+    tick_interval_seconds: u64,
     #[serde(default)]
     binding: Vec<BindingToml>,
 }
 
 fn default_freshness_ttl_seconds() -> u64 {
     DEFAULT_FRESHNESS_TTL_SECS
+}
+
+fn default_tick_interval_seconds() -> u64 {
+    DEFAULT_TICK_INTERVAL_SECS
 }
 
 /// A `[[twin.binding]]` entry. `source` selects which of the variant-specific
@@ -210,6 +277,12 @@ struct BindingToml {
     min: Option<f64>,
     #[serde(default)]
     max: Option<f64>,
+    #[serde(default)]
+    metric: Option<String>,
+    #[serde(default)]
+    warning: Option<f64>,
+    #[serde(default)]
+    critical: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
@@ -248,6 +321,9 @@ impl BindingToml {
             path: self.path,
             pointer: self.pointer,
             source,
+            metric: self.metric,
+            warning: self.warning,
+            critical: self.critical,
         })
     }
 }
@@ -389,6 +465,53 @@ mod tests {
         assert!((spec.eval(Duration::from_secs(0)) - 0.0).abs() < 1e-9);
         assert!((spec.eval(Duration::from_secs(50)) - 10.0).abs() < 1e-9);
         assert!((spec.eval(Duration::from_secs(100)) - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn stream_snapshot_returns_dynamic_samples_sorted_with_metadata() {
+        let toml = r#"
+            [twin]
+            tick_interval_seconds = 2
+            [[twin.binding]]
+            path = "/redfish/v1/Chassis/GPU_0/Sensors/Power0"
+            pointer = "/Reading"
+            source = "formula"
+            formula = { kind = "sawtooth", min = 0.0, max = 10.0, period_s = 10 }
+            [[twin.binding]]
+            path = "/redfish/v1/Chassis/GPU_0/Sensors/Temp0"
+            pointer = "/Reading"
+            source = "formula"
+            formula = { kind = "sine", min = 20.0, max = 90.0, period_s = 60 }
+            metric = "GpuTemperature"
+            warning = 70.0
+            critical = 85.0
+            [[twin.binding]]
+            path = "/redfish/v1/Chassis/GPU_0/Sensors/Static0"
+            pointer = "/Reading"
+            source = "static"
+        "#;
+        let cfg = TwinConfig::from_toml(toml).unwrap();
+        assert_eq!(cfg.tick_interval(), Duration::from_secs(2));
+
+        let samples = cfg.stream_snapshot(cfg.start);
+        // Static binding yields no value, so only the two formulas appear,
+        // sorted by (path, pointer): Power0 before Temp0.
+        assert_eq!(samples.len(), 2);
+        assert_eq!(samples[0].path, "/redfish/v1/Chassis/GPU_0/Sensors/Power0");
+        assert_eq!(samples[0].metric, None);
+        assert_eq!(samples[1].path, "/redfish/v1/Chassis/GPU_0/Sensors/Temp0");
+        assert_eq!(samples[1].metric.as_deref(), Some("GpuTemperature"));
+        assert_eq!(samples[1].warning, Some(70.0));
+        assert_eq!(samples[1].critical, Some(85.0));
+    }
+
+    #[test]
+    fn tick_interval_defaults_and_is_clamped_to_at_least_one_second() {
+        let cfg = TwinConfig::from_toml("[twin]\n").unwrap();
+        assert_eq!(cfg.tick_interval(), Duration::from_secs(DEFAULT_TICK_INTERVAL_SECS));
+
+        let zero = TwinConfig::from_toml("[twin]\ntick_interval_seconds = 0\n").unwrap();
+        assert_eq!(zero.tick_interval(), Duration::from_secs(1));
     }
 
     #[test]

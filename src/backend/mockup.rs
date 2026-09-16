@@ -847,6 +847,21 @@ impl MockupStore {
         Some(id)
     }
 
+    /// Stream-out tick cadence, or `None` when there are no twin bindings (in
+    /// which case the stream loop is not spawned and behaviour is unchanged).
+    pub fn twin_stream_interval(&self) -> Option<std::time::Duration> {
+        if self.twin.is_empty() {
+            None
+        } else {
+            Some(self.twin.tick_interval())
+        }
+    }
+
+    /// Resolve every dynamic twin binding at `now` for the stream-out loop.
+    pub fn twin_stream_snapshot(&self, now: Instant) -> Vec<crate::twin::StreamSample> {
+        self.twin.stream_snapshot(now)
+    }
+
     /// Store-wide-unique, monotonically increasing Task id.
     pub fn next_task_id(&self) -> u64 {
         self.next_task_id.fetch_add(1, Ordering::Relaxed)
