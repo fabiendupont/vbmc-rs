@@ -126,15 +126,25 @@ pub async fn reset_system(
 
     let _lock = state.system_lock(&system_id).await;
 
+    // Manage-only backends (KubeVirt) drive the lifecycle of externally-owned
+    // VMs via power subresources; they must never create or delete the VM object
+    // (create is unsupported and delete would destroy a GitOps/kubectl-owned VM).
+    // Ephemeral backends (cloud-hypervisor/qemu/libvirt) keep the create+boot /
+    // shutdown+delete semantics that back their transient VMs.
+    let managed = state.backend.manages_existing_vms();
+
     match body.reset_type.as_str() {
         "On" | "ForceOn" => {
-            // Create + boot the VM
-            let config = build_vm_config(&state, &system_id);
-            state
-                .backend
-                .vm_create(&system_id, config)
-                .await
-                .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+            // Power on: manage-only backends just boot the existing VM; ephemeral
+            // backends create the transient VM first, then boot it.
+            if !managed {
+                let config = build_vm_config(&state, &system_id);
+                state
+                    .backend
+                    .vm_create(&system_id, config)
+                    .await
+                    .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+            }
             state
                 .backend
                 .vm_boot(&system_id)
@@ -158,9 +168,12 @@ pub async fn reset_system(
             );
         }
         "ForceOff" => {
-            // Force shutdown + delete
+            // Power off: manage-only backends only stop the VM; ephemeral
+            // backends also delete the transient VM they created.
             let _ = state.backend.vm_shutdown(&system_id).await;
-            let _ = state.backend.vm_delete(&system_id).await;
+            if !managed {
+                let _ = state.backend.vm_delete(&system_id).await;
+            }
             emit_power_event(
                 &state,
                 &system_id,
@@ -170,11 +183,23 @@ pub async fn reset_system(
             );
         }
         "GracefulShutdown" => {
-            state
-                .backend
-                .vm_power_button(&system_id)
-                .await
-                .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+            // Graceful power-off. Manage-only backends must actually stop the VM
+            // (their vm_power_button is a soft *reboot*, which would leave the VM
+            // running and contradict the emitted "Off" state); ephemeral backends
+            // keep the ACPI power-button behaviour.
+            if managed {
+                state
+                    .backend
+                    .vm_shutdown(&system_id)
+                    .await
+                    .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+            } else {
+                state
+                    .backend
+                    .vm_power_button(&system_id)
+                    .await
+                    .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+            }
             emit_power_event(
                 &state,
                 &system_id,
@@ -206,20 +231,30 @@ pub async fn reset_system(
             );
         }
         "ForceRestart" => {
-            let _ = state.backend.vm_shutdown(&system_id).await;
-            let _ = state.backend.vm_delete(&system_id).await;
+            // Power cycle: manage-only backends issue a single restart
+            // subresource; ephemeral backends tear the VM down and rebuild it.
+            if managed {
+                state
+                    .backend
+                    .vm_reboot(&system_id)
+                    .await
+                    .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+            } else {
+                let _ = state.backend.vm_shutdown(&system_id).await;
+                let _ = state.backend.vm_delete(&system_id).await;
 
-            let config = build_vm_config(&state, &system_id);
-            state
-                .backend
-                .vm_create(&system_id, config)
-                .await
-                .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
-            state
-                .backend
-                .vm_boot(&system_id)
-                .await
-                .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+                let config = build_vm_config(&state, &system_id);
+                state
+                    .backend
+                    .vm_create(&system_id, config)
+                    .await
+                    .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+                state
+                    .backend
+                    .vm_boot(&system_id)
+                    .await
+                    .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+            }
 
             let mut vm_state = state.get_vm_state(&system_id);
             if vm_state.boot_override.enabled == "Once" {

@@ -113,12 +113,21 @@ impl KubeVirtBackend {
         action: &str,
         body: Vec<u8>,
     ) -> Result<(), BackendError> {
-        let url = format!("/apis/kubevirt.io/v1/namespaces/{ns}/{resource}/{name}/{action}");
+        // Power/lifecycle actions (start/stop/restart/softreboot) and volume
+        // hot-plug (addvolume/removevolume) are KubeVirt *subresources*, served
+        // under the subresources.kubevirt.io API group — not kubevirt.io, which
+        // only carries the object + /status. Targeting kubevirt.io/v1/.../start
+        // returns 404 on a real cluster (verified on CNV/KubeVirt).
+        let url =
+            format!("/apis/subresources.kubevirt.io/v1/namespaces/{ns}/{resource}/{name}/{action}");
         let req = http::Request::put(url)
             .body(body)
             .map_err(|e| BackendError::ApiError(e.to_string()))?;
+        // KubeVirt power/lifecycle subresources answer 202 Accepted with an EMPTY
+        // body, so request::<T> (which JSON-deserializes) fails with "EOF while
+        // parsing a value". Use request_text and discard the (empty) body.
         self.client
-            .request::<serde_json::Value>(req)
+            .request_text(req)
             .await
             .map_err(map_kube_error)?;
         Ok(())
@@ -129,8 +138,9 @@ impl KubeVirtBackend {
             .header("Content-Type", "application/json")
             .body(body)
             .map_err(|e| BackendError::ApiError(e.to_string()))?;
+        // Discard the response body; tolerate empty (202/204) responses.
         self.client
-            .request::<serde_json::Value>(req)
+            .request_text(req)
             .await
             .map_err(map_kube_error)?;
         Ok(())
@@ -140,8 +150,9 @@ impl KubeVirtBackend {
         let req = http::Request::delete(url)
             .body(vec![])
             .map_err(|e| BackendError::ApiError(e.to_string()))?;
+        // Discard the response body; tolerate empty (202/204) responses.
         self.client
-            .request::<serde_json::Value>(req)
+            .request_text(req)
             .await
             .map_err(map_kube_error)?;
         Ok(())
@@ -183,6 +194,13 @@ fn sanitize_k8s_name(s: &str) -> String {
 }
 
 impl VmmBackend for KubeVirtBackend {
+    /// KubeVirt VirtualMachines are created out-of-band (kubectl/GitOps); this
+    /// backend only drives their start/stop/restart subresources. Signals the
+    /// Redfish reset handler to use power-only lifecycle (no create/delete).
+    fn manages_existing_vms(&self) -> bool {
+        true
+    }
+
     async fn vm_info(&self, system_id: &str) -> Result<bt::VmInfo, BackendError> {
         let m = self.mapping_for(system_id)?;
         let vmi_api = self.vmi_api(&m.namespace);
