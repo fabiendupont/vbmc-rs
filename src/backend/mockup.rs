@@ -779,6 +779,12 @@ impl MockupStore {
         if twin_path.is_file() {
             let text = std::fs::read_to_string(&twin_path)?;
             store.twin = TwinConfig::from_toml(&text)?;
+            // Bake any scenario `level` targets against the loaded sensors'
+            // static Thresholds, so scenario evaluation stays pure of the base.
+            let resources = &store.resources;
+            store
+                .twin
+                .bind_scenarios(|path| resources.get(path).map(|v| v.clone()))?;
             info!(sidecar = %twin_path.display(), "Loaded twin bindings");
         }
 

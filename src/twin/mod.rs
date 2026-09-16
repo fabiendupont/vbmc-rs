@@ -28,6 +28,17 @@
 //! [`ControlIntent`]s it emits, so the twin can route the relayed action back to
 //! the right modeled node. A node without a configured `system_id` accepts every
 //! sample, so single-node behaviour is unchanged.
+//!
+//! Scenarios (P6 S1): a [`Source::Scenario`] binding replays a named,
+//! time-sequenced timeline — the deterministic, reproducible test-case face of
+//! the twin (the digital analogue of an IEC 61850 SV/GOOSE test set that injects
+//! peaks, sags and dropouts to exercise a protection relay). A top-level
+//! `[[scenario]]` block lists ordered segments in BMC-operational terms —
+//! `nominal`, `step`, `drift`, `transient`, `fault`, `stuck` — and a binding
+//! references it by name. Each value-bearing segment targets either a raw `value`
+//! or a named Redfish threshold `level` (e.g. `UpperCritical`), resolved once at
+//! load against the sensor's own `Thresholds` so the timeline evaluates as a pure
+//! function of elapsed time, exactly like a [`Source::Formula`].
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -86,6 +97,153 @@ impl FormulaSpec {
     }
 }
 
+/// One segment of a [`ScenarioTimeline`], named in BMC-operational terms.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScenarioKind {
+    /// Hold the target value for the segment's duration (steady healthy reading).
+    Nominal,
+    /// Jump to the target and hold it (an abrupt change; numerically the same as
+    /// [`ScenarioKind::Nominal`], kept as a distinct intent).
+    Step,
+    /// Linearly ramp from the previous segment's value to the target over the
+    /// segment's duration (thermal drift, load ramp).
+    Drift,
+    /// Excursion: ramp from the entry value up to the target at the segment's
+    /// midpoint and back to the entry value by its end (a transient peak/dip).
+    Transient,
+    /// The reading drops out: the bound field goes null and the resource is
+    /// marked `UnavailableOffline` (a sensor/telemetry fault).
+    Fault,
+    /// Freeze the entry value for the segment's duration (a stuck sensor that
+    /// keeps reporting its last value).
+    Stuck,
+}
+
+/// A segment's target value: either a literal number or a named Redfish
+/// threshold level resolved from the target sensor's `Thresholds` at load time.
+#[derive(Debug, Clone)]
+enum Target {
+    /// A literal reading value.
+    Value(f64),
+    /// A named Redfish threshold level (e.g. `UpperCritical`); resolved to a
+    /// [`Target::Value`] by [`TwinConfig::bind_scenarios`] before evaluation.
+    Level(String),
+}
+
+/// One segment of a scenario timeline.
+#[derive(Debug, Clone)]
+struct Segment {
+    kind: ScenarioKind,
+    /// Duration of the segment. `None` on the final segment means it holds
+    /// indefinitely.
+    duration: Option<Duration>,
+    /// The value the segment drives toward. Required for value-bearing kinds
+    /// (`nominal`/`step`/`drift`/`transient`); ignored for `fault`/`stuck`.
+    target: Option<Target>,
+}
+
+/// A named, time-sequenced piecewise signal (P6 S1). Evaluated as a pure
+/// function of elapsed time, so it drops into the seam like a [`FormulaSpec`].
+#[derive(Debug, Clone)]
+pub struct ScenarioTimeline {
+    segments: Vec<Segment>,
+}
+
+/// Outcome of evaluating a [`ScenarioTimeline`] at a point in time.
+enum ScenarioOutcome {
+    /// A resolved reading value.
+    Value(f64),
+    /// A `fault` segment: the field drops out (null + `UnavailableOffline`).
+    Offline,
+}
+
+impl ScenarioTimeline {
+    /// Concrete numeric target of a (bound) segment, if it has one.
+    fn segment_value(seg: &Segment) -> Option<f64> {
+        match &seg.target {
+            Some(Target::Value(v)) => Some(*v),
+            // A `Level` should have been resolved by `bind_scenarios`; if one
+            // survives, treat the segment as having no numeric target.
+            Some(Target::Level(_)) | None => None,
+        }
+    }
+
+    /// The value the timeline holds at the *end* of segment `i`, given the value
+    /// entering it. Ramps/holds end at their target; excursions and stuck/fault
+    /// segments end where they started.
+    fn end_value(seg: &Segment, entry: f64) -> f64 {
+        match seg.kind {
+            ScenarioKind::Nominal | ScenarioKind::Step | ScenarioKind::Drift => {
+                Self::segment_value(seg).unwrap_or(entry)
+            }
+            ScenarioKind::Transient | ScenarioKind::Stuck | ScenarioKind::Fault => entry,
+        }
+    }
+
+    /// Evaluate segment `seg` at fractional progress `frac` (0.0..=1.0) given the
+    /// value `entry` on entry.
+    fn eval_segment(seg: &Segment, entry: f64, frac: f64) -> ScenarioOutcome {
+        match seg.kind {
+            ScenarioKind::Nominal | ScenarioKind::Step => {
+                ScenarioOutcome::Value(Self::segment_value(seg).unwrap_or(entry))
+            }
+            ScenarioKind::Drift => {
+                let target = Self::segment_value(seg).unwrap_or(entry);
+                ScenarioOutcome::Value(entry + (target - entry) * frac)
+            }
+            ScenarioKind::Transient => {
+                let peak = Self::segment_value(seg).unwrap_or(entry);
+                // Triangle: 0 at the ends, 1 at the midpoint.
+                let tri = if frac < 0.5 {
+                    2.0 * frac
+                } else {
+                    2.0 * (1.0 - frac)
+                };
+                ScenarioOutcome::Value(entry + (peak - entry) * tri)
+            }
+            ScenarioKind::Stuck => ScenarioOutcome::Value(entry),
+            ScenarioKind::Fault => ScenarioOutcome::Offline,
+        }
+    }
+
+    /// Evaluate the timeline at `elapsed` since the source's reference instant.
+    fn eval(&self, elapsed: Duration) -> ScenarioOutcome {
+        let n = self.segments.len();
+        if n == 0 {
+            return ScenarioOutcome::Offline;
+        }
+        // Value entering the first segment: its own target (so a leading
+        // `nominal`/`step` starts flat), else 0.0.
+        let seed = Self::segment_value(&self.segments[0]).unwrap_or(0.0);
+
+        let mut entry = seed;
+        let mut acc = Duration::ZERO;
+        for seg in &self.segments {
+            match seg.duration {
+                Some(d) if elapsed < acc + d => {
+                    let span = d.as_secs_f64();
+                    let frac = if span > 0.0 {
+                        (elapsed - acc).as_secs_f64() / span
+                    } else {
+                        0.0
+                    };
+                    return Self::eval_segment(seg, entry, frac);
+                }
+                Some(d) => {
+                    entry = Self::end_value(seg, entry);
+                    acc += d;
+                }
+                // No duration: the final segment holds indefinitely.
+                None => return Self::eval_segment(seg, entry, 1.0),
+            }
+        }
+        // Past every finite segment: hold the last one at its end.
+        let last = &self.segments[n - 1];
+        Self::eval_segment(last, entry, 1.0)
+    }
+}
+
 /// Where a bound field's value comes from.
 #[derive(Debug, Clone)]
 pub enum Source {
@@ -98,6 +256,13 @@ pub enum Source {
     /// clamped to `[min, max]`. A fresh sample overrides the base value; a
     /// missing or stale reading marks the field offline.
     External { key: String, min: f64, max: f64 },
+    /// A named, time-sequenced [`ScenarioTimeline`] (P6 S1), optionally clamped
+    /// to `[min, max]`. Evaluated from the source's reference instant.
+    Scenario {
+        timeline: ScenarioTimeline,
+        min: Option<f64>,
+        max: Option<f64>,
+    },
 }
 
 /// Outcome of resolving one binding at a point in time.
@@ -211,9 +376,30 @@ impl TwinConfig {
         let file: TwinFile = toml::from_str(text)?;
         let spec = file.twin;
 
+        // Build the named scenario timelines first, so bindings can reference
+        // them by name. `level` targets stay symbolic here; `bind_scenarios`
+        // resolves them once the base resources are loaded.
+        let mut scenarios: HashMap<String, ScenarioTimeline> = HashMap::new();
+        for sc in file.scenario {
+            let segments = sc
+                .segment
+                .into_iter()
+                .map(SegmentToml::into_segment)
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            if segments.is_empty() {
+                anyhow::bail!("scenario {} has no segments", sc.name);
+            }
+            if scenarios
+                .insert(sc.name.clone(), ScenarioTimeline { segments })
+                .is_some()
+            {
+                anyhow::bail!("duplicate scenario name {}", sc.name);
+            }
+        }
+
         let mut bindings: HashMap<String, Vec<Binding>> = HashMap::new();
         for raw in spec.binding {
-            let binding = raw.into_binding()?;
+            let binding = raw.into_binding(&scenarios)?;
             bindings
                 .entry(binding.path.clone())
                 .or_default()
@@ -296,7 +482,67 @@ impl TwinConfig {
                 // Never ingested, or the last reading has aged past its TTL.
                 _ => Resolution::Offline,
             },
+            Source::Scenario { timeline, min, max } => match timeline.eval(elapsed) {
+                ScenarioOutcome::Value(v) => {
+                    let v = match (min, max) {
+                        (Some(lo), Some(hi)) => v.clamp(*lo, *hi),
+                        (Some(lo), None) => v.max(*lo),
+                        (None, Some(hi)) => v.min(*hi),
+                        (None, None) => v,
+                    };
+                    Resolution::Set(json!(v))
+                }
+                ScenarioOutcome::Offline => Resolution::Offline,
+            },
         }
+    }
+
+    /// Resolve any `level` targets in scenario bindings against the static
+    /// `Thresholds` of their target sensor, baking them to numeric values so
+    /// evaluation stays a pure function of elapsed time. Called once at load
+    /// after the base resources are in place; `base_for` returns the stored
+    /// resource for a binding's path. Errors if a referenced level is missing.
+    pub fn bind_scenarios(
+        &mut self,
+        base_for: impl Fn(&str) -> Option<Value>,
+    ) -> anyhow::Result<()> {
+        for bindings in self.bindings.values_mut() {
+            for binding in bindings.iter_mut() {
+                let Source::Scenario { timeline, .. } = &mut binding.source else {
+                    continue;
+                };
+                if !timeline
+                    .segments
+                    .iter()
+                    .any(|s| matches!(s.target, Some(Target::Level(_))))
+                {
+                    continue;
+                }
+                let base = base_for(&binding.path).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "scenario binding {} references a threshold level but the resource is missing",
+                        binding.path
+                    )
+                })?;
+                for seg in timeline.segments.iter_mut() {
+                    let Some(Target::Level(name)) = &seg.target else {
+                        continue;
+                    };
+                    let ptr = format!("/Thresholds/{name}/Reading");
+                    let value = base.pointer(&ptr).and_then(Value::as_f64).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "scenario binding {} references threshold level {} but {}{} is not a number",
+                            binding.path,
+                            name,
+                            binding.path,
+                            ptr
+                        )
+                    })?;
+                    seg.target = Some(Target::Value(value));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Cadence of the stream-out tick (events + MetricReport refresh).
@@ -367,10 +613,71 @@ impl TwinConfig {
 
 // --- twin.toml deserialization ---------------------------------------------
 
-/// Top-level `twin.toml`: a single `[twin]` table with `[[twin.binding]]` entries.
+/// Top-level `twin.toml`: a single `[twin]` table with `[[twin.binding]]`
+/// entries, plus optional top-level `[[scenario]]` timelines (P6 S1).
 #[derive(Deserialize)]
 struct TwinFile {
     twin: TwinSpec,
+    #[serde(default)]
+    scenario: Vec<ScenarioToml>,
+}
+
+/// A top-level `[[scenario]]` block: a named list of `[[scenario.segment]]`.
+#[derive(Deserialize)]
+struct ScenarioToml {
+    name: String,
+    #[serde(default)]
+    segment: Vec<SegmentToml>,
+}
+
+/// A `[[scenario.segment]]` entry. `value` and `level` are mutually exclusive;
+/// `fault`/`stuck` need neither.
+#[derive(Deserialize)]
+struct SegmentToml {
+    kind: ScenarioKind,
+    #[serde(default)]
+    for_s: Option<f64>,
+    #[serde(default)]
+    value: Option<f64>,
+    #[serde(default)]
+    level: Option<String>,
+}
+
+impl SegmentToml {
+    fn into_segment(self) -> anyhow::Result<Segment> {
+        let target = match (self.value, self.level) {
+            (Some(_), Some(_)) => {
+                anyhow::bail!("scenario segment sets both value and level; pick one")
+            }
+            (Some(v), None) => Some(Target::Value(v)),
+            (None, Some(l)) => Some(Target::Level(l)),
+            (None, None) => None,
+        };
+        // Value-bearing kinds need a target; fault/stuck derive from context.
+        if matches!(
+            self.kind,
+            ScenarioKind::Nominal
+                | ScenarioKind::Step
+                | ScenarioKind::Drift
+                | ScenarioKind::Transient
+        ) && target.is_none()
+        {
+            anyhow::bail!(
+                "scenario segment kind {:?} needs a value or level",
+                self.kind
+            );
+        }
+        let duration = match self.for_s {
+            Some(s) if s.is_finite() && s >= 0.0 => Some(Duration::from_secs_f64(s)),
+            Some(s) => anyhow::bail!("scenario segment for_s must be finite and >= 0 (got {s})"),
+            None => None,
+        };
+        Ok(Segment {
+            kind: self.kind,
+            duration,
+            target,
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -409,6 +716,9 @@ struct BindingToml {
     formula: Option<FormulaSpec>,
     #[serde(default)]
     key: Option<String>,
+    /// Name of a top-level `[[scenario]]` block (for `source = "scenario"`).
+    #[serde(default)]
+    scenario: Option<String>,
     #[serde(default)]
     min: Option<f64>,
     #[serde(default)]
@@ -428,10 +738,14 @@ enum BindingSource {
     Static,
     Formula,
     External,
+    Scenario,
 }
 
 impl BindingToml {
-    fn into_binding(self) -> anyhow::Result<Binding> {
+    fn into_binding(
+        self,
+        scenarios: &HashMap<String, ScenarioTimeline>,
+    ) -> anyhow::Result<Binding> {
         let source = match self.source {
             BindingSource::Static => Source::Static,
             BindingSource::Formula => {
@@ -454,6 +768,22 @@ impl BindingToml {
                     anyhow::anyhow!("binding {} has source=external but no max", self.path)
                 })?;
                 Source::External { key, min, max }
+            }
+            BindingSource::Scenario => {
+                let name = self.scenario.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "binding {} has source=scenario but no scenario name",
+                        self.path
+                    )
+                })?;
+                let timeline = scenarios.get(&name).cloned().ok_or_else(|| {
+                    anyhow::anyhow!("binding {} references unknown scenario {}", self.path, name)
+                })?;
+                Source::Scenario {
+                    timeline,
+                    min: self.min,
+                    max: self.max,
+                }
             }
         };
         Ok(Binding {
@@ -845,5 +1175,229 @@ mod tests {
         assert!((spec.eval(Duration::from_secs(0)) - 0.0).abs() < 1e-9);
         assert!((spec.eval(Duration::from_secs(25)) - 25.0).abs() < 1e-9);
         assert!((spec.eval(Duration::from_secs(75)) - 75.0).abs() < 1e-9);
+    }
+
+    // A scenario: hold 20 (0-10s), drift to 80 (10-20s), excursion to 100
+    // (20-30s), then hold 30 indefinitely.
+    const SCENARIO_TOML: &str = r#"
+        [twin]
+        [[twin.binding]]
+        path = "/x"
+        pointer = "/Reading"
+        source = "scenario"
+        scenario = "ramp-test"
+
+        [[scenario]]
+        name = "ramp-test"
+        [[scenario.segment]]
+        kind = "nominal"
+        value = 20.0
+        for_s = 10
+        [[scenario.segment]]
+        kind = "drift"
+        value = 80.0
+        for_s = 10
+        [[scenario.segment]]
+        kind = "transient"
+        value = 100.0
+        for_s = 10
+        [[scenario.segment]]
+        kind = "nominal"
+        value = 30.0
+    "#;
+
+    fn reading_at(cfg: &TwinConfig, secs: u64) -> Value {
+        let mut value = json!({ "Reading": 0.0, "Status": { "State": "Enabled" } });
+        cfg.resolve("/x", &mut value, cfg.start + Duration::from_secs(secs));
+        value["Reading"].clone()
+    }
+
+    #[test]
+    fn scenario_timeline_evaluates_exact_values_at_offsets() {
+        let cfg = TwinConfig::from_toml(SCENARIO_TOML).unwrap();
+        // Hold segment.
+        assert_eq!(reading_at(&cfg, 0), json!(20.0));
+        assert_eq!(reading_at(&cfg, 5), json!(20.0));
+        // Drift 20 -> 80 over 10s: midpoint is 50.
+        assert_eq!(reading_at(&cfg, 15), json!(50.0));
+        // Transient peaks to 100 at its midpoint (entry was 80).
+        assert_eq!(reading_at(&cfg, 25), json!(100.0));
+        // Final unbounded hold.
+        assert_eq!(reading_at(&cfg, 30), json!(30.0));
+        assert_eq!(reading_at(&cfg, 10_000), json!(30.0));
+    }
+
+    #[test]
+    fn scenario_fault_segment_marks_offline() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/x"
+            pointer = "/Reading"
+            source = "scenario"
+            scenario = "drop"
+            [[scenario]]
+            name = "drop"
+            [[scenario.segment]]
+            kind = "nominal"
+            value = 50.0
+            for_s = 5
+            [[scenario.segment]]
+            kind = "fault"
+        "#;
+        let cfg = TwinConfig::from_toml(toml).unwrap();
+        assert_eq!(reading_at(&cfg, 0), json!(50.0));
+
+        let mut value = json!({ "Reading": 0.0, "Status": { "State": "Enabled" } });
+        cfg.resolve("/x", &mut value, cfg.start + Duration::from_secs(10));
+        assert_eq!(value["Reading"], Value::Null);
+        assert_eq!(value["Status"]["State"], "UnavailableOffline");
+    }
+
+    #[test]
+    fn scenario_stuck_segment_freezes_entry_value() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/x"
+            pointer = "/Reading"
+            source = "scenario"
+            scenario = "freeze"
+            [[scenario]]
+            name = "freeze"
+            [[scenario.segment]]
+            kind = "nominal"
+            value = 42.0
+            for_s = 5
+            [[scenario.segment]]
+            kind = "stuck"
+        "#;
+        let cfg = TwinConfig::from_toml(toml).unwrap();
+        // The stuck segment holds the value on entry (42) indefinitely.
+        assert_eq!(reading_at(&cfg, 100), json!(42.0));
+    }
+
+    #[test]
+    fn scenario_level_target_resolves_from_thresholds() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/s"
+            pointer = "/Reading"
+            source = "scenario"
+            scenario = "runaway"
+            [[scenario]]
+            name = "runaway"
+            [[scenario.segment]]
+            kind = "nominal"
+            value = 20.0
+            for_s = 10
+            [[scenario.segment]]
+            kind = "drift"
+            level = "UpperCritical"
+            for_s = 10
+        "#;
+        let mut cfg = TwinConfig::from_toml(toml).unwrap();
+        cfg.bind_scenarios(|_path| {
+            Some(json!({ "Thresholds": { "UpperCritical": { "Reading": 95.0 } } }))
+        })
+        .unwrap();
+
+        // Drift 20 -> 95 (the resolved UpperCritical) over 10s: midpoint 57.5.
+        let mut value = json!({ "Reading": 0.0 });
+        cfg.resolve("/s", &mut value, cfg.start + Duration::from_secs(15));
+        assert_eq!(value["Reading"], json!(57.5));
+    }
+
+    #[test]
+    fn scenario_missing_level_is_a_load_error() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/s"
+            pointer = "/Reading"
+            source = "scenario"
+            scenario = "runaway"
+            [[scenario]]
+            name = "runaway"
+            [[scenario.segment]]
+            kind = "step"
+            level = "UpperCritical"
+        "#;
+        let mut cfg = TwinConfig::from_toml(toml).unwrap();
+        // Sensor without the referenced threshold => bind fails loudly.
+        assert!(
+            cfg.bind_scenarios(|_| Some(json!({ "Thresholds": {} })))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn scenario_clamps_to_declared_bounds() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/x"
+            pointer = "/Reading"
+            source = "scenario"
+            scenario = "hot"
+            min = 0.0
+            max = 100.0
+            [[scenario]]
+            name = "hot"
+            [[scenario.segment]]
+            kind = "step"
+            value = 200.0
+        "#;
+        let cfg = TwinConfig::from_toml(toml).unwrap();
+        assert_eq!(reading_at(&cfg, 1), json!(100.0));
+    }
+
+    #[test]
+    fn scenario_source_rejects_unknown_or_missing_name() {
+        // References a scenario that was never declared.
+        let unknown = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/x"
+            pointer = "/Reading"
+            source = "scenario"
+            scenario = "nope"
+        "#;
+        assert!(TwinConfig::from_toml(unknown).is_err());
+
+        // source = scenario but no name given.
+        let nameless = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/x"
+            pointer = "/Reading"
+            source = "scenario"
+        "#;
+        assert!(TwinConfig::from_toml(nameless).is_err());
+
+        // A value-bearing segment with neither value nor level.
+        let no_target = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/x"
+            pointer = "/Reading"
+            source = "scenario"
+            scenario = "bad"
+            [[scenario]]
+            name = "bad"
+            [[scenario.segment]]
+            kind = "nominal"
+        "#;
+        assert!(TwinConfig::from_toml(no_target).is_err());
+    }
+
+    #[test]
+    fn scenario_appears_in_stream_snapshot() {
+        let cfg = TwinConfig::from_toml(SCENARIO_TOML).unwrap();
+        let samples = cfg.stream_snapshot(cfg.start + Duration::from_secs(15));
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].path, "/x");
+        assert_eq!(samples[0].value, json!(50.0));
     }
 }
