@@ -1,0 +1,406 @@
+//! Digital-twin seam for mockup/simulate mode.
+//!
+//! Today a served Redfish field's value comes verbatim from the mockup store.
+//! The twin façade (see `docs/twin-facade.md`) generalizes that into one seam:
+//! *where a served field's value comes from*. A [`TwinConfig`] holds a table of
+//! [`Binding`]s — each says that a JSON pointer inside a stored resource is
+//! dynamic and names its [`Source`].
+//!
+//! [`MockupStore::get`](crate::backend::mockup::MockupStore::get) clones the base
+//! resource, then applies every binding for that path by writing the resolved
+//! value at its JSON pointer. With no bindings the clone is returned untouched,
+//! so a store without a `twin.toml` behaves byte-for-byte as before.
+//!
+//! This module implements the seam (P0) and the local [`Source::Formula`]
+//! waveform (P1). [`Source::External`] and [`Sample`] describe the external-twin
+//! feed wired up by a later phase (ingest over `POST /twin/v1/state`).
+
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+/// Default freshness window for external samples when `twin.toml` omits it.
+const DEFAULT_FRESHNESS_TTL_SECS: u64 = 10;
+
+/// Shape of a local waveform for a [`Source::Formula`] binding.
+///
+/// The value sweeps `[min, max]` over `period_s`, starting at `min` at t=0.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FormulaSpec {
+    pub kind: FormulaKind,
+    pub min: f64,
+    pub max: f64,
+    pub period_s: f64,
+}
+
+/// Waveform kind for a [`FormulaSpec`].
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FormulaKind {
+    /// Smooth cosine sweep: min at t=0, max at half period, back to min.
+    Sine,
+    /// Linear ramp min→max over each period, then a discontinuous drop to min.
+    Sawtooth,
+    /// Linear ramp min→max→min across each period.
+    Triangle,
+}
+
+impl FormulaSpec {
+    /// Evaluate the waveform at `elapsed` since the store started.
+    fn eval(&self, elapsed: Duration) -> f64 {
+        // Fraction through the current period, 0.0..1.0.
+        let phase = if self.period_s > 0.0 {
+            (elapsed.as_secs_f64() % self.period_s) / self.period_s
+        } else {
+            0.0
+        };
+        // Unit amplitude 0.0..1.0, starting at 0.0.
+        let unit = match self.kind {
+            FormulaKind::Sine => 0.5 - 0.5 * (std::f64::consts::TAU * phase).cos(),
+            FormulaKind::Sawtooth => phase,
+            FormulaKind::Triangle => 1.0 - (2.0 * phase - 1.0).abs(),
+        };
+        self.min + unit * (self.max - self.min)
+    }
+}
+
+/// Where a bound field's value comes from.
+#[derive(Debug, Clone)]
+pub enum Source {
+    /// Not dynamic — leave the base value in place. Lets a binding be declared
+    /// (e.g. for documentation) without overriding the fixture.
+    Static,
+    /// A local waveform computed from the store clock; no external twin.
+    Formula(FormulaSpec),
+    /// The value comes from external-twin ingest, clamped to `[min, max]`.
+    /// Resolution is wired up by the ingest phase; declared here so the seam's
+    /// shape is complete.
+    #[allow(dead_code)] // TODO(twin P6): resolved from the external value map.
+    External { key: String, min: f64, max: f64 },
+}
+
+impl Source {
+    /// Resolve the override value at `elapsed`, or `None` to keep the base value.
+    fn value(&self, elapsed: Duration) -> Option<Value> {
+        match self {
+            Source::Static => None,
+            Source::Formula(spec) => Some(json!(spec.eval(elapsed))),
+            // Filled in when external ingest lands; until then it keeps the base.
+            Source::External { .. } => None,
+        }
+    }
+}
+
+/// A dynamic field: a JSON `pointer` inside the resource at `path`, fed by
+/// `source`.
+#[derive(Debug, Clone)]
+pub struct Binding {
+    pub path: String,
+    pub pointer: String,
+    pub source: Source,
+}
+
+/// One external-twin reading, with the freshness metadata used to detect a
+/// stale feed. Written by ingest, read during resolution (later phase).
+#[allow(dead_code)] // TODO(twin P6): populated by POST /twin/v1/state ingest.
+pub struct Sample {
+    pub value: Value,
+    pub ts: Instant,
+    pub ttl: Duration,
+}
+
+/// The resolved binding table for a mockup store, keyed by resource path.
+pub struct TwinConfig {
+    /// Bindings grouped by the resource path they apply to.
+    bindings: HashMap<String, Vec<Binding>>,
+    /// Freshness window for external samples (consumed by the ingest phase).
+    #[allow(dead_code)] // TODO(twin P6): used to mark stale feeds offline.
+    freshness_ttl: Duration,
+    /// Reference instant that formula waveforms are measured from.
+    start: Instant,
+}
+
+impl TwinConfig {
+    /// An empty table: no bindings, so `get()` is byte-identical to today.
+    pub fn empty() -> Self {
+        Self {
+            bindings: HashMap::new(),
+            freshness_ttl: Duration::from_secs(DEFAULT_FRESHNESS_TTL_SECS),
+            start: Instant::now(),
+        }
+    }
+
+    /// Whether there are no bindings (the common no-`twin.toml` case).
+    pub fn is_empty(&self) -> bool {
+        self.bindings.is_empty()
+    }
+
+    /// Parse a `twin.toml` sidecar into a binding table.
+    pub fn from_toml(text: &str) -> anyhow::Result<Self> {
+        let file: TwinFile = toml::from_str(text)?;
+        let spec = file.twin;
+
+        let mut bindings: HashMap<String, Vec<Binding>> = HashMap::new();
+        for raw in spec.binding {
+            let binding = raw.into_binding()?;
+            bindings.entry(binding.path.clone()).or_default().push(binding);
+        }
+
+        Ok(Self {
+            bindings,
+            freshness_ttl: Duration::from_secs(spec.freshness_ttl_seconds),
+            start: Instant::now(),
+        })
+    }
+
+    /// Apply every binding for `path`, writing each resolved value at its JSON
+    /// pointer in `base`. Bindings whose pointer does not resolve, or whose
+    /// source yields no value, are skipped.
+    pub fn resolve(&self, path: &str, base: &mut Value, now: Instant) {
+        let Some(bindings) = self.bindings.get(path) else {
+            return;
+        };
+        let elapsed = now.saturating_duration_since(self.start);
+        for binding in bindings {
+            let Some(value) = binding.source.value(elapsed) else {
+                continue;
+            };
+            if let Some(slot) = base.pointer_mut(&binding.pointer) {
+                *slot = value;
+            }
+        }
+    }
+}
+
+// --- twin.toml deserialization ---------------------------------------------
+
+/// Top-level `twin.toml`: a single `[twin]` table with `[[twin.binding]]` entries.
+#[derive(Deserialize)]
+struct TwinFile {
+    twin: TwinSpec,
+}
+
+#[derive(Deserialize)]
+struct TwinSpec {
+    #[serde(default = "default_freshness_ttl_seconds")]
+    freshness_ttl_seconds: u64,
+    #[serde(default)]
+    binding: Vec<BindingToml>,
+}
+
+fn default_freshness_ttl_seconds() -> u64 {
+    DEFAULT_FRESHNESS_TTL_SECS
+}
+
+/// A `[[twin.binding]]` entry. `source` selects which of the variant-specific
+/// fields are required (`formula` table, or `key`/`min`/`max`).
+#[derive(Deserialize)]
+struct BindingToml {
+    path: String,
+    pointer: String,
+    #[serde(default)]
+    source: BindingSource,
+    #[serde(default)]
+    formula: Option<FormulaSpec>,
+    #[serde(default)]
+    key: Option<String>,
+    #[serde(default)]
+    min: Option<f64>,
+    #[serde(default)]
+    max: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum BindingSource {
+    #[default]
+    Static,
+    Formula,
+    External,
+}
+
+impl BindingToml {
+    fn into_binding(self) -> anyhow::Result<Binding> {
+        let source = match self.source {
+            BindingSource::Static => Source::Static,
+            BindingSource::Formula => {
+                let spec = self.formula.ok_or_else(|| {
+                    anyhow::anyhow!("binding {} has source=formula but no [formula] table", self.path)
+                })?;
+                Source::Formula(spec)
+            }
+            BindingSource::External => {
+                let key = self.key.ok_or_else(|| {
+                    anyhow::anyhow!("binding {} has source=external but no key", self.path)
+                })?;
+                let min = self.min.ok_or_else(|| {
+                    anyhow::anyhow!("binding {} has source=external but no min", self.path)
+                })?;
+                let max = self.max.ok_or_else(|| {
+                    anyhow::anyhow!("binding {} has source=external but no max", self.path)
+                })?;
+                Source::External { key, min, max }
+            }
+        };
+        Ok(Binding {
+            path: self.path,
+            pointer: self.pointer,
+            source,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_config_has_no_bindings() {
+        let cfg = TwinConfig::empty();
+        assert!(cfg.is_empty());
+    }
+
+    #[test]
+    fn resolve_without_bindings_leaves_value_untouched() {
+        let cfg = TwinConfig::empty();
+        let mut value = json!({ "Reading": 42 });
+        cfg.resolve("/redfish/v1/Chassis/GPU_0/Sensors/Temp0", &mut value, Instant::now());
+        assert_eq!(value, json!({ "Reading": 42 }));
+    }
+
+    #[test]
+    fn formula_binding_overwrites_pointer_within_bounds() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/redfish/v1/Chassis/GPU_0/Sensors/Temp0"
+            pointer = "/Reading"
+            source = "formula"
+            formula = { kind = "sine", min = 20.0, max = 90.0, period_s = 60 }
+        "#;
+        let cfg = TwinConfig::from_toml(toml).unwrap();
+        assert!(!cfg.is_empty());
+
+        let mut value = json!({ "Reading": 0, "Name": "Temp0" });
+        cfg.resolve("/redfish/v1/Chassis/GPU_0/Sensors/Temp0", &mut value, Instant::now());
+
+        let reading = value["Reading"].as_f64().unwrap();
+        assert!((20.0..=90.0).contains(&reading), "reading {reading} out of bounds");
+        // Untouched fields are preserved.
+        assert_eq!(value["Name"], "Temp0");
+    }
+
+    #[test]
+    fn formula_binding_only_affects_its_own_path() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/redfish/v1/Chassis/GPU_0/Sensors/Temp0"
+            pointer = "/Reading"
+            source = "formula"
+            formula = { kind = "sine", min = 20.0, max = 90.0, period_s = 60 }
+        "#;
+        let cfg = TwinConfig::from_toml(toml).unwrap();
+
+        let mut other = json!({ "Reading": 7 });
+        cfg.resolve("/redfish/v1/Chassis/GPU_0/Sensors/Power0", &mut other, Instant::now());
+        assert_eq!(other, json!({ "Reading": 7 }));
+    }
+
+    #[test]
+    fn resolve_skips_pointer_that_does_not_exist() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/x"
+            pointer = "/Nested/Reading"
+            source = "formula"
+            formula = { kind = "sawtooth", min = 0.0, max = 1.0, period_s = 10 }
+        "#;
+        let cfg = TwinConfig::from_toml(toml).unwrap();
+        let mut value = json!({ "Other": 1 });
+        cfg.resolve("/x", &mut value, Instant::now());
+        // Missing pointer => no panic, value unchanged.
+        assert_eq!(value, json!({ "Other": 1 }));
+    }
+
+    #[test]
+    fn static_source_keeps_base_value() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/x"
+            pointer = "/Reading"
+            source = "static"
+        "#;
+        let cfg = TwinConfig::from_toml(toml).unwrap();
+        let mut value = json!({ "Reading": 99 });
+        cfg.resolve("/x", &mut value, Instant::now());
+        assert_eq!(value["Reading"], 99);
+    }
+
+    #[test]
+    fn formula_source_requires_a_formula_table() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/x"
+            pointer = "/Reading"
+            source = "formula"
+        "#;
+        assert!(TwinConfig::from_toml(toml).is_err());
+    }
+
+    #[test]
+    fn external_source_requires_key_min_max() {
+        let toml = r#"
+            [twin]
+            [[twin.binding]]
+            path = "/x"
+            pointer = "/Reading"
+            source = "external"
+            key = "gpu0.temp_c"
+        "#;
+        assert!(TwinConfig::from_toml(toml).is_err());
+    }
+
+    #[test]
+    fn sine_starts_at_min_and_peaks_at_half_period() {
+        let spec = FormulaSpec {
+            kind: FormulaKind::Sine,
+            min: 10.0,
+            max: 50.0,
+            period_s: 100.0,
+        };
+        assert!((spec.eval(Duration::from_secs(0)) - 10.0).abs() < 1e-9);
+        assert!((spec.eval(Duration::from_secs(50)) - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn triangle_peaks_at_half_period() {
+        let spec = FormulaSpec {
+            kind: FormulaKind::Triangle,
+            min: 0.0,
+            max: 10.0,
+            period_s: 100.0,
+        };
+        assert!((spec.eval(Duration::from_secs(0)) - 0.0).abs() < 1e-9);
+        assert!((spec.eval(Duration::from_secs(50)) - 10.0).abs() < 1e-9);
+        assert!((spec.eval(Duration::from_secs(100)) - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn sawtooth_ramps_then_resets() {
+        let spec = FormulaSpec {
+            kind: FormulaKind::Sawtooth,
+            min: 0.0,
+            max: 100.0,
+            period_s: 100.0,
+        };
+        assert!((spec.eval(Duration::from_secs(0)) - 0.0).abs() < 1e-9);
+        assert!((spec.eval(Duration::from_secs(25)) - 25.0).abs() < 1e-9);
+        assert!((spec.eval(Duration::from_secs(75)) - 75.0).abs() < 1e-9);
+    }
+}
