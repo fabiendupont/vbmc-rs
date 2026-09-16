@@ -71,6 +71,20 @@ mod tests {
 }
 
 pub trait VmmBackend: Send + Sync {
+    /// Whether this backend only *manages* the lifecycle of VMs that exist
+    /// independently of vbmc-rs (created out-of-band via kubectl/GitOps), rather
+    /// than owning their full create/delete lifecycle. The KubeVirt backend is
+    /// manage-only: it drives the start/stop/restart subresources but never
+    /// creates or deletes the VirtualMachine object. For such backends the
+    /// Redfish reset handler must map power actions to boot/shutdown/reboot only
+    /// — issuing `vm_create`/`vm_delete` would either fail (create is
+    /// unsupported) or destroy an externally-owned VM. Ephemeral backends
+    /// (cloud-hypervisor/qemu/libvirt/mockup) leave this at the default `false`
+    /// and keep the create+boot / shutdown+delete semantics.
+    fn manages_existing_vms(&self) -> bool {
+        false
+    }
+
     fn vm_info(
         &self,
         system_id: &str,
@@ -307,6 +321,21 @@ pub mod mock {
 }
 
 impl VmmBackend for Backend {
+    fn manages_existing_vms(&self) -> bool {
+        match self {
+            Self::CloudHypervisor(b) => b.manages_existing_vms(),
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.manages_existing_vms(),
+            #[cfg(feature = "qemu")]
+            Self::Qemu(b) => b.manages_existing_vms(),
+            #[cfg(feature = "libvirt")]
+            Self::Libvirt(b) => b.manages_existing_vms(),
+            Self::Mockup(b) => b.manages_existing_vms(),
+            #[cfg(any(test, feature = "test-support"))]
+            Self::Mock(b) => b.manages_existing_vms(),
+        }
+    }
+
     async fn vm_info(&self, system_id: &str) -> Result<VmInfo, BackendError> {
         match self {
             Self::CloudHypervisor(b) => b.vm_info(system_id).await,
