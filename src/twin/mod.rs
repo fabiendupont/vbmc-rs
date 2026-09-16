@@ -15,12 +15,17 @@
 //! (P1), and the external-twin feed (P2): [`Source::External`] resolves from an
 //! ingested value map ([`Sample`]) fed over `POST /twin/v1/state`, clamped to
 //! the binding's bounds, going offline when a reading is missing or stale.
+//!
+//! Actuation (P4) closes the control loop: when a client issues a control action
+//! (e.g. `ComputerSystem.Reset`), vbmc-rs applies its usual local optimistic
+//! mutation for instant feedback and, if a `control_webhook` is configured,
+//! relays a [`ControlIntent`] to the twin so the model stays authoritative.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 /// Default freshness window for external samples when `twin.toml` omits it.
@@ -128,6 +133,21 @@ pub struct StreamSample {
     pub critical: Option<f64>,
 }
 
+/// A control action a Redfish client issued against a resource, relayed to the
+/// external twin so it can apply the effect to its model (P4 actuation). The
+/// twin reflects the authoritative result back through the next ingest.
+#[derive(Debug, Clone, Serialize)]
+pub struct ControlIntent {
+    /// The modeled node the action targets (last segment of `path`).
+    pub system_id: String,
+    /// The Redfish resource the action was issued against.
+    pub path: String,
+    /// The action name, e.g. `"ComputerSystem.Reset"`.
+    pub action: String,
+    /// The action's request body (e.g. `{ "ResetType": "ForceOff" }`).
+    pub params: Value,
+}
+
 /// One external-twin reading, with the freshness metadata used to detect a
 /// stale feed. Written by ingest, read during resolution.
 pub struct Sample {
@@ -148,6 +168,9 @@ pub struct TwinConfig {
     freshness_ttl: Duration,
     /// Cadence of the stream-out tick (events + MetricReport refresh).
     tick_interval: Duration,
+    /// Optional URL a [`ControlIntent`] is POSTed to when a client issues a
+    /// control action (P4 actuation). `None` keeps today's local-only behaviour.
+    control_webhook: Option<String>,
     /// Reference instant that formula waveforms are measured from.
     start: Instant,
 }
@@ -160,6 +183,7 @@ impl TwinConfig {
             external: DashMap::new(),
             freshness_ttl: Duration::from_secs(DEFAULT_FRESHNESS_TTL_SECS),
             tick_interval: Duration::from_secs(DEFAULT_TICK_INTERVAL_SECS),
+            control_webhook: None,
             start: Instant::now(),
         }
     }
@@ -188,8 +212,14 @@ impl TwinConfig {
             external: DashMap::new(),
             freshness_ttl: Duration::from_secs(spec.freshness_ttl_seconds),
             tick_interval: Duration::from_secs(spec.tick_interval_seconds.max(1)),
+            control_webhook: spec.control_webhook.filter(|s| !s.is_empty()),
             start: Instant::now(),
         })
+    }
+
+    /// The URL control intents are relayed to, if actuation is configured.
+    pub fn control_webhook(&self) -> Option<&str> {
+        self.control_webhook.as_deref()
     }
 
     /// Record an external reading for `key`, timestamped now and stamped with the
@@ -315,6 +345,9 @@ struct TwinSpec {
     freshness_ttl_seconds: u64,
     #[serde(default = "default_tick_interval_seconds")]
     tick_interval_seconds: u64,
+    /// Optional URL control intents are POSTed to (P4 actuation).
+    #[serde(default)]
+    control_webhook: Option<String>,
     #[serde(default)]
     binding: Vec<BindingToml>,
 }
@@ -694,6 +727,41 @@ mod tests {
         let mut value = json!({ "Reading": 0.0 });
         cfg.resolve("/x", &mut value, Instant::now());
         assert_eq!(value["Reading"], json!(20.0));
+    }
+
+    #[test]
+    fn control_webhook_is_none_when_absent() {
+        let cfg = TwinConfig::from_toml("[twin]\n").unwrap();
+        assert_eq!(cfg.control_webhook(), None);
+        // An empty string is treated as unset, not a valid URL.
+        let blank = TwinConfig::from_toml("[twin]\ncontrol_webhook = \"\"\n").unwrap();
+        assert_eq!(blank.control_webhook(), None);
+    }
+
+    #[test]
+    fn control_webhook_is_parsed_when_set() {
+        let cfg =
+            TwinConfig::from_toml("[twin]\ncontrol_webhook = \"http://twin/intents\"\n").unwrap();
+        assert_eq!(cfg.control_webhook(), Some("http://twin/intents"));
+    }
+
+    #[test]
+    fn control_intent_serializes_to_expected_shape() {
+        let intent = ControlIntent {
+            system_id: "Server1".to_string(),
+            path: "/redfish/v1/Systems/Server1".to_string(),
+            action: "ComputerSystem.Reset".to_string(),
+            params: json!({ "ResetType": "ForceOff" }),
+        };
+        assert_eq!(
+            serde_json::to_value(&intent).unwrap(),
+            json!({
+                "system_id": "Server1",
+                "path": "/redfish/v1/Systems/Server1",
+                "action": "ComputerSystem.Reset",
+                "params": { "ResetType": "ForceOff" },
+            })
+        );
     }
 
     #[test]

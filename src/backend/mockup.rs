@@ -872,6 +872,11 @@ impl MockupStore {
         self.twin.has_external_key(key)
     }
 
+    /// The twin's control-intent webhook URL, if actuation is configured.
+    pub fn twin_control_webhook(&self) -> Option<String> {
+        self.twin.control_webhook().map(str::to_string)
+    }
+
     /// Store-wide-unique, monotonically increasing Task id.
     pub fn next_task_id(&self) -> u64 {
         self.next_task_id.fetch_add(1, Ordering::Relaxed)

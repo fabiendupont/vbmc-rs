@@ -19,6 +19,8 @@ pub mod manager_network;
 pub mod managers;
 pub mod memory;
 pub mod memory_metrics;
+// Control-intent relay (webhook out to the twin) for mockup mode.
+pub mod mockup_control;
 // External-twin ingest endpoint (POST /twin/v1/state) for mockup mode.
 pub mod mockup_ingest;
 // Stream-out (events + MetricReports) tick for mockup mode.
@@ -677,6 +679,25 @@ async fn mockup_fallback(
                     _ => "Off",
                 };
                 store.patch(&system_path, &serde_json::json!({"PowerState": new_state}));
+                // P4 actuation: relay the intent to the twin (if configured) so
+                // the model stays authoritative. The local flip above is instant
+                // client feedback; the webhook call never blocks this response.
+                if let Some(webhook) = store.twin_control_webhook() {
+                    let system_id = system_path
+                        .rsplit('/')
+                        .next()
+                        .unwrap_or_default()
+                        .to_string();
+                    mockup_control::emit_control_intent(
+                        webhook,
+                        crate::twin::ControlIntent {
+                            system_id,
+                            path: system_path,
+                            action: "ComputerSystem.Reset".to_string(),
+                            params: action,
+                        },
+                    );
+                }
                 StatusCode::OK.into_response()
             } else if path.ends_with("/Actions/Bios.ResetBios") {
                 // Reset pending BIOS settings. A merge patch of `{}` would not clear
