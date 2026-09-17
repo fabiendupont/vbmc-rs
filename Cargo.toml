@@ -33,6 +33,11 @@ name = "vbmc-rs-pldm-gen"
 path = "src/pldm_gen/main.rs"
 required-features = ["pldm-gen"]
 
+[[bin]]
+name = "vbmc-rs-scenario"
+path = "src/scenario_harness/main.rs"
+required-features = ["scenario-harness"]
+
 [features]
 default = ["cloud-hypervisor"]
 cloud-hypervisor = []
