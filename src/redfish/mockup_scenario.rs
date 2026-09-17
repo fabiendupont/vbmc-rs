@@ -4,7 +4,7 @@
 //! ([`crate::twin`]) that evaluated as a pure function of elapsed time, measured
 //! from the store start. That is enough for CI, which queries absolute offsets,
 //! but not for interactive use: you cannot "press inject" on demand. S2 adds the
-//! lifecycle control — the equivalent of arming a protection-relay test set:
+//! lifecycle control — the equivalent of triggering the stimulus on demand:
 //!
 //! - `POST /twin/v1/scenario/{name}` — **arm** the scenario: re-base its timeline
 //!   to run from now. A scenario that no binding drives is a 404.

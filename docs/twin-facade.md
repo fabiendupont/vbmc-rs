@@ -9,6 +9,15 @@ it were real hardware. vbmc-rs already *is* that surface.
 This document describes how to drive vbmc-rs's served state from an external
 twin instead of from static mockup files or local formulas.
 
+> **Status.** The seam described here is implemented and shipping in
+> [simulate mode](simulate.md): a `twin.toml` sidecar in the mockup directory
+> declares bindings and scenarios; ingest (`POST /twin/v1/state`), scenario arming
+> (`/twin/v1/scenario`), the SSE/`EventService` and `TelemetryService` stream-out,
+> and threshold alerts are live. See [Simulate Mode](simulate.md) for the concrete
+> `twin.toml` schema and control-plane endpoints, and
+> [Behavioral Conformance](behavioral-conformance.md) for replaying scenarios
+> against a running twin. This page is the design rationale behind that surface.
+
 ## Design principle
 
 The twin owns the model; vbmc-rs owns the interface. No physics enters vbmc-rs.
@@ -101,10 +110,9 @@ structure-versus-telemetry split, so it is not the twin's main channel.
 
 ## Streaming out: vbmc-rs to consumers
 
-Today the mockup/simulate router (`mockup_router`) is fallback-only, so the
-typed `EventService`/SSE and `TelemetryService` handlers are not mounted. The
-façade mounts them over the mockup store and drives them from the `StateChange`
-bus:
+The façade mounts the typed `EventService`/SSE and `TelemetryService` handlers
+over the mockup store and drives them from the `StateChange` bus (the tick loop,
+`spawn_stream`, starts automatically when a `twin.toml` is present):
 
 - **Events / SSE** — `ResourceUpdated` notifications and threshold-crossing
   alerts are pushed to the existing subscription store and the
@@ -189,21 +197,29 @@ Redfish client             ┌────────┴─────┴─�
 
 ## Implementation phases
 
-| Phase | Scope |
-|-------|-------|
-| P0 | Seam refactor: base + binding-table resolution in `MockupStore::get()`; `Static` reproduces today's behaviour. Guarded by existing replay sequences. |
-| P1 | Formula source: local waveforms with bounds. Proves the seam with no twin dependency. |
-| P2 | External source and ingest: external value map, `POST /twin/v1/state`, freshness/TTL, offline-on-stale. |
-| P3 | Stream out: mount EventService/SSE and TelemetryService over the mockup store; `StateChange` drives events and MetricReports; bound crossings raise alerts. |
-| P4 | Actuation: `ControlIntent` webhook; close the control loop. |
-| P5 | Fleet: per-node ingest and intent routing through the aggregator. |
+| Phase | Scope | Status |
+|-------|-------|--------|
+| P0 | Seam refactor: base + binding-table resolution in `MockupStore::get()`; `Static` reproduces today's behaviour. Guarded by existing replay sequences. | Done |
+| P1 | Formula source: local waveforms with bounds. Proves the seam with no twin dependency. | Done |
+| P2 | External source and ingest: external value map, `POST /twin/v1/state`, freshness/TTL, offline-on-stale. | Done |
+| P3 | Stream out: mount EventService/SSE and TelemetryService over the mockup store; `StateChange` drives events and MetricReports; bound crossings raise alerts. | Done |
+| P4 | Actuation: `ControlIntent` webhook; close the control loop. | Done |
+| P5 | Fleet: per-node ingest and intent routing through the aggregator. | Done |
+| P6 | Scenarios: named timelines (`[[scenario]]`) with arm/reset control-plane; deterministic in-process replay CI **and** the over-the-wire [behavioral harness](behavioral-conformance.md). | Done |
 
 ## Testing
 
-Extend the file-based replay harness (`tests/replay.rs`) with range, approximate,
-and monotonic matchers (`body_matches`) so twin-driven behaviour is assertable
-without pinning exact volatile values. For deterministic assertions, seed
-`Formula` sources from a mock clock so a sequence can assert exact values.
+Twin-driven behavior is verified two ways from one shared verifier
+(`src/scenario/mod.rs`):
+
+- **In-process** — the file-based replay harness (`tests/replay.rs`) runs scenario
+  files under a paused tokio clock and asserts on the in-memory event bus. Range,
+  approximate, and monotonic matchers (`body_matches`) make behavior assertable
+  without pinning exact volatile values.
+- **Over the wire** — the [Behavioral Conformance Harness](behavioral-conformance.md)
+  (`vbmc-rs-scenario`) replays the *same* scenario files against a live BMC and
+  applies the *same* verifiers to real HTTP responses, MetricReports, and the SSE
+  stream.
 
 ## Boundary
 

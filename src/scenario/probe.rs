@@ -1,6 +1,6 @@
 //! Over-the-wire Redfish client for the behavioral harness (twin-facade P6 track b).
 //!
-//! [`RedfishProbe`] is the *verification face* of the harness: a DUT-agnostic
+//! [`RedfishProbe`] is the *verification face* of the harness: a device-agnostic
 //! client that reads a live BMC with plain Redfish (`GET` reads, MetricReports,
 //! the `EventService` SSE stream) and hands the results to the shared verifiers in
 //! [`crate::scenario`] — `json_contains`, `check_matchspec`, `event_matches` — so

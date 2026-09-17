@@ -1,7 +1,7 @@
 //! Stimulus drivers for the behavioral harness (twin-facade P6 track b).
 //!
-//! The IEC-61850 test-set framing: the *verification* face ([`super::probe`]) is
-//! standard Redfish and DUT-agnostic, but the *stimulus* face is simulator-
+//! The stimulus/observation split: the *verification* face ([`super::probe`]) is
+//! standard Redfish and device-agnostic, but the *stimulus* face is simulator-
 //! specific — how you "press inject" depends on the device under test. That
 //! variation is isolated behind [`StimulusDriver`], so the runner (b-S4) picks a
 //! driver once and drives every step through the same three verbs.

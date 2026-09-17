@@ -31,8 +31,8 @@
 //!
 //! Scenarios (P6 S1): a [`Source::Scenario`] binding replays a named,
 //! time-sequenced timeline — the deterministic, reproducible test-case face of
-//! the twin (the digital analogue of an IEC 61850 SV/GOOSE test set that injects
-//! peaks, sags and dropouts to exercise a protection relay). A top-level
+//! the twin (a signal generator that injects peaks, sags and dropouts to exercise
+//! a device under test). A top-level
 //! `[[scenario]]` block lists ordered segments in BMC-operational terms —
 //! `nominal`, `step`, `drift`, `transient`, `fault`, `stuck` — and a binding
 //! references it by name. Each value-bearing segment targets either a raw `value`
@@ -42,7 +42,7 @@
 //!
 //! Trigger/lifecycle (P6 S2): a scenario runs from the store start by default
 //! (so CI can query absolute offsets), but can be *armed* on demand — the
-//! equivalent of pressing "inject" on a relay test set. `arm_scenario` re-bases
+//! equivalent of pressing "inject" on a signal generator. `arm_scenario` re-bases
 //! a scenario's timeline to run from now; `reset_scenarios` disarms every one.
 //! The control plane lives in [`crate::redfish::mockup_scenario`].
 //!
