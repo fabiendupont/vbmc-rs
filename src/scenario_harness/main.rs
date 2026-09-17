@@ -6,15 +6,18 @@
 //! counterpart to schema conformance: schema conformance asks "is the document
 //! shaped right?", this asks "does the device *behave* right as state evolves?".
 //!
-//! The IEC-61850 test-set split holds throughout:
+//! Each step splits into a stimulus face and a verification face — the universal
+//! test-engineering split between driving a system and observing its response:
 //!
-//! - **Stimulus face** ("inject") is simulator-specific → a [`StimulusDriver`]
-//!   chosen once via `--driver`. `twin` drives a vbmc-rs simulate instance through
-//!   its twin control-plane; `observe` is a no-op for real hardware (an operator
-//!   injects stimulus out-of-band on a bench, and the harness only observes).
-//! - **Verification face** ("observe the trip") is standard Redfish and therefore
-//!   DUT-agnostic: a [`RedfishProbe`] reads the resolved read path, MetricReports,
-//!   and the `EventService` SSE stream, and the *identical* verifiers from
+//! - **Stimulus face** ("make state move") is simulator-specific → a
+//!   [`StimulusDriver`] chosen once via `--driver`. `twin` drives a vbmc-rs
+//!   simulate instance through its twin control-plane; `observe` is a no-op for
+//!   real hardware (an operator injects stimulus out-of-band on a bench, and the
+//!   harness only observes).
+//! - **Verification face** ("check the response") is standard Redfish and
+//!   therefore device-agnostic: a [`RedfishProbe`] reads the resolved read path,
+//!   MetricReports, and the `EventService` SSE stream, and the *identical*
+//!   verifiers from
 //!   [`vbmc_rs::scenario`] (`json_contains`, `check_matchspec`, `event_matches`)
 //!   decide pass/fail — the same logic the in-process replay test applies.
 //!

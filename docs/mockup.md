@@ -2,6 +2,13 @@
 
 vbmc-rs can serve a DMTF Redfish mockup directory as a live Redfish service, with support for state mutations (power actions, BIOS settings, boot override). This makes it useful for testing Redfish client libraries, BMaaS integrations, and CI pipelines without real hardware or hypervisors.
 
+> **Config file vs. subcommand.** This page covers the config-file route
+> (`backend = "mockup"`). For the zero-config `vbmc-rs simulate` subcommand —
+> which serves a mockup directory (`--dir`) or a generated fleet (`--systems`)
+> with a single command, and can drive a live digital twin — see
+> [Simulate Mode](simulate.md). Both share the same mockup backend and directory
+> format described below.
+
 ## Quick start
 
 ```sh
