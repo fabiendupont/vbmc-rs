@@ -23,6 +23,7 @@ pub mod memory_metrics;
 pub mod mockup_control;
 // External-twin ingest endpoint (POST /twin/v1/state) for mockup mode.
 pub mod mockup_ingest;
+pub mod mockup_scenario;
 // Stream-out (events + MetricReports) tick for mockup mode.
 pub mod mockup_stream;
 // Timed Task lifecycle for mockup mode, driven by the update handlers.
@@ -593,6 +594,16 @@ fn mockup_router(state: Arc<AppState>) -> Router {
         .route(
             mockup_ingest::INGEST_PATH,
             post(mockup_ingest::ingest_state),
+        )
+        // Scenario trigger/lifecycle control-plane (P6 S2): arm a named scenario
+        // on demand, list state, or reset. Also outside the Redfish tree.
+        .route(
+            mockup_scenario::SCENARIO_PATH,
+            get(mockup_scenario::list_scenarios).delete(mockup_scenario::reset_scenarios),
+        )
+        .route(
+            mockup_scenario::SCENARIO_ARM_PATH,
+            post(mockup_scenario::arm_scenario),
         )
         .fallback(mockup_fallback)
         .layer(ODataComplianceLayer)
