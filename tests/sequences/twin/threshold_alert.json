@@ -1,0 +1,45 @@
+{
+  "description": "A temperature spike scenario crosses Warning then Critical then clears; the stream emits the matching threshold alerts and the MetricReport tracks the value",
+  "twin": "[twin]\ntick_interval_seconds = 5\n\n[[twin.binding]]\npath = \"/redfish/v1/Chassis/GPU_0/Sensors/Temp0\"\npointer = \"/Reading\"\nsource = \"scenario\"\nscenario = \"spike\"\nmetric = \"GpuTemperature\"\nwarning = 60.0\ncritical = 90.0\n\n[[scenario]]\nname = \"spike\"\n[[scenario.segment]]\nkind = \"nominal\"\nvalue = 20.0\nfor_s = 10\n[[scenario.segment]]\nkind = \"drift\"\nvalue = 100.0\nfor_s = 10\n[[scenario.segment]]\nkind = \"drift\"\nvalue = 20.0\nfor_s = 10\n[[scenario.segment]]\nkind = \"nominal\"\nvalue = 20.0\n",
+  "fixture": {
+    "/redfish/v1/Chassis/GPU_0/Sensors/Temp0": {
+      "@odata.id": "/redfish/v1/Chassis/GPU_0/Sensors/Temp0",
+      "@odata.type": "#Sensor.v1_2_0.Sensor",
+      "Id": "Temp0",
+      "Name": "Temp0",
+      "ReadingType": "Temperature",
+      "Reading": 0.0
+    }
+  },
+  "steps": [
+    {
+      "name": "crossing the warning band at t=15 emits a Warning alert",
+      "advance_seconds": 15,
+      "expect_events": [
+        { "event_type": "Alert", "severity": "Warning", "message_id_contains": "ThresholdCrossed", "origin_of_condition": "/redfish/v1/Chassis/GPU_0/Sensors/Temp0" }
+      ]
+    },
+    {
+      "name": "peak at t=20 emits a Critical alert and the report reads 100",
+      "advance_seconds": 5,
+      "request": { "method": "GET", "path": "/redfish/v1/TelemetryService/MetricReports/TwinMetrics" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "Id": "TwinMetrics", "MetricValues": [ { "MetricId": "GpuTemperature" } ] },
+        "body_matches": [
+          { "path": "MetricValues.0.MetricValue", "approx": 100.0, "tol": 0.5 }
+        ]
+      },
+      "expect_events": [
+        { "event_type": "Alert", "severity": "Critical", "message_id_contains": "ThresholdCrossed" }
+      ]
+    },
+    {
+      "name": "returning to nominal by t=35 clears the alert",
+      "advance_seconds": 15,
+      "expect_events": [
+        { "event_type": "Alert", "severity": "OK", "message_id_contains": "ThresholdCleared" }
+      ]
+    }
+  ]
+}

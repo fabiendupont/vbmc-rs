@@ -1,0 +1,61 @@
+{
+  "description": "A scenario drift resolves on the read path as the virtual clock advances; range/approx/monotonic matchers hold at exact offsets",
+  "twin": "[twin]\ntick_interval_seconds = 5\n\n[[twin.binding]]\npath = \"/redfish/v1/Chassis/GPU_0/Sensors/Temp0\"\npointer = \"/Reading\"\nsource = \"scenario\"\nscenario = \"ramp\"\n\n[[scenario]]\nname = \"ramp\"\n[[scenario.segment]]\nkind = \"nominal\"\nvalue = 20.0\nfor_s = 10\n[[scenario.segment]]\nkind = \"drift\"\nvalue = 80.0\nfor_s = 20\n[[scenario.segment]]\nkind = \"nominal\"\nvalue = 80.0\n",
+  "fixture": {
+    "/redfish/v1/Chassis/GPU_0/Sensors/Temp0": {
+      "@odata.id": "/redfish/v1/Chassis/GPU_0/Sensors/Temp0",
+      "@odata.type": "#Sensor.v1_2_0.Sensor",
+      "Id": "Temp0",
+      "Name": "Temp0",
+      "ReadingType": "Temperature",
+      "Reading": 0.0
+    }
+  },
+  "steps": [
+    {
+      "name": "nominal hold at t=5",
+      "advance_seconds": 5,
+      "request": { "method": "GET", "path": "/redfish/v1/Chassis/GPU_0/Sensors/Temp0" },
+      "expect": {
+        "status": 200,
+        "body_contains": { "Id": "Temp0" },
+        "body_matches": [
+          { "path": "Reading", "approx": 20.0, "tol": 0.001, "monotonic": "increasing", "series": "temp" }
+        ]
+      }
+    },
+    {
+      "name": "mid-drift at t=15 sits in [30,40]",
+      "advance_seconds": 10,
+      "request": { "method": "GET", "path": "/redfish/v1/Chassis/GPU_0/Sensors/Temp0" },
+      "expect": {
+        "status": 200,
+        "body_matches": [
+          { "path": "Reading", "range": [30.0, 40.0], "approx": 35.0, "tol": 0.001, "monotonic": "increasing", "series": "temp" }
+        ]
+      }
+    },
+    {
+      "name": "late-drift at t=25 is 65",
+      "advance_seconds": 10,
+      "request": { "method": "GET", "path": "/redfish/v1/Chassis/GPU_0/Sensors/Temp0" },
+      "expect": {
+        "status": 200,
+        "body_matches": [
+          { "path": "Reading", "approx": 65.0, "tol": 0.001, "monotonic": "increasing", "series": "temp" }
+        ]
+      }
+    },
+    {
+      "name": "final hold at t=35 is 80",
+      "advance_seconds": 10,
+      "request": { "method": "GET", "path": "/redfish/v1/Chassis/GPU_0/Sensors/Temp0" },
+      "expect": {
+        "status": 200,
+        "body_matches": [
+          { "path": "Reading", "approx": 80.0, "tol": 0.001, "gte": 80.0, "monotonic": "increasing", "series": "temp" }
+        ]
+      }
+    }
+  ]
+}
