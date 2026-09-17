@@ -21,6 +21,10 @@
 //! `fixture`, and its steps `advance_seconds` of virtual time (the runtime is
 //! paused, so no wall-clock sleeping) before asserting the resolved read path,
 //! the refreshed MetricReport, and the events/alerts the stream emitted.
+//!
+//! The scenario schema and pure verifiers live in `vbmc_rs::scenario` (the
+//! *identical verification half*) so the over-the-wire `scenario-harness` binary
+//! (twin-facade P6 track (b)) replays the same files with the same matchers.
 
 use std::collections::HashMap;
 use std::fs;
@@ -40,8 +44,11 @@ use vbmc_rs::auth::accounts::AccountStore;
 use vbmc_rs::backend::Backend;
 use vbmc_rs::backend::mockup::{MockupBackend, MockupStore};
 use vbmc_rs::config::AppConfig;
-use vbmc_rs::events::RedfishEvent;
 use vbmc_rs::redfish::mockup_stream::spawn_stream;
+use vbmc_rs::scenario::{
+    ExpectSpec, ObservedEvent, RequestSpec, TwinSequence, check_matchspec, event_matches,
+    json_contains, json_path_present,
+};
 
 #[derive(Debug, Deserialize)]
 struct Sequence {
@@ -56,67 +63,6 @@ struct Step {
     name: String,
     request: RequestSpec,
     expect: ExpectSpec,
-}
-
-#[derive(Debug, Deserialize)]
-struct RequestSpec {
-    method: String,
-    path: String,
-    #[serde(default)]
-    headers: std::collections::HashMap<String, String>,
-    #[serde(default)]
-    body: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ExpectSpec {
-    status: u16,
-    #[serde(default)]
-    body_contains: Option<Value>,
-    #[serde(default)]
-    body_equals: Option<Value>,
-    /// Dot-delimited paths (e.g. `Attributes.BootMode`) that must NOT be present.
-    /// Lets a sequence assert a reset/delete removed state without pinning the
-    /// whole document (which carries volatile etags).
-    #[serde(default)]
-    body_lacks: Option<Vec<String>>,
-    /// Typed numeric matchers applied at dot-delimited paths (twin-facade P6 S4).
-    /// Numbers rendered as JSON strings (e.g. a MetricReport `MetricValue`) are
-    /// parsed, so the same matcher works on Readings and MetricValues alike.
-    #[serde(default)]
-    body_matches: Option<Vec<MatchSpec>>,
-}
-
-/// One typed matcher on a numeric field. Any subset of the constraints may be
-/// present; all present constraints must hold. `monotonic` records the value
-/// into a named cross-step series (defaulting to `path`) and asserts the
-/// direction against the previously recorded value.
-#[derive(Debug, Deserialize)]
-struct MatchSpec {
-    path: String,
-    /// Inclusive `[min, max]`.
-    #[serde(default)]
-    range: Option<[f64; 2]>,
-    /// Target value; paired with `tol` (default 1e-6).
-    #[serde(default)]
-    approx: Option<f64>,
-    #[serde(default)]
-    tol: Option<f64>,
-    #[serde(default)]
-    gte: Option<f64>,
-    #[serde(default)]
-    lte: Option<f64>,
-    #[serde(default)]
-    monotonic: Option<Direction>,
-    #[serde(default)]
-    series: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum Direction {
-    Increasing,
-    Decreasing,
 }
 
 fn one() -> usize {
@@ -135,112 +81,6 @@ fn build_app(systems: usize) -> Router {
         Some(store),
     ));
     vbmc_rs::redfish::router(state)
-}
-
-/// Recursive subset match: every key/element in `expected` must be present in
-/// `actual` and match. Returns a JSON-path-ish location string on mismatch.
-fn json_contains(actual: &Value, expected: &Value) -> Result<(), String> {
-    match (actual, expected) {
-        (Value::Object(a), Value::Object(e)) => {
-            for (k, ev) in e {
-                match a.get(k) {
-                    Some(av) => json_contains(av, ev).map_err(|loc| format!(".{k}{loc}"))?,
-                    None => return Err(format!(".{k} (missing)")),
-                }
-            }
-            Ok(())
-        }
-        (Value::Array(a), Value::Array(e)) => {
-            for (i, ev) in e.iter().enumerate() {
-                match a.get(i) {
-                    Some(av) => json_contains(av, ev).map_err(|loc| format!("[{i}]{loc}"))?,
-                    None => return Err(format!("[{i}] (missing)")),
-                }
-            }
-            Ok(())
-        }
-        _ if actual == expected => Ok(()),
-        _ => Err(format!(" (expected {expected}, got {actual})")),
-    }
-}
-
-/// Resolve a dot-delimited path, descending into objects by key and into arrays
-/// by numeric index (e.g. `MetricValues.0.MetricValue`).
-fn json_path_get<'a>(v: &'a Value, dotted: &str) -> Option<&'a Value> {
-    let mut cur = v;
-    for seg in dotted.split('.') {
-        cur = match cur {
-            Value::Array(arr) => arr.get(seg.parse::<usize>().ok()?)?,
-            _ => cur.get(seg)?,
-        };
-    }
-    Some(cur)
-}
-
-/// Whether a dot-delimited path resolves to a value in `v`.
-fn json_path_present(v: &Value, dotted: &str) -> bool {
-    json_path_get(v, dotted).is_some()
-}
-
-/// Coerce a JSON value to a number, accepting numbers rendered as strings (a
-/// Redfish `MetricValue` is a string even when it carries a number).
-fn as_number(v: &Value) -> Option<f64> {
-    match v {
-        Value::Number(n) => n.as_f64(),
-        Value::String(s) => s.parse().ok(),
-        _ => None,
-    }
-}
-
-/// Evaluate one typed matcher against the response body.
-fn check_matchspec(
-    actual: &Value,
-    spec: &MatchSpec,
-    series: &mut HashMap<String, f64>,
-) -> Result<(), String> {
-    let val =
-        json_path_get(actual, &spec.path).ok_or_else(|| format!("path '{}' missing", spec.path))?;
-    let num =
-        as_number(val).ok_or_else(|| format!("path '{}' is not numeric: {val}", spec.path))?;
-
-    if let Some([lo, hi]) = spec.range
-        && (num < lo || num > hi)
-    {
-        return Err(format!("{}={num} not in [{lo}, {hi}]", spec.path));
-    }
-    if let Some(a) = spec.approx {
-        let tol = spec.tol.unwrap_or(1e-6);
-        if (num - a).abs() > tol {
-            return Err(format!("{}={num} not ≈ {a} (tol {tol})", spec.path));
-        }
-    }
-    if let Some(g) = spec.gte
-        && num < g
-    {
-        return Err(format!("{}={num} < {g}", spec.path));
-    }
-    if let Some(l) = spec.lte
-        && num > l
-    {
-        return Err(format!("{}={num} > {l}", spec.path));
-    }
-    if let Some(dir) = &spec.monotonic {
-        let name = spec.series.clone().unwrap_or_else(|| spec.path.clone());
-        if let Some(prev) = series.get(&name) {
-            let ok = match dir {
-                Direction::Increasing => num >= *prev,
-                Direction::Decreasing => num <= *prev,
-            };
-            if !ok {
-                return Err(format!(
-                    "{}={num} breaks {dir:?} series '{name}' (previous {prev})",
-                    spec.path
-                ));
-            }
-        }
-        series.insert(name, num);
-    }
-    Ok(())
 }
 
 /// Issue one request against the app and return `(status, body_bytes)`.
@@ -355,69 +195,6 @@ async fn replay_sequences() {
 
 // --- Twin sequences: deterministic virtual clock + event/alert assertions ---
 
-#[derive(Debug, Deserialize)]
-struct TwinSequence {
-    description: String,
-    /// Inline `twin.toml` (bindings + scenarios) driving the store.
-    twin: String,
-    /// Resource tree by Redfish path — each becomes an `index.json` the store
-    /// loads, so the bound read path resolves.
-    #[serde(default)]
-    fixture: HashMap<String, Value>,
-    steps: Vec<TwinStep>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TwinStep {
-    name: String,
-    /// Virtual seconds to advance before this step (the runtime is paused).
-    #[serde(default)]
-    advance_seconds: f64,
-    #[serde(default)]
-    request: Option<RequestSpec>,
-    #[serde(default)]
-    expect: Option<ExpectSpec>,
-    /// Events that must have been emitted since the previous step.
-    #[serde(default)]
-    expect_events: Option<Vec<EventMatch>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct EventMatch {
-    #[serde(default)]
-    event_type: Option<String>,
-    #[serde(default)]
-    severity: Option<String>,
-    #[serde(default)]
-    message_id_contains: Option<String>,
-    #[serde(default)]
-    origin_of_condition: Option<String>,
-}
-
-fn event_matches(ev: &RedfishEvent, m: &EventMatch) -> bool {
-    if let Some(t) = &m.event_type
-        && &ev.event_type != t
-    {
-        return false;
-    }
-    if let Some(s) = &m.severity
-        && &ev.severity != s
-    {
-        return false;
-    }
-    if let Some(mid) = &m.message_id_contains
-        && !ev.message_id.contains(mid)
-    {
-        return false;
-    }
-    if let Some(o) = &m.origin_of_condition
-        && ev.origin_of_condition.as_deref() != Some(o.as_str())
-    {
-        return false;
-    }
-    true
-}
-
 /// Write the fixture + twin.toml to a tempdir, load a store, and build a router
 /// with the stream tick spawned. The tempdir is returned so it outlives the load
 /// (it is read into memory, but keeping it avoids surprises).
@@ -493,12 +270,16 @@ async fn replay_twin(path: &Path) {
             while let Ok(ev) = rx.try_recv() {
                 drained.push(ev);
             }
+            let observed: Vec<ObservedEvent> = drained
+                .iter()
+                .map(ObservedEvent::from_redfish_event)
+                .collect();
             for want in wanted {
                 assert!(
-                    drained.iter().any(|ev| event_matches(ev, want)),
+                    observed.iter().any(|ev| event_matches(ev, want)),
                     "[{file}] step '{}': no event matched {want:?} (saw {})",
                     step.name,
-                    drained
+                    observed
                         .iter()
                         .map(|e| format!("{}/{}/{}", e.event_type, e.severity, e.message_id))
                         .collect::<Vec<_>>()
