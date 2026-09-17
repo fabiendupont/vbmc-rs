@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use serde::Deserialize;
 use serde_json::Value;
 
+pub mod driver;
 pub mod probe;
 
 // --- Request/response schema ------------------------------------------------
@@ -111,6 +112,18 @@ pub struct TwinStep {
     /// Virtual/wall-clock seconds to advance before this step.
     #[serde(default)]
     pub advance_seconds: f64,
+    /// Scenario to arm before this step's verification (over-the-wire harness,
+    /// twin-facade P6 track b). The `TwinIngestDriver` re-bases the named
+    /// scenario's timeline to now; the `ObserveOnlyDriver` skips it (a bench
+    /// operator arms the stimulus out-of-band). Additive: the in-process replay
+    /// test ignores it (its scenarios are armed at store-start via `twin.toml`).
+    #[serde(default)]
+    pub arm: Option<String>,
+    /// External-twin samples to ingest before this step's verification (track b).
+    /// The `TwinIngestDriver` POSTs them to `/twin/v1/state`; `ObserveOnlyDriver`
+    /// skips them. Additive, same as `arm`.
+    #[serde(default)]
+    pub ingest: Option<Vec<Sample>>,
     #[serde(default)]
     pub request: Option<RequestSpec>,
     #[serde(default)]
@@ -118,6 +131,18 @@ pub struct TwinStep {
     /// Events that must have been emitted since the previous step.
     #[serde(default)]
     pub expect_events: Option<Vec<EventMatch>>,
+}
+
+/// One external-twin reading to inject via the stimulus driver. Serialized to the
+/// fleet-array form `/twin/v1/state` accepts: `{ system_id?, key, value }`, where
+/// a `None` `system_id` addresses the local node (per `ingest_state`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct Sample {
+    /// Target node; omit to address the node the harness is pointed at.
+    #[serde(default)]
+    pub system_id: Option<String>,
+    pub key: String,
+    pub value: Value,
 }
 
 /// Match criteria for an emitted event; every present field must match.
