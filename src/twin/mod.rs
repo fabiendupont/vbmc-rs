@@ -39,8 +39,14 @@
 //! or a named Redfish threshold `level` (e.g. `UpperCritical`), resolved once at
 //! load against the sensor's own `Thresholds` so the timeline evaluates as a pure
 //! function of elapsed time, exactly like a [`Source::Formula`].
+//!
+//! Trigger/lifecycle (P6 S2): a scenario runs from the store start by default
+//! (so CI can query absolute offsets), but can be *armed* on demand — the
+//! equivalent of pressing "inject" on a relay test set. `arm_scenario` re-bases
+//! a scenario's timeline to run from now; `reset_scenarios` disarms every one.
+//! The control plane lives in [`crate::redfish::mockup_scenario`].
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
@@ -257,8 +263,10 @@ pub enum Source {
     /// missing or stale reading marks the field offline.
     External { key: String, min: f64, max: f64 },
     /// A named, time-sequenced [`ScenarioTimeline`] (P6 S1), optionally clamped
-    /// to `[min, max]`. Evaluated from the source's reference instant.
+    /// to `[min, max]`. Evaluated from the scenario's reference instant: the
+    /// store start until the scenario is armed (P6 S2), then the arm instant.
     Scenario {
+        name: String,
         timeline: ScenarioTimeline,
         min: Option<f64>,
         max: Option<f64>,
@@ -306,6 +314,23 @@ pub struct StreamSample {
     pub critical: Option<f64>,
 }
 
+/// The lifecycle state of one named scenario at a point in time (P6 S2),
+/// serialized by `GET`/`POST /twin/v1/scenario`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScenarioState {
+    /// The scenario name (as referenced by a binding's `scenario = "..."`).
+    pub name: String,
+    /// `true` when explicitly armed (running from its arm instant); `false`
+    /// when idle (running from the store start, the S1 default).
+    pub armed: bool,
+    /// Seconds elapsed since the scenario's current reference instant.
+    pub elapsed_seconds: f64,
+    /// The timeline's resolved value at this instant, or `null` when offline.
+    pub value: Option<f64>,
+    /// `true` when the timeline is in a `fault` (offline) segment right now.
+    pub offline: bool,
+}
+
 /// A control action a Redfish client issued against a resource, relayed to the
 /// external twin so it can apply the effect to its model (P4 actuation). The
 /// twin reflects the authoritative result back through the next ingest.
@@ -350,6 +375,10 @@ pub struct TwinConfig {
     system_id: Option<String>,
     /// Reference instant that formula waveforms are measured from.
     start: Instant,
+    /// Per-scenario arm instant (P6 S2). A scenario absent from this map runs
+    /// from `start` (the S1 default); arming it re-bases its timeline to `now`.
+    /// Interior-mutable so arm/reset work over `&self` on the request path.
+    armed: DashMap<String, Instant>,
 }
 
 impl TwinConfig {
@@ -363,6 +392,7 @@ impl TwinConfig {
             control_webhook: None,
             system_id: None,
             start: Instant::now(),
+            armed: DashMap::new(),
         }
     }
 
@@ -414,6 +444,7 @@ impl TwinConfig {
             control_webhook: spec.control_webhook.filter(|s| !s.is_empty()),
             system_id: spec.system_id.filter(|s| !s.is_empty()),
             start: Instant::now(),
+            armed: DashMap::new(),
         })
     }
 
@@ -482,7 +513,12 @@ impl TwinConfig {
                 // Never ingested, or the last reading has aged past its TTL.
                 _ => Resolution::Offline,
             },
-            Source::Scenario { timeline, min, max } => match timeline.eval(elapsed) {
+            Source::Scenario {
+                name,
+                timeline,
+                min,
+                max,
+            } => match timeline.eval(now.saturating_duration_since(self.scenario_origin(name))) {
                 ScenarioOutcome::Value(v) => {
                     let v = match (min, max) {
                         (Some(lo), Some(hi)) => v.clamp(*lo, *hi),
@@ -543,6 +579,78 @@ impl TwinConfig {
             }
         }
         Ok(())
+    }
+
+    /// The reference instant a scenario's timeline is measured from: its arm
+    /// instant once armed (P6 S2), else the store start (the S1 default).
+    fn scenario_origin(&self, name: &str) -> Instant {
+        self.armed.get(name).map(|e| *e).unwrap_or(self.start)
+    }
+
+    /// The distinct scenario names driving a binding, sorted for stable output.
+    pub fn scenario_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .bindings
+            .values()
+            .flatten()
+            .filter_map(|b| match &b.source {
+                Source::Scenario { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    /// Arm a scenario: re-base its timeline to run from `now`. Returns `false`
+    /// (and changes nothing) when no binding drives a scenario of that name.
+    pub fn arm_scenario(&self, name: &str) -> bool {
+        if !self.scenario_names().iter().any(|n| n == name) {
+            return false;
+        }
+        self.armed.insert(name.to_string(), Instant::now());
+        true
+    }
+
+    /// Disarm every scenario, reverting each timeline to run from the store
+    /// start (the S1 default). Returns how many scenarios were armed.
+    pub fn reset_scenarios(&self) -> usize {
+        let n = self.armed.len();
+        self.armed.clear();
+        n
+    }
+
+    /// A snapshot of every scenario's lifecycle state at `now`, sorted by name.
+    /// `armed` distinguishes an explicitly armed scenario (running from its arm
+    /// instant) from an idle one (running from the store start).
+    pub fn scenario_states(&self, now: Instant) -> Vec<ScenarioState> {
+        let mut timelines: BTreeMap<String, &ScenarioTimeline> = BTreeMap::new();
+        for bindings in self.bindings.values() {
+            for binding in bindings {
+                if let Source::Scenario { name, timeline, .. } = &binding.source {
+                    timelines.entry(name.clone()).or_insert(timeline);
+                }
+            }
+        }
+        timelines
+            .into_iter()
+            .map(|(name, timeline)| {
+                let armed = self.armed.contains_key(&name);
+                let elapsed = now.saturating_duration_since(self.scenario_origin(&name));
+                let (value, offline) = match timeline.eval(elapsed) {
+                    ScenarioOutcome::Value(v) => (Some(v), false),
+                    ScenarioOutcome::Offline => (None, true),
+                };
+                ScenarioState {
+                    name,
+                    armed,
+                    elapsed_seconds: elapsed.as_secs_f64(),
+                    value,
+                    offline,
+                }
+            })
+            .collect()
     }
 
     /// Cadence of the stream-out tick (events + MetricReport refresh).
@@ -780,6 +888,7 @@ impl BindingToml {
                     anyhow::anyhow!("binding {} references unknown scenario {}", self.path, name)
                 })?;
                 Source::Scenario {
+                    name,
                     timeline,
                     min: self.min,
                     max: self.max,
@@ -1399,5 +1508,74 @@ mod tests {
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].path, "/x");
         assert_eq!(samples[0].value, json!(50.0));
+    }
+
+    // --- P6 S2 lifecycle (arm / list / reset) ---
+
+    #[test]
+    fn scenario_names_lists_referenced_scenarios() {
+        let cfg = TwinConfig::from_toml(SCENARIO_TOML).unwrap();
+        assert_eq!(cfg.scenario_names(), vec!["ramp-test".to_string()]);
+    }
+
+    #[test]
+    fn arm_rebases_the_timeline_to_now() {
+        let mut cfg = TwinConfig::from_toml(SCENARIO_TOML).unwrap();
+        // Pretend the store started 100s ago: idle scenarios run from `start`,
+        // so the timeline has already reached its final unbounded hold (30.0).
+        cfg.start = Instant::now() - Duration::from_secs(100);
+
+        let idle = &cfg.scenario_states(Instant::now())[0];
+        assert_eq!(idle.name, "ramp-test");
+        assert!(!idle.armed);
+        assert!(idle.elapsed_seconds >= 100.0);
+        assert_eq!(idle.value, Some(30.0));
+
+        // Arming re-bases the clock to now: the timeline restarts at its seed
+        // (the first nominal segment, 20.0) with a near-zero elapsed.
+        assert!(cfg.arm_scenario("ramp-test"));
+        let armed = &cfg.scenario_states(Instant::now())[0];
+        assert!(armed.armed);
+        assert!(armed.elapsed_seconds < 1.0);
+        assert_eq!(armed.value, Some(20.0));
+    }
+
+    #[test]
+    fn arm_unknown_scenario_is_rejected() {
+        let cfg = TwinConfig::from_toml(SCENARIO_TOML).unwrap();
+        assert!(!cfg.arm_scenario("no-such-scenario"));
+        assert!(cfg.arm_scenario("ramp-test"));
+    }
+
+    #[test]
+    fn reset_disarms_every_scenario() {
+        let mut cfg = TwinConfig::from_toml(SCENARIO_TOML).unwrap();
+        cfg.start = Instant::now() - Duration::from_secs(100);
+
+        assert!(cfg.arm_scenario("ramp-test"));
+        assert!(cfg.scenario_states(Instant::now())[0].armed);
+
+        // Reset reports how many were armed and reverts them to store-start.
+        assert_eq!(cfg.reset_scenarios(), 1);
+        let after = &cfg.scenario_states(Instant::now())[0];
+        assert!(!after.armed);
+        assert_eq!(after.value, Some(30.0));
+        // Nothing left to disarm the second time.
+        assert_eq!(cfg.reset_scenarios(), 0);
+    }
+
+    #[test]
+    fn armed_scenario_drives_the_read_path_from_arm_time() {
+        let mut cfg = TwinConfig::from_toml(SCENARIO_TOML).unwrap();
+        cfg.start = Instant::now() - Duration::from_secs(100);
+        // Idle: read path is at the final hold.
+        assert_eq!(reading_at(&cfg, 100), json!(30.0));
+
+        // After arming, the read path resolves from the arm instant: at ~now the
+        // timeline is back in its opening nominal segment.
+        assert!(cfg.arm_scenario("ramp-test"));
+        let mut value = json!({ "Reading": 0.0, "Status": { "State": "Enabled" } });
+        cfg.resolve("/x", &mut value, Instant::now());
+        assert_eq!(value["Reading"], json!(20.0));
     }
 }

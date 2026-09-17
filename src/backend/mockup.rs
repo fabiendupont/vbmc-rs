@@ -904,6 +904,23 @@ impl MockupStore {
         self.twin.accepts_system_id(target)
     }
 
+    /// Arm a named scenario, re-basing its timeline to run from now (P6 S2).
+    /// Returns `false` when no binding drives a scenario of that name.
+    pub fn twin_arm_scenario(&self, name: &str) -> bool {
+        self.twin.arm_scenario(name)
+    }
+
+    /// Disarm every scenario (revert to store-start origin); returns how many
+    /// were armed (P6 S2).
+    pub fn twin_reset_scenarios(&self) -> usize {
+        self.twin.reset_scenarios()
+    }
+
+    /// Lifecycle snapshot of every named scenario at `now` (P6 S2).
+    pub fn twin_scenario_states(&self, now: Instant) -> Vec<crate::twin::ScenarioState> {
+        self.twin.scenario_states(now)
+    }
+
     /// Store-wide-unique, monotonically increasing Task id.
     pub fn next_task_id(&self) -> u64 {
         self.next_task_id.fetch_add(1, Ordering::Relaxed)
