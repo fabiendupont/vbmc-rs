@@ -37,6 +37,10 @@ required-features = ["pldm-gen"]
 default = ["cloud-hypervisor"]
 cloud-hypervisor = []
 pldm-gen = []
+# Cross-BMC behavioral/conformance harness (twin-facade P6 track (b)): a Redfish
+# client that replays scenario files against a live BMC. Off by default — never
+# part of the served product (preserves the twin-facade boundary).
+scenario-harness = []
 qemu = []
 libvirt = ["dep:quick-xml", "dep:virt"]
 kubevirt = ["dep:kube", "dep:k8s-openapi", "dep:schemars", "dep:http"]
@@ -93,4 +97,4 @@ tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }
 tokio-test = "0.4"
 tower = { version = "0.5", features = ["util"] }
-vbmc-rs = { path = ".", features = ["test-support"] }
+vbmc-rs = { path = ".", features = ["test-support", "scenario-harness"] }

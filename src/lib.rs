@@ -8,6 +8,8 @@ pub mod ipmi;
 pub mod media;
 pub mod prometheus;
 pub mod redfish;
+#[cfg(feature = "scenario-harness")]
+pub mod scenario;
 pub mod state;
 pub mod tasks;
 pub mod telemetry;
