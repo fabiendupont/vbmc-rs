@@ -25,9 +25,9 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
-use std::time::Instant;
 
 use crate::app_state::AppState;
+use crate::twin::now;
 
 /// List/reset endpoint path.
 pub const SCENARIO_PATH: &str = "/twin/v1/scenario";
@@ -39,7 +39,7 @@ pub async fn list_scenarios(State(state): State<Arc<AppState>>) -> Response {
     let Some(store) = state.mockup_store.clone() else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let states = store.twin_scenario_states(Instant::now());
+    let states = store.twin_scenario_states(now());
     axum::Json(json!({ "Scenarios": states })).into_response()
 }
 
@@ -58,7 +58,7 @@ pub async fn arm_scenario(
         return (StatusCode::NOT_FOUND, format!("unknown scenario {name}")).into_response();
     }
     let state = store
-        .twin_scenario_states(Instant::now())
+        .twin_scenario_states(now())
         .into_iter()
         .find(|s| s.name == name);
     axum::Json(json!({ "Armed": name, "State": state })).into_response()
