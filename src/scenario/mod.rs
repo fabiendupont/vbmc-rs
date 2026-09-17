@@ -22,6 +22,8 @@ use std::collections::HashMap;
 use serde::Deserialize;
 use serde_json::Value;
 
+pub mod probe;
+
 // --- Request/response schema ------------------------------------------------
 
 /// One HTTP request in a scenario step.
