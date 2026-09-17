@@ -45,6 +45,15 @@
 //! equivalent of pressing "inject" on a relay test set. `arm_scenario` re-bases
 //! a scenario's timeline to run from now; `reset_scenarios` disarms every one.
 //! The control plane lives in [`crate::redfish::mockup_scenario`].
+//!
+//! Deterministic clock (P6 S3): every twin instant — the store `start`, a
+//! scenario's arm time, an external sample's timestamp, and each read/stream
+//! resolution — is read through [`now`], which returns
+//! [`tokio::time::Instant`]. Under `tokio::time::pause()` that clock is virtual,
+//! so an integration test can `tokio::time::advance()` through a timeline and
+//! assert the exact projected values and emitted events without sleeping.
+//! Outside a paused runtime (i.e. in production) it is real wall-clock time, so
+//! behaviour is unchanged.
 
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
@@ -60,6 +69,17 @@ const DEFAULT_FRESHNESS_TTL_SECS: u64 = 10;
 /// drives `ResourceUpdated` events and MetricReport refreshes (see the stream
 /// module); it is only spawned when the binding table is non-empty.
 const DEFAULT_TICK_INTERVAL_SECS: u64 = 5;
+
+/// The twin's monotonic clock (P6 S3).
+///
+/// Every twin instant is read here so they all share one clock. It returns a
+/// [`std::time::Instant`] taken from [`tokio::time::Instant`], which is virtual
+/// under `tokio::time::pause()` — letting a deterministic test advance through a
+/// timeline — and real wall-clock time otherwise. `tokio::time::Instant` is a
+/// newtype over `std::time::Instant`, so the rest of the module is unchanged.
+pub fn now() -> Instant {
+    tokio::time::Instant::now().into_std()
+}
 
 /// Shape of a local waveform for a [`Source::Formula`] binding.
 ///
@@ -391,7 +411,7 @@ impl TwinConfig {
             tick_interval: Duration::from_secs(DEFAULT_TICK_INTERVAL_SECS),
             control_webhook: None,
             system_id: None,
-            start: Instant::now(),
+            start: now(),
             armed: DashMap::new(),
         }
     }
@@ -443,7 +463,7 @@ impl TwinConfig {
             tick_interval: Duration::from_secs(spec.tick_interval_seconds.max(1)),
             control_webhook: spec.control_webhook.filter(|s| !s.is_empty()),
             system_id: spec.system_id.filter(|s| !s.is_empty()),
-            start: Instant::now(),
+            start: now(),
             armed: DashMap::new(),
         })
     }
@@ -480,7 +500,7 @@ impl TwinConfig {
             key.to_string(),
             Sample {
                 value,
-                ts: Instant::now(),
+                ts: now(),
                 ttl: self.freshness_ttl,
             },
         );
@@ -609,7 +629,7 @@ impl TwinConfig {
         if !self.scenario_names().iter().any(|n| n == name) {
             return false;
         }
-        self.armed.insert(name.to_string(), Instant::now());
+        self.armed.insert(name.to_string(), now());
         true
     }
 
@@ -1577,5 +1597,85 @@ mod tests {
         let mut value = json!({ "Reading": 0.0, "Status": { "State": "Enabled" } });
         cfg.resolve("/x", &mut value, Instant::now());
         assert_eq!(value["Reading"], json!(20.0));
+    }
+
+    // --- P6 S3 deterministic clock (virtual time under tokio::time::pause) ---
+
+    #[tokio::test(start_paused = true)]
+    async fn read_path_follows_the_virtual_clock() {
+        // Built inside the paused runtime, so `start` is the frozen virtual base
+        // and every resolution reads the same virtual clock via `now()`.
+        let cfg = TwinConfig::from_toml(SCENARIO_TOML).unwrap();
+
+        let read = |cfg: &TwinConfig| {
+            let mut v = json!({ "Reading": 0.0, "Status": { "State": "Enabled" } });
+            cfg.resolve("/x", &mut v, now());
+            v["Reading"].clone()
+        };
+
+        // t=0: opening nominal hold.
+        assert_eq!(read(&cfg), json!(20.0));
+
+        // Advance 15s of virtual time (no sleeping): mid-drift 20 -> 80.
+        tokio::time::advance(Duration::from_secs(15)).await;
+        assert_eq!(read(&cfg), json!(50.0));
+
+        // Advance to t=30: the final unbounded hold.
+        tokio::time::advance(Duration::from_secs(15)).await;
+        assert_eq!(read(&cfg), json!(30.0));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn arm_rebases_to_the_advanced_virtual_now() {
+        let cfg = TwinConfig::from_toml(SCENARIO_TOML).unwrap();
+
+        // Let idle virtual time run out the whole schedule.
+        tokio::time::advance(Duration::from_secs(30)).await;
+        let idle = &cfg.scenario_states(now())[0];
+        assert!(!idle.armed);
+        assert_eq!(idle.value, Some(30.0));
+
+        // Arming re-bases to the (already advanced) virtual now: back to the seed.
+        assert!(cfg.arm_scenario("ramp-test"));
+        let armed = &cfg.scenario_states(now())[0];
+        assert!(armed.armed);
+        assert!(armed.elapsed_seconds < 1.0);
+        assert_eq!(armed.value, Some(20.0));
+
+        // Advancing 15s from the arm instant lands mid-drift again.
+        tokio::time::advance(Duration::from_secs(15)).await;
+        assert_eq!(cfg.scenario_states(now())[0].value, Some(50.0));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn external_feed_goes_stale_on_the_virtual_clock() {
+        let toml = r#"
+            [twin]
+            freshness_ttl_seconds = 5
+            [[twin.binding]]
+            path = "/x"
+            pointer = "/Reading"
+            source = "external"
+            key = "k"
+            min = 0.0
+            max = 100.0
+        "#;
+        let cfg = TwinConfig::from_toml(toml).unwrap();
+        cfg.ingest("k", json!(42.0));
+
+        let read = |cfg: &TwinConfig| {
+            let mut v = json!({ "Reading": 0.0, "Status": { "State": "Enabled" } });
+            cfg.resolve("/x", &mut v, now());
+            v
+        };
+
+        // Within the TTL the reading is served.
+        assert_eq!(read(&cfg)["Reading"], json!(42.0));
+
+        // Advance past the freshness window: the sample reads stale -> offline.
+        tokio::time::advance(Duration::from_secs(6)).await;
+        let v = read(&cfg);
+        assert_eq!(v["Reading"], Value::Null);
+        assert_eq!(v["Status"]["State"], "UnavailableOffline");
     }
 }

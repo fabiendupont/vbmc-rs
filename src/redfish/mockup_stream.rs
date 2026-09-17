@@ -61,7 +61,7 @@ pub fn spawn_stream(state: Arc<AppState>) {
     // If any binding is a metric, publish the report skeleton up front so the
     // TelemetryService collection lists it before the first tick lands.
     let has_metrics = store
-        .twin_stream_snapshot(Instant::now())
+        .twin_stream_snapshot(crate::twin::now())
         .iter()
         .any(|s| s.metric.is_some());
     if has_metrics {
@@ -85,7 +85,7 @@ pub fn spawn_stream(state: Arc<AppState>) {
                 &state.event_bus,
                 &mut alerts,
                 &mut event_seq,
-                Instant::now(),
+                crate::twin::now(),
                 Utc::now(),
             );
         }
@@ -538,5 +538,67 @@ critical = 85.0
         }
         assert_eq!(updated_count, 2);
         assert_eq!(alert_count, 1);
+    }
+
+    // --- P6 S3: the stream tick reads the deterministic virtual clock ---
+
+    #[tokio::test(start_paused = true)]
+    async fn run_tick_reads_the_virtual_clock() {
+        // A scenario that holds 20 for 10s, then drifts to 80 over 10s, exposed
+        // as a metric. The store is loaded inside the paused runtime, so the
+        // twin's `start` is the frozen virtual base.
+        let dir = tempfile::TempDir::new().unwrap();
+        let sensor = dir.path().join("redfish/v1/Chassis/GPU_0/Sensors/Temp0");
+        std::fs::create_dir_all(&sensor).unwrap();
+        std::fs::write(
+            sensor.join("index.json"),
+            json!({ "@odata.id": "/redfish/v1/Chassis/GPU_0/Sensors/Temp0", "Reading": 0.0 })
+                .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("twin.toml"),
+            r#"
+[twin]
+[[twin.binding]]
+path = "/redfish/v1/Chassis/GPU_0/Sensors/Temp0"
+pointer = "/Reading"
+source = "scenario"
+scenario = "ramp"
+metric = "GpuTemperature"
+
+[[scenario]]
+name = "ramp"
+[[scenario.segment]]
+kind = "nominal"
+value = 20.0
+for_s = 10
+[[scenario.segment]]
+kind = "drift"
+value = 80.0
+for_s = 10
+"#,
+        )
+        .unwrap();
+
+        let store = MockupStore::load(dir.path()).unwrap();
+        let bus = EventBus::default();
+        let mut alerts = HashMap::new();
+        let mut seq = 0;
+
+        // Advance 15s of virtual time: mid-drift 20 -> 80 is exactly 50.
+        tokio::time::advance(std::time::Duration::from_secs(15)).await;
+        run_tick(
+            &store,
+            &bus,
+            &mut alerts,
+            &mut seq,
+            crate::twin::now(),
+            Utc::now(),
+        );
+
+        let report = store.get(TWIN_REPORT_PATH).unwrap();
+        assert_eq!(report["MetricValues"][0]["MetricId"], "GpuTemperature");
+        assert_eq!(report["MetricValues"][0]["MetricValue"], "50.0");
     }
 }

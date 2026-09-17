@@ -819,7 +819,7 @@ impl MockupStore {
         // With no bindings this is a no-op, so the returned clone is identical
         // to the stored resource (regression-safe seam).
         if !self.twin.is_empty() {
-            self.twin.resolve(path, &mut value, Instant::now());
+            self.twin.resolve(path, &mut value, crate::twin::now());
         }
         Some(value)
     }
