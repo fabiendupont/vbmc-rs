@@ -39,6 +39,15 @@ pub struct VirtualMachineInstanceSpec {
 pub struct VirtualMachineInstanceStatus {
     #[serde(default)]
     pub phase: Option<String>,
+    #[serde(default)]
+    pub conditions: Option<Vec<VmiCondition>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default, JsonSchema)]
+pub struct VmiCondition {
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub status: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, JsonSchema)]
@@ -252,6 +261,7 @@ mod coverage_tests {
     fn test_virtual_machine_instance_status_serde() {
         let status = VirtualMachineInstanceStatus {
             phase: Some("Running".to_string()),
+            conditions: None,
         };
 
         let json = serde_json::to_string(&status).unwrap();
