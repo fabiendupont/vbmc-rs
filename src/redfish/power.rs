@@ -10,7 +10,7 @@ use crate::app_state::AppState;
 use crate::auth::AuthenticatedUser;
 use crate::auth::rbac::{Privilege, has_privilege};
 use crate::backend::VmmBackend;
-use crate::backend::types::{DiskCreateConfig, VmCreateConfig};
+use crate::backend::types::{BootOverrideInfo, DiskCreateConfig, VmCreateConfig};
 use crate::events::RedfishEvent;
 use crate::events::registry::*;
 
@@ -108,6 +108,30 @@ fn emit_power_event(
     crate::telemetry::record_vm_power_state(system_id, power_state);
 }
 
+/// Clear the Once boot override in both disk state and the backend (e.g. KubeVirt VM
+/// annotations). Must be called after every power action that consumed a Once override.
+async fn clear_once_boot_override(state: &AppState, system_id: &str) {
+    let mut vm_state = state.get_vm_state(system_id);
+    if vm_state.boot_override.enabled == "Once" {
+        vm_state.boot_override.enabled = "Disabled".to_string();
+        vm_state.boot_override.target = None;
+        state.save_vm_state(system_id, &vm_state);
+
+        // Also clear the backend-native representation (e.g. KubeVirt VM annotations).
+        let _ = state
+            .backend
+            .vm_set_boot_override(
+                system_id,
+                &BootOverrideInfo {
+                    target: "None".to_string(),
+                    enabled: "Disabled".to_string(),
+                    mode: None,
+                },
+            )
+            .await;
+    }
+}
+
 pub async fn reset_system(
     State(state): State<Arc<AppState>>,
     user: AuthenticatedUser,
@@ -172,13 +196,7 @@ pub async fn reset_system(
                 .await
                 .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
 
-            // Clear Once boot override
-            let mut vm_state = state.get_vm_state(&system_id);
-            if vm_state.boot_override.enabled == "Once" {
-                vm_state.boot_override.enabled = "Disabled".to_string();
-                vm_state.boot_override.target = None;
-                state.save_vm_state(&system_id, &vm_state);
-            }
+            clear_once_boot_override(&state, &system_id).await;
 
             emit_power_event(
                 &state,
@@ -526,5 +544,93 @@ mod tests {
                 .to_lowercase()
                 .contains("not found")
         );
+    }
+
+    #[tokio::test]
+    async fn test_reset_on_clears_once_boot_override_in_disk_state() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+        use axum::http::{Method, StatusCode};
+
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let state = app_state(mock, systems_with("test-system"));
+
+        // Set Once boot override in disk state.
+        let mut vm_state = state.get_vm_state("test-system");
+        vm_state.boot_override.enabled = "Once".to_string();
+        vm_state.boot_override.target = Some("Cd".to_string());
+        state.save_vm_state("test-system", &vm_state);
+
+        let r = router(state.clone());
+        let (status, _, _) = request_json(
+            &r,
+            Method::POST,
+            "/redfish/v1/Systems/test-system/Actions/ComputerSystem.Reset",
+            serde_json::json!({"ResetType": "On"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        // Disk state should now be Disabled.
+        let updated = state.get_vm_state("test-system");
+        assert_eq!(updated.boot_override.enabled, "Disabled");
+        assert!(updated.boot_override.target.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_graceful_restart_clears_once_boot_override() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+        use axum::http::{Method, StatusCode};
+
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let state = app_state(mock, systems_with("test-system"));
+
+        let mut vm_state = state.get_vm_state("test-system");
+        vm_state.boot_override.enabled = "Once".to_string();
+        vm_state.boot_override.target = Some("Cd".to_string());
+        state.save_vm_state("test-system", &vm_state);
+
+        let r = router(state.clone());
+        let (status, _, _) = request_json(
+            &r,
+            Method::POST,
+            "/redfish/v1/Systems/test-system/Actions/ComputerSystem.Reset",
+            serde_json::json!({"ResetType": "GracefulRestart"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let updated = state.get_vm_state("test-system");
+        assert_eq!(updated.boot_override.enabled, "Disabled");
+    }
+
+    #[tokio::test]
+    async fn test_continuous_override_not_cleared_on_reset() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+        use axum::http::{Method, StatusCode};
+
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let state = app_state(mock, systems_with("test-system"));
+
+        let mut vm_state = state.get_vm_state("test-system");
+        vm_state.boot_override.enabled = "Continuous".to_string();
+        vm_state.boot_override.target = Some("Cd".to_string());
+        state.save_vm_state("test-system", &vm_state);
+
+        let r = router(state.clone());
+        let (status, _, _) = request_json(
+            &r,
+            Method::POST,
+            "/redfish/v1/Systems/test-system/Actions/ComputerSystem.Reset",
+            serde_json::json!({"ResetType": "GracefulRestart"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        // Continuous should NOT be cleared by a reset.
+        let updated = state.get_vm_state("test-system");
+        assert_eq!(updated.boot_override.enabled, "Continuous");
     }
 }
