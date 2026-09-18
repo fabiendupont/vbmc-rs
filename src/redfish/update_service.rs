@@ -147,3 +147,207 @@ pub async fn get_firmware_inventory_item(
         "FirmwareInventory '{item_id}' not found"
     )))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_update_service_resource_serialization() {
+        let resource = UpdateServiceResource {
+            odata_id: "/redfish/v1/UpdateService",
+            odata_type: "#UpdateService.v1_14_0.UpdateService",
+            id: "UpdateService",
+            name: "Update Service",
+            description: "Firmware update service",
+            service_enabled: true,
+            firmware_inventory: ODataId::new("/redfish/v1/UpdateService/FirmwareInventory"),
+            max_image_size_bytes: 104857600,
+            multipart_http_push_uri: "/redfish/v1/UpdateService/upload",
+            verify_remote_server_certificate: false,
+            verify_remote_server_ssh_key: false,
+            supported_update_image_formats: vec!["fwpkg", "bin"],
+            status: Status::enabled_ok(),
+        };
+
+        let value = serde_json::to_value(&resource).unwrap();
+
+        assert_eq!(value["@odata.id"], "/redfish/v1/UpdateService");
+        assert_eq!(value["@odata.type"], "#UpdateService.v1_14_0.UpdateService");
+        assert_eq!(value["Id"], "UpdateService");
+        assert_eq!(value["Name"], "Update Service");
+        assert_eq!(value["Description"], "Firmware update service");
+        assert_eq!(value["ServiceEnabled"], true);
+        assert_eq!(
+            value["FirmwareInventory"]["@odata.id"],
+            "/redfish/v1/UpdateService/FirmwareInventory"
+        );
+        assert_eq!(value["MaxImageSizeBytes"], 104857600);
+        assert_eq!(
+            value["MultipartHttpPushUri"],
+            "/redfish/v1/UpdateService/upload"
+        );
+        assert_eq!(value["VerifyRemoteServerCertificate"], false);
+        assert_eq!(value["VerifyRemoteServerSSHKey"], false);
+        assert!(value["SupportedUpdateImageFormats"].is_array());
+        assert!(value["Status"].is_object());
+    }
+
+    #[test]
+    fn test_software_inventory_resource_serialization() {
+        let resource = SoftwareInventoryResource {
+            odata_id: "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs".to_string(),
+            odata_type: "#SoftwareInventory.v1_10_0.SoftwareInventory",
+            id: "vbmc-rs".to_string(),
+            name: "vbmc-rs BMC Firmware".to_string(),
+            description: "Software component",
+            version: "1.0.0",
+            updateable: false,
+            manufacturer: "vbmc-rs",
+            release_date: "2026-01-01T00:00:00Z",
+            software_id: "vbmc-rs",
+            lowest_supported_version: "0.1.0",
+            version_scheme: "SemVer",
+            release_type: "Production",
+            write_protected: true,
+            related_item: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
+            associated_physical_context: "Chassis",
+            additional_versions: FwAdditionalVersions {
+                bootloader: "",
+                microcode: "",
+            },
+            status: Status::enabled_ok(),
+        };
+
+        let value = serde_json::to_value(&resource).unwrap();
+
+        assert_eq!(
+            value["@odata.id"],
+            "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs"
+        );
+        assert_eq!(
+            value["@odata.type"],
+            "#SoftwareInventory.v1_10_0.SoftwareInventory"
+        );
+        assert_eq!(value["Id"], "vbmc-rs");
+        assert_eq!(value["Name"], "vbmc-rs BMC Firmware");
+        assert_eq!(value["Description"], "Software component");
+        assert_eq!(value["Version"], "1.0.0");
+        assert_eq!(value["Updateable"], false);
+        assert_eq!(value["Manufacturer"], "vbmc-rs");
+        assert_eq!(value["ReleaseDate"], "2026-01-01T00:00:00Z");
+        assert_eq!(value["SoftwareId"], "vbmc-rs");
+        assert_eq!(value["LowestSupportedVersion"], "0.1.0");
+        assert_eq!(value["VersionScheme"], "SemVer");
+        assert_eq!(value["ReleaseType"], "Production");
+        assert_eq!(value["WriteProtected"], true);
+        assert_eq!(value["AssociatedPhysicalContext"], "Chassis");
+        assert!(value["RelatedItem"].is_array());
+        assert!(value["AdditionalVersions"].is_object());
+        assert!(value["Status"].is_object());
+    }
+
+    #[test]
+    fn test_fw_additional_versions_skip_empty_strings() {
+        let versions = FwAdditionalVersions {
+            bootloader: "",
+            microcode: "",
+        };
+
+        let value = serde_json::to_value(&versions).unwrap();
+        let obj = value.as_object().unwrap();
+
+        // Empty strings should be skipped
+        assert!(!obj.contains_key("Bootloader"));
+        assert!(!obj.contains_key("Microcode"));
+    }
+
+    #[test]
+    fn test_fw_additional_versions_with_values() {
+        let versions = FwAdditionalVersions {
+            bootloader: "1.2.3",
+            microcode: "4.5.6",
+        };
+
+        let value = serde_json::to_value(&versions).unwrap();
+        assert_eq!(value["Bootloader"], "1.2.3");
+        assert_eq!(value["Microcode"], "4.5.6");
+    }
+
+    #[test]
+    fn test_fw_additional_versions_partial() {
+        let versions = FwAdditionalVersions {
+            bootloader: "1.0.0",
+            microcode: "",
+        };
+
+        let value = serde_json::to_value(&versions).unwrap();
+        assert_eq!(value["Bootloader"], "1.0.0");
+        assert!(!value.as_object().unwrap().contains_key("Microcode"));
+    }
+
+    #[test]
+    fn test_update_service_empty_formats() {
+        let resource = UpdateServiceResource {
+            odata_id: "/redfish/v1/UpdateService",
+            odata_type: "#UpdateService.v1_14_0.UpdateService",
+            id: "UpdateService",
+            name: "Update Service",
+            description: "Firmware update service",
+            service_enabled: true,
+            firmware_inventory: ODataId::new("/redfish/v1/UpdateService/FirmwareInventory"),
+            max_image_size_bytes: 0,
+            multipart_http_push_uri: "/redfish/v1/UpdateService/upload",
+            verify_remote_server_certificate: false,
+            verify_remote_server_ssh_key: false,
+            supported_update_image_formats: Vec::new(),
+            status: Status::enabled_ok(),
+        };
+
+        let value = serde_json::to_value(&resource).unwrap();
+        assert!(
+            value["SupportedUpdateImageFormats"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(value["MaxImageSizeBytes"], 0);
+    }
+
+    #[test]
+    fn test_software_inventory_updateable() {
+        let mut resource = SoftwareInventoryResource {
+            odata_id: "/redfish/v1/UpdateService/FirmwareInventory/test".to_string(),
+            odata_type: "#SoftwareInventory.v1_10_0.SoftwareInventory",
+            id: "test".to_string(),
+            name: "Test Firmware".to_string(),
+            description: "Software component",
+            version: "1.0.0",
+            updateable: true,
+            manufacturer: "test",
+            release_date: "2026-01-01T00:00:00Z",
+            software_id: "test",
+            lowest_supported_version: "0.1.0",
+            version_scheme: "SemVer",
+            release_type: "Production",
+            write_protected: false,
+            related_item: vec![],
+            associated_physical_context: "Chassis",
+            additional_versions: FwAdditionalVersions {
+                bootloader: "",
+                microcode: "",
+            },
+            status: Status::enabled_ok(),
+        };
+
+        let value = serde_json::to_value(&resource).unwrap();
+        assert_eq!(value["Updateable"], true);
+        assert_eq!(value["WriteProtected"], false);
+
+        resource.updateable = false;
+        resource.write_protected = true;
+        let value = serde_json::to_value(&resource).unwrap();
+        assert_eq!(value["Updateable"], false);
+        assert_eq!(value["WriteProtected"], true);
+    }
+}

@@ -195,3 +195,82 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_ipmb_checksum_with_values() {
+        assert_eq!(ipmb_checksum(&[0xFF, 0x01]), 0x00);
+        assert_eq!(ipmb_checksum(&[0x10, 0x20, 0x30]), 0x60);
+    }
+
+    #[test]
+    fn test_decode_message_invalid_checksum() {
+        let mut decoder = FrameDecoder::new();
+        decoder.buf = vec![0x42, 0x20, 0x01, 0xFF];
+        let frame = decoder.decode_message();
+        assert!(frame.is_none());
+    }
+
+    #[test]
+    fn test_decode_message_too_short() {
+        let mut decoder = FrameDecoder::new();
+        decoder.buf = vec![0x42, 0x20];
+        let frame = decoder.decode_message();
+        assert!(frame.is_none());
+    }
+
+    #[test]
+    fn test_decode_command_empty() {
+        let mut decoder = FrameDecoder::new();
+        decoder.buf = vec![];
+        let frame = decoder.decode_command();
+        assert!(frame.is_none());
+    }
+
+    #[test]
+    fn test_decode_command_with_data() {
+        let mut decoder = FrameDecoder::new();
+        decoder.buf = vec![0x08, 0xAB, 0xCD];
+        let frame = decoder.decode_command();
+        match frame.unwrap() {
+            Frame::Command { cmd, data } => {
+                assert_eq!(cmd, 0x08);
+                assert_eq!(data, vec![0xAB, 0xCD]);
+            }
+            _ => panic!("expected Command"),
+        }
+    }
+
+    #[test]
+    fn test_frame_decoder_multiple_escapes() {
+        let mut decoder = FrameDecoder::new();
+        decoder.feed(VM_ESCAPE_CHAR);
+        assert!(decoder.in_escape);
+        let result = decoder.feed(VM_MSG_CHAR | 0x10);
+        assert!(!decoder.in_escape);
+        assert!(result.is_none());
+        assert_eq!(decoder.buf, vec![VM_MSG_CHAR]);
+    }
+
+    #[test]
+    fn test_encode_all_special_bytes() {
+        let mut out = Vec::new();
+        escape_byte(VM_MSG_CHAR, &mut out);
+        assert_eq!(out, vec![VM_ESCAPE_CHAR, VM_MSG_CHAR | 0x10]);
+
+        out.clear();
+        escape_byte(VM_CMD_CHAR, &mut out);
+        assert_eq!(out, vec![VM_ESCAPE_CHAR, VM_CMD_CHAR | 0x10]);
+
+        out.clear();
+        escape_byte(VM_ESCAPE_CHAR, &mut out);
+        assert_eq!(out, vec![VM_ESCAPE_CHAR, VM_ESCAPE_CHAR | 0x10]);
+
+        out.clear();
+        escape_byte(0x42, &mut out);
+        assert_eq!(out, vec![0x42]);
+    }
+}

@@ -117,3 +117,104 @@ pub async fn get_boot_option(
         alias: def.alias.to_string(),
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_boot_option_resource_serialization() {
+        let resource = BootOptionResource {
+            odata_id: "/redfish/v1/Systems/vm1/BootOptions/Hdd".to_string(),
+            odata_type: "#BootOption.v1_0_4.BootOption",
+            id: "Hdd".to_string(),
+            name: "Hard Disk Drive".to_string(),
+            description: "Boot option entry",
+            boot_option_reference: "Hdd".to_string(),
+            display_name: "Hard Disk Drive".to_string(),
+            boot_option_enabled: true,
+            alias: "Hdd".to_string(),
+        };
+
+        let value = serde_json::to_value(&resource).unwrap();
+
+        assert_eq!(
+            value["@odata.id"],
+            "/redfish/v1/Systems/vm1/BootOptions/Hdd"
+        );
+        assert_eq!(value["@odata.type"], "#BootOption.v1_0_4.BootOption");
+        assert_eq!(value["Id"], "Hdd");
+        assert_eq!(value["Name"], "Hard Disk Drive");
+        assert_eq!(value["Description"], "Boot option entry");
+        assert_eq!(value["BootOptionReference"], "Hdd");
+        assert_eq!(value["DisplayName"], "Hard Disk Drive");
+        assert_eq!(value["BootOptionEnabled"], true);
+        assert_eq!(value["Alias"], "Hdd");
+    }
+
+    #[test]
+    fn test_boot_options_constants() {
+        assert_eq!(BOOT_OPTIONS.len(), 4);
+
+        let hdd = BOOT_OPTIONS.iter().find(|o| o.id == "Hdd").unwrap();
+        assert_eq!(hdd.display_name, "Hard Disk Drive");
+        assert_eq!(hdd.alias, "Hdd");
+
+        let pxe = BOOT_OPTIONS.iter().find(|o| o.id == "Pxe").unwrap();
+        assert_eq!(pxe.display_name, "PXE Network Boot");
+        assert_eq!(pxe.alias, "Pxe");
+
+        let cd = BOOT_OPTIONS.iter().find(|o| o.id == "Cd").unwrap();
+        assert_eq!(cd.display_name, "CD/DVD Drive");
+        assert_eq!(cd.alias, "Cd");
+
+        let none = BOOT_OPTIONS.iter().find(|o| o.id == "None").unwrap();
+        assert_eq!(none.display_name, "No Boot Device");
+        assert_eq!(none.alias, "None");
+    }
+
+    #[test]
+    fn test_all_boot_options_have_unique_ids() {
+        let mut ids = std::collections::HashSet::new();
+        for opt in BOOT_OPTIONS {
+            assert!(ids.insert(opt.id), "Duplicate boot option ID: {}", opt.id);
+        }
+    }
+
+    #[test]
+    fn test_boot_option_resource_with_pxe() {
+        let resource = BootOptionResource {
+            odata_id: "/redfish/v1/Systems/vm1/BootOptions/Pxe".to_string(),
+            odata_type: "#BootOption.v1_0_4.BootOption",
+            id: "Pxe".to_string(),
+            name: "PXE Network Boot".to_string(),
+            description: "Boot option entry",
+            boot_option_reference: "Pxe".to_string(),
+            display_name: "PXE Network Boot".to_string(),
+            boot_option_enabled: true,
+            alias: "Pxe".to_string(),
+        };
+
+        let value = serde_json::to_value(&resource).unwrap();
+        assert_eq!(value["Id"], "Pxe");
+        assert_eq!(value["DisplayName"], "PXE Network Boot");
+    }
+
+    #[test]
+    fn test_boot_option_resource_disabled() {
+        let resource = BootOptionResource {
+            odata_id: "/redfish/v1/Systems/vm1/BootOptions/None".to_string(),
+            odata_type: "#BootOption.v1_0_4.BootOption",
+            id: "None".to_string(),
+            name: "No Boot Device".to_string(),
+            description: "Boot option entry",
+            boot_option_reference: "None".to_string(),
+            display_name: "No Boot Device".to_string(),
+            boot_option_enabled: false,
+            alias: "None".to_string(),
+        };
+
+        let value = serde_json::to_value(&resource).unwrap();
+        assert_eq!(value["BootOptionEnabled"], false);
+    }
+}

@@ -276,4 +276,214 @@ mod tests {
         assert_eq!(ep.url, "http://10.0.0.99:8000");
         assert_eq!(registry.list().len(), 1);
     }
+
+    #[test]
+    fn test_register_static_endpoints() {
+        let registry = SidecarRegistry::new();
+        let endpoints = vec![
+            super::super::config::StaticEndpoint {
+                system_id: "vm1".to_string(),
+                url: "http://10.0.0.1:8000".to_string(),
+            },
+            super::super::config::StaticEndpoint {
+                system_id: "vm2".to_string(),
+                url: "http://10.0.0.2:8000".to_string(),
+            },
+        ];
+
+        register_static_endpoints(&registry, &endpoints);
+
+        let list = registry.list();
+        assert_eq!(list.len(), 2);
+
+        let ep1 = registry.get("vm1").unwrap();
+        assert_eq!(ep1.system_id, "vm1");
+        assert_eq!(ep1.url, "http://10.0.0.1:8000");
+        assert_eq!(ep1.namespace, "");
+        assert_eq!(ep1.vm_name, "vm1");
+    }
+
+    #[test]
+    fn test_register_static_endpoints_empty() {
+        let registry = SidecarRegistry::new();
+        register_static_endpoints(&registry, &[]);
+        assert!(registry.list().is_empty());
+    }
+}
+
+#[cfg(all(test, feature = "aggregator"))]
+mod endpoint_tests {
+    use super::*;
+    use k8s_openapi::api::core::v1::Pod;
+
+    fn pod_from_json(v: serde_json::Value) -> Pod {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn test_extract_endpoint_basic_with_system_id_label() {
+        let pod = pod_from_json(serde_json::json!({
+            "metadata": {
+                "name": "pod-1",
+                "namespace": "ns1",
+                "labels": {"vbmc-rs/system-id": "vm-a"}
+            },
+            "status": {"podIP": "10.1.2.3"}
+        }));
+        let ep = extract_endpoint(&pod, 8000, false, None).unwrap();
+        assert_eq!(ep.system_id, "vm-a");
+        assert_eq!(ep.namespace, "ns1");
+        // vm_name falls back to system_id when the kubevirt label is absent
+        assert_eq!(ep.vm_name, "vm-a");
+        assert_eq!(ep.url, "http://10.1.2.3:8000");
+    }
+
+    #[test]
+    fn test_extract_endpoint_system_id_falls_back_to_pod_name() {
+        let pod = pod_from_json(serde_json::json!({
+            "metadata": {
+                "name": "pod-name",
+                "labels": {"app": "vbmc"}
+            },
+            "status": {"podIP": "10.0.0.5"}
+        }));
+        let ep = extract_endpoint(&pod, 8000, false, None).unwrap();
+        assert_eq!(ep.system_id, "pod-name");
+        assert_eq!(ep.namespace, "");
+    }
+
+    #[test]
+    fn test_extract_endpoint_no_labels_returns_none() {
+        let pod = pod_from_json(serde_json::json!({
+            "metadata": {"name": "pod-x"},
+            "status": {"podIP": "10.0.0.5"}
+        }));
+        assert!(extract_endpoint(&pod, 8000, false, None).is_none());
+    }
+
+    #[test]
+    fn test_extract_endpoint_vm_name_from_kubevirt_label() {
+        let pod = pod_from_json(serde_json::json!({
+            "metadata": {
+                "name": "pod-1",
+                "labels": {
+                    "vbmc-rs/system-id": "sys-1",
+                    "vm.kubevirt.io/name": "my-vm"
+                }
+            },
+            "status": {"podIP": "10.0.0.9"}
+        }));
+        let ep = extract_endpoint(&pod, 8000, false, None).unwrap();
+        assert_eq!(ep.system_id, "sys-1");
+        assert_eq!(ep.vm_name, "my-vm");
+    }
+
+    #[test]
+    fn test_extract_endpoint_bmc_network_ip_from_annotation() {
+        let network_status = serde_json::json!([
+            {"name": "default/pod-net", "ips": ["10.0.0.5"]},
+            {"name": "default/bmc-net", "ips": ["192.168.1.10"]}
+        ])
+        .to_string();
+        let pod = pod_from_json(serde_json::json!({
+            "metadata": {
+                "name": "pod-1",
+                "labels": {"vbmc-rs/system-id": "sys-1"},
+                "annotations": {"k8s.v1.cni.cncf.io/network-status": network_status}
+            },
+            "status": {"podIP": "10.0.0.5"}
+        }));
+        let ep = extract_endpoint(&pod, 8000, false, Some("bmc-net")).unwrap();
+        assert_eq!(ep.url, "http://192.168.1.10:8000");
+    }
+
+    #[test]
+    fn test_extract_endpoint_bmc_network_no_match_falls_back_to_pod_ip() {
+        let network_status = serde_json::json!([
+            {"name": "default/pod-net", "ips": ["10.0.0.5"]}
+        ])
+        .to_string();
+        let pod = pod_from_json(serde_json::json!({
+            "metadata": {
+                "name": "pod-1",
+                "labels": {"vbmc-rs/system-id": "sys-1"},
+                "annotations": {"k8s.v1.cni.cncf.io/network-status": network_status}
+            },
+            "status": {"podIP": "10.0.0.5"}
+        }));
+        let ep = extract_endpoint(&pod, 8000, false, Some("bmc-net")).unwrap();
+        assert_eq!(ep.url, "http://10.0.0.5:8000");
+    }
+
+    #[test]
+    fn test_extract_endpoint_https_scheme_when_tls_flag_set() {
+        let pod = pod_from_json(serde_json::json!({
+            "metadata": {"name": "p", "labels": {"vbmc-rs/system-id": "s"}},
+            "status": {"podIP": "10.0.0.5"}
+        }));
+        let ep = extract_endpoint(&pod, 8000, true, None).unwrap();
+        assert_eq!(ep.url, "https://10.0.0.5:8000");
+    }
+
+    #[test]
+    fn test_extract_endpoint_https_scheme_for_port_8443() {
+        let pod = pod_from_json(serde_json::json!({
+            "metadata": {"name": "p", "labels": {"vbmc-rs/system-id": "s"}},
+            "status": {"podIP": "10.0.0.5"}
+        }));
+        let ep = extract_endpoint(&pod, 8443, false, None).unwrap();
+        assert_eq!(ep.url, "https://10.0.0.5:8443");
+    }
+
+    #[test]
+    fn test_extract_endpoint_https_scheme_for_port_443() {
+        let pod = pod_from_json(serde_json::json!({
+            "metadata": {"name": "p", "labels": {"vbmc-rs/system-id": "s"}},
+            "status": {"podIP": "10.0.0.5"}
+        }));
+        let ep = extract_endpoint(&pod, 443, false, None).unwrap();
+        assert_eq!(ep.url, "https://10.0.0.5:443");
+    }
+
+    #[test]
+    fn test_extract_endpoint_no_ip_returns_none() {
+        let pod = pod_from_json(serde_json::json!({
+            "metadata": {"name": "p", "labels": {"vbmc-rs/system-id": "s"}},
+            "status": {}
+        }));
+        assert!(extract_endpoint(&pod, 8000, false, None).is_none());
+    }
+
+    #[test]
+    fn test_is_pod_ready_true() {
+        let pod = pod_from_json(serde_json::json!({
+            "metadata": {"name": "p"},
+            "status": {"conditions": [{"type": "Ready", "status": "True"}]}
+        }));
+        assert!(is_pod_ready(&pod));
+    }
+
+    #[test]
+    fn test_is_pod_ready_false_when_not_ready() {
+        let pod = pod_from_json(serde_json::json!({
+            "metadata": {"name": "p"},
+            "status": {"conditions": [{"type": "Ready", "status": "False"}]}
+        }));
+        assert!(!is_pod_ready(&pod));
+    }
+
+    #[test]
+    fn test_is_pod_ready_false_no_conditions() {
+        let pod = pod_from_json(serde_json::json!({
+            "metadata": {"name": "p"},
+            "status": {}
+        }));
+        assert!(!is_pod_ready(&pod));
+    }
+
+    #[test]
+    fn test_is_pod_ready_false_no_status() {
+        let pod = pod_from_json(serde_json::json!({"metadata": {"name": "p"}}));
+        assert!(!is_pod_ready(&pod));
+    }
 }

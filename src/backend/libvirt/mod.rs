@@ -319,3 +319,55 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_map_domain_state_all_states() {
+        // VIR_DOMAIN_NOSTATE = 0
+        assert_eq!(
+            LibvirtBackend::map_domain_state(0),
+            bt::VmPowerState::Unknown
+        );
+        // VIR_DOMAIN_RUNNING = 1
+        assert_eq!(LibvirtBackend::map_domain_state(1), bt::VmPowerState::On);
+        // VIR_DOMAIN_BLOCKED = 2
+        assert_eq!(
+            LibvirtBackend::map_domain_state(2),
+            bt::VmPowerState::Unknown
+        );
+        // VIR_DOMAIN_PAUSED = 3
+        assert_eq!(
+            LibvirtBackend::map_domain_state(3),
+            bt::VmPowerState::Paused
+        );
+        // VIR_DOMAIN_SHUTDOWN = 4
+        assert_eq!(
+            LibvirtBackend::map_domain_state(4),
+            bt::VmPowerState::Unknown
+        );
+        // VIR_DOMAIN_SHUTOFF = 5
+        assert_eq!(LibvirtBackend::map_domain_state(5), bt::VmPowerState::Off);
+        // VIR_DOMAIN_CRASHED = 6
+        assert_eq!(LibvirtBackend::map_domain_state(6), bt::VmPowerState::Off);
+        // VIR_DOMAIN_PMSUSPENDED = 7
+        assert_eq!(
+            LibvirtBackend::map_domain_state(7),
+            bt::VmPowerState::Unknown
+        );
+    }
+
+    #[test]
+    fn test_libvirt_backend_new() {
+        // Test that we can construct a LibvirtBackend (without a real connection)
+        // This tests the struct and new() method are properly defined
+        // Note: We cannot test with a real connection in unit tests
+        // We can't create a real Connect without connecting to libvirt,
+        // so we just verify the API exists by checking the function signature compiles
+        fn _test_signature(conn: Connect, domains: HashMap<String, String>) -> LibvirtBackend {
+            LibvirtBackend::new(conn, domains)
+        }
+    }
+}

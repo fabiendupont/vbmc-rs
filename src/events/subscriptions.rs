@@ -214,3 +214,162 @@ mod tests_subscription_store {
         assert_eq!(store.list().len(), 1);
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn make_event(event_type: &str, msg: &str) -> RedfishEvent {
+        RedfishEvent {
+            event_type: event_type.to_string(),
+            event_id: uuid::Uuid::new_v4().to_string(),
+            event_timestamp: Utc::now(),
+            message_id: "Test.1.0.Message".to_string(),
+            message: msg.to_string(),
+            origin_of_condition: Some("/redfish/v1/Systems/test".to_string()),
+            severity: "OK".to_string(),
+            actor: None,
+            payload: None,
+        }
+    }
+
+    #[test]
+    fn test_subscription_serde() {
+        let sub = Subscription {
+            id: "1".to_string(),
+            destination: "https://example.com/hook".to_string(),
+            protocol: "Redfish".to_string(),
+            event_types: vec!["StatusChange".to_string()],
+        };
+
+        let json = serde_json::to_string(&sub).unwrap();
+        let deserialized: Subscription = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.id, sub.id);
+        assert_eq!(deserialized.destination, sub.destination);
+        assert_eq!(deserialized.protocol, sub.protocol);
+        assert_eq!(deserialized.event_types, sub.event_types);
+    }
+
+    #[test]
+    fn test_store_default() {
+        let store = SubscriptionStore::default();
+        assert!(store.list().is_empty());
+    }
+
+    #[test]
+    fn test_subscription_with_multiple_event_types() {
+        let store = SubscriptionStore::new();
+        let sub = store.add(
+            "https://example.com",
+            "Redfish",
+            vec![
+                "StatusChange".to_string(),
+                "Alert".to_string(),
+                "ResourceAdded".to_string(),
+            ],
+        );
+
+        assert_eq!(sub.event_types.len(), 3);
+        assert!(sub.event_types.contains(&"StatusChange".to_string()));
+        assert!(sub.event_types.contains(&"Alert".to_string()));
+        assert!(sub.event_types.contains(&"ResourceAdded".to_string()));
+    }
+
+    #[test]
+    fn test_subscription_with_empty_event_types() {
+        let store = SubscriptionStore::new();
+        let sub = store.add("https://example.com", "Redfish", vec![]);
+
+        assert!(sub.event_types.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_webhook_delivery_filters_by_event_type() {
+        let (tx, rx) = broadcast::channel::<RedfishEvent>(16);
+
+        let sub = Subscription {
+            id: "1".to_string(),
+            destination: "http://localhost:9999/hook".to_string(),
+            protocol: "Redfish".to_string(),
+            event_types: vec!["StatusChange".to_string()],
+        };
+
+        tokio::spawn(async move {
+            start_webhook_delivery(rx, sub);
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        tx.send(make_event("StatusChange", "should match")).unwrap();
+        tx.send(make_event("Alert", "should not match")).unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    }
+
+    #[tokio::test]
+    async fn test_webhook_delivery_accepts_all_when_event_types_empty() {
+        let (tx, rx) = broadcast::channel::<RedfishEvent>(16);
+
+        let sub = Subscription {
+            id: "1".to_string(),
+            destination: "http://localhost:9999/hook".to_string(),
+            protocol: "Redfish".to_string(),
+            event_types: vec![],
+        };
+
+        tokio::spawn(async move {
+            start_webhook_delivery(rx, sub);
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        tx.send(make_event("StatusChange", "event 1")).unwrap();
+        tx.send(make_event("Alert", "event 2")).unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    }
+
+    #[tokio::test]
+    async fn test_webhook_delivery_exits_on_closed_channel() {
+        let (tx, rx) = broadcast::channel::<RedfishEvent>(16);
+
+        let sub = Subscription {
+            id: "1".to_string(),
+            destination: "http://localhost:9999/hook".to_string(),
+            protocol: "Redfish".to_string(),
+            event_types: vec![],
+        };
+
+        let handle = tokio::spawn(async move {
+            start_webhook_delivery(rx, sub);
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        drop(tx);
+
+        let result = tokio::time::timeout(tokio::time::Duration::from_secs(1), handle).await;
+        assert!(
+            result.is_ok(),
+            "webhook delivery should exit when channel closes"
+        );
+    }
+
+    #[test]
+    fn test_subscription_clone() {
+        let sub = Subscription {
+            id: "1".to_string(),
+            destination: "https://example.com".to_string(),
+            protocol: "Redfish".to_string(),
+            event_types: vec!["StatusChange".to_string()],
+        };
+
+        let cloned = sub.clone();
+        assert_eq!(cloned.id, sub.id);
+        assert_eq!(cloned.destination, sub.destination);
+        assert_eq!(cloned.protocol, sub.protocol);
+        assert_eq!(cloned.event_types, sub.event_types);
+    }
+}

@@ -108,3 +108,125 @@ pub struct QmpBlockStatsInner {
     #[serde(rename = "wr_operations", default)]
     pub wr_operations: u64,
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_qmp_greeting_deserialization() {
+        let json = r#"{"QMP": {"version": {"qemu": {"major": 8, "minor": 2, "micro": 0}}}}"#;
+        let greeting: QmpGreeting = serde_json::from_str(json).unwrap();
+        assert_eq!(greeting.qmp.version.qemu.major, 8);
+        assert_eq!(greeting.qmp.version.qemu.minor, 2);
+        assert_eq!(greeting.qmp.version.qemu.micro, 0);
+    }
+
+    #[test]
+    fn test_qmp_response_with_result() {
+        let json = r#"{"return": {"status": "running"}}"#;
+        let resp: QmpResponse<QmpStatus> = serde_json::from_str(json).unwrap();
+        assert!(resp.result.is_some());
+        assert!(resp.error.is_none());
+        assert_eq!(resp.result.unwrap().status, "running");
+    }
+
+    #[test]
+    fn test_qmp_response_with_error() {
+        let json = r#"{"error": {"desc": "Command not found"}}"#;
+        let resp: QmpResponse<serde_json::Value> = serde_json::from_str(json).unwrap();
+        assert!(resp.result.is_none());
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().desc, "Command not found");
+    }
+
+    #[test]
+    fn test_qmp_status_deserialization() {
+        let json = r#"{"status": "paused"}"#;
+        let status: QmpStatus = serde_json::from_str(json).unwrap();
+        assert_eq!(status.status, "paused");
+    }
+
+    #[test]
+    fn test_qmp_cpu_deserialization() {
+        let json = r#"{}"#;
+        let _cpu: QmpCpu = serde_json::from_str(json).unwrap();
+    }
+
+    #[test]
+    fn test_qmp_memory_size_summary_deserialization() {
+        let json = r#"{"base-memory": 2147483648, "plugged-memory": 1073741824}"#;
+        let mem: QmpMemorySizeSummary = serde_json::from_str(json).unwrap();
+        assert_eq!(mem.base_memory, 2147483648);
+        assert_eq!(mem.plugged_memory, 1073741824);
+    }
+
+    #[test]
+    fn test_qmp_memory_size_summary_no_plugged() {
+        let json = r#"{"base-memory": 2147483648}"#;
+        let mem: QmpMemorySizeSummary = serde_json::from_str(json).unwrap();
+        assert_eq!(mem.base_memory, 2147483648);
+        assert_eq!(mem.plugged_memory, 0);
+    }
+
+    #[test]
+    fn test_qmp_block_device_deserialization() {
+        let json = r#"{"device": "virtio0", "inserted": {"file": "/tmp/disk.qcow2", "ro": false, "drv": "qcow2"}}"#;
+        let block: QmpBlockDevice = serde_json::from_str(json).unwrap();
+        assert_eq!(block.device, "virtio0");
+        let inserted = block.inserted.unwrap();
+        assert_eq!(inserted.file, "/tmp/disk.qcow2");
+        assert!(!inserted.ro);
+        assert_eq!(inserted.drv, "qcow2");
+    }
+
+    #[test]
+    fn test_qmp_block_device_no_inserted() {
+        let json = r#"{"device": "cd0"}"#;
+        let block: QmpBlockDevice = serde_json::from_str(json).unwrap();
+        assert_eq!(block.device, "cd0");
+        assert!(block.inserted.is_none());
+    }
+
+    #[test]
+    fn test_qmp_pci_bus_deserialization() {
+        let json = r#"{"bus": 0, "devices": [{"slot": 3, "function": 0, "id": {"device": 4660, "vendor": 32902}, "class_info": {"class": 131072}, "qdev_id": "net0"}]}"#;
+        let bus: QmpPciBus = serde_json::from_str(json).unwrap();
+        assert_eq!(bus.bus, 0);
+        let devices = bus.devices.unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].slot, 3);
+        assert_eq!(devices[0].function, 0);
+        assert_eq!(devices[0].id.device, 4660);
+        assert_eq!(devices[0].id.vendor, 32902);
+        assert_eq!(devices[0].class_info.class, 131072);
+        assert_eq!(devices[0].qdev_id, "net0");
+    }
+
+    #[test]
+    fn test_qmp_pci_device_no_qdev_id() {
+        let json = r#"{"slot": 1, "function": 0, "id": {"device": 1234, "vendor": 5678}, "class_info": {"class": 196608}}"#;
+        let dev: QmpPciDevice = serde_json::from_str(json).unwrap();
+        assert_eq!(dev.qdev_id, "");
+    }
+
+    #[test]
+    fn test_qmp_block_stats_deserialization() {
+        let json = r#"{"stats": {"rd_bytes": 1048576, "wr_bytes": 2097152, "rd_operations": 100, "wr_operations": 200}}"#;
+        let stats: QmpBlockStats = serde_json::from_str(json).unwrap();
+        assert_eq!(stats.stats.rd_bytes, 1048576);
+        assert_eq!(stats.stats.wr_bytes, 2097152);
+        assert_eq!(stats.stats.rd_operations, 100);
+        assert_eq!(stats.stats.wr_operations, 200);
+    }
+
+    #[test]
+    fn test_qmp_block_stats_defaults() {
+        let json = r#"{"stats": {}}"#;
+        let stats: QmpBlockStats = serde_json::from_str(json).unwrap();
+        assert_eq!(stats.stats.rd_bytes, 0);
+        assert_eq!(stats.stats.wr_bytes, 0);
+        assert_eq!(stats.stats.rd_operations, 0);
+        assert_eq!(stats.stats.wr_operations, 0);
+    }
+}

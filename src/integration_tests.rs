@@ -575,6 +575,30 @@ async fn test_manager_not_found() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
+// Redfish clients request collections with a trailing slash (libredfish, used
+// by NVIDIA NICo, fetches "/redfish/v1/Managers/" and "/redfish/v1/Systems/").
+// The service() wrapper trims the trailing slash so "/X/" resolves to "/X";
+// the plain router() used by build_app() does not, hence the dedicated service.
+#[tokio::test]
+async fn test_trailing_slash_normalized_on_collections() {
+    let state = make_app_state(MockBackend::new(), HashMap::new());
+    let svc = vbmc_rs::redfish::service(state);
+
+    for uri in ["/redfish/v1/Managers/", "/redfish/v1/Systems/"] {
+        let req = Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap();
+        let response = svc.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "{uri} should normalize to its slashless collection and return 200",
+        );
+    }
+}
+
 // ── Chassis ───────────────────────────────────────────────────────────
 
 #[tokio::test]

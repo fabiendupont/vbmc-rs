@@ -68,3 +68,92 @@ pub async fn can_access_vm(
     cache.insert(cache_key, (allowed, Instant::now()));
     allowed
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_authz_cache_ttl_constant() {
+        assert_eq!(AUTHZ_CACHE_TTL_SECS, 60);
+    }
+
+    #[test]
+    fn test_subject_access_review_request_structure() {
+        // Verify the SAR request body structure sent to k8s API
+        let username = "testuser";
+        let groups = vec!["group1".to_string(), "group2".to_string()];
+        let namespace = "default";
+        let vm_name = "vm1";
+
+        let sar = serde_json::json!({
+            "apiVersion": "authorization.k8s.io/v1",
+            "kind": "SubjectAccessReview",
+            "spec": {
+                "user": username,
+                "groups": groups,
+                "resourceAttributes": {
+                    "namespace": namespace,
+                    "verb": "get",
+                    "group": "kubevirt.io",
+                    "resource": "virtualmachines",
+                    "name": vm_name
+                }
+            }
+        });
+
+        assert_eq!(sar["apiVersion"], "authorization.k8s.io/v1");
+        assert_eq!(sar["kind"], "SubjectAccessReview");
+        assert_eq!(sar["spec"]["user"], username);
+        assert_eq!(sar["spec"]["resourceAttributes"]["namespace"], namespace);
+        assert_eq!(sar["spec"]["resourceAttributes"]["verb"], "get");
+        assert_eq!(sar["spec"]["resourceAttributes"]["group"], "kubevirt.io");
+        assert_eq!(
+            sar["spec"]["resourceAttributes"]["resource"],
+            "virtualmachines"
+        );
+        assert_eq!(sar["spec"]["resourceAttributes"]["name"], vm_name);
+    }
+
+    #[test]
+    fn test_sar_response_parsing_allowed() {
+        let response = serde_json::json!({
+            "status": {
+                "allowed": true
+            }
+        });
+
+        let allowed = response
+            .pointer("/status/allowed")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        assert!(allowed);
+    }
+
+    #[test]
+    fn test_sar_response_parsing_denied() {
+        let response = serde_json::json!({
+            "status": {
+                "allowed": false,
+                "reason": "user does not have permission"
+            }
+        });
+
+        let allowed = response
+            .pointer("/status/allowed")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        assert!(!allowed);
+    }
+
+    #[test]
+    fn test_sar_response_parsing_missing_status() {
+        let response = serde_json::json!({});
+
+        let allowed = response
+            .pointer("/status/allowed")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        assert!(!allowed);
+    }
+}

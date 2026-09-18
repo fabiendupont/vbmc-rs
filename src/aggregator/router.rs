@@ -664,3 +664,331 @@ async fn proxy_websocket(
         _ = client_to_upstream => {}
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+    use axum::body::{Body, to_bytes};
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    // Test helper to build a minimal AggregatorState for testing
+    fn test_state() -> Arc<AggregatorState> {
+        use super::super::k8s_auth::TokenCache;
+        use super::super::k8s_authz::AuthzCache;
+        use super::super::proxy::ProxyClient;
+        use vbmc_rs::auth::accounts::AccountStore;
+        use vbmc_rs::auth::sessions::SessionStore;
+        use vbmc_rs::config::{AuthConfig, ServerConfig};
+
+        let config = super::super::config::AggregatorConfig {
+            server: ServerConfig {
+                bind_address: "127.0.0.1".to_string(),
+                port: 8080,
+                tls_cert: None,
+                tls_key: None,
+                tls_client_ca: None,
+            },
+            auth: AuthConfig::default(),
+            auth_mode: "local".to_string(),
+            discovery: super::super::config::DiscoveryConfig {
+                mode: "static".to_string(),
+                namespace: None,
+                label_selector: "app=vbmc".to_string(),
+                bmc_network: None,
+                endpoints: vec![],
+            },
+            sidecar: super::super::config::SidecarConnectionConfig {
+                port: 8000,
+                tls_ca: None,
+                tls_cert: None,
+                tls_key: None,
+            },
+        };
+
+        let registry = Arc::new(super::super::discovery::SidecarRegistry::new());
+        let proxy = ProxyClient::new(&config.sidecar).unwrap();
+
+        Arc::new(AggregatorState {
+            config,
+            registry,
+            proxy,
+            session_store: SessionStore::new(3600, 16),
+            account_store: std::sync::Mutex::new(AccountStore::default()),
+            instance_uuid: "test-uuid".to_string(),
+            kube_client: None,
+            token_cache: TokenCache::default(),
+            authz_cache: AuthzCache::default(),
+        })
+    }
+
+    async fn get_json(app: &Router, uri: &str) -> (StatusCode, serde_json::Value) {
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), 2_000_000).await.unwrap();
+        let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn test_router_construction() {
+        let state = test_state();
+        let _router = aggregator_router(state);
+        // Router constructs without error
+    }
+
+    #[tokio::test]
+    async fn test_get_redfish_root() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let (status, json) = get_json(&app, "/redfish").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["v1"], "/redfish/v1/");
+    }
+
+    #[tokio::test]
+    async fn test_get_service_root() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let (status, json) = get_json(&app, "/redfish/v1").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["@odata.id"], "/redfish/v1");
+        assert_eq!(json["@odata.type"], "#ServiceRoot.v1_17_0.ServiceRoot");
+        assert_eq!(json["Id"], "RootService");
+        assert_eq!(json["Name"], "vbmc-rs Aggregator Redfish Service");
+        assert_eq!(json["RedfishVersion"], "1.21.0");
+        assert_eq!(json["UUID"], "test-uuid");
+        assert_eq!(json["Systems"]["@odata.id"], "/redfish/v1/Systems");
+        assert_eq!(json["Chassis"]["@odata.id"], "/redfish/v1/Chassis");
+    }
+
+    #[tokio::test]
+    async fn test_get_service_root_trailing_slash() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let (status, _json) = get_json(&app, "/redfish/v1/").await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_get_metadata() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/redfish/v1/$metadata")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get("content-type").unwrap(),
+            "application/xml"
+        );
+        let bytes = to_bytes(response.into_body(), 2_000_000).await.unwrap();
+        assert!(!bytes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_odata_service_document() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let (status, json) = get_json(&app, "/redfish/v1/odata").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["@odata.context"], "/redfish/v1/$metadata");
+        let value = json["value"].as_array().unwrap();
+        assert_eq!(value.len(), 2);
+        assert_eq!(value[0]["name"], "Systems");
+        assert_eq!(value[1]["name"], "Chassis");
+    }
+
+    #[tokio::test]
+    async fn test_get_aggregated_systems_empty() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let (status, json) = get_json(&app, "/redfish/v1/Systems").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["@odata.id"], "/redfish/v1/Systems");
+        assert_eq!(
+            json["@odata.type"],
+            "#ComputerSystemCollection.ComputerSystemCollection"
+        );
+        assert_eq!(json["Members@odata.count"], 0);
+        let members = json["Members"].as_array().unwrap();
+        assert_eq!(members.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_aggregated_chassis_empty() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let (status, json) = get_json(&app, "/redfish/v1/Chassis").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["@odata.id"], "/redfish/v1/Chassis");
+        assert_eq!(json["@odata.type"], "#ChassisCollection.ChassisCollection");
+        assert_eq!(json["Members@odata.count"], 0);
+        let members = json["Members"].as_array().unwrap();
+        assert_eq!(members.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_proxy_system_get_not_found() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/redfish/v1/Systems/nonexistent")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_proxy_chassis_get_not_found() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/redfish/v1/Chassis/nonexistent")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn test_strip_auth_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert("authorization", "Bearer token".parse().unwrap());
+        headers.insert("x-auth-token", "session-token".parse().unwrap());
+        headers.insert("user-agent", "test".parse().unwrap());
+
+        let stripped = strip_auth_headers(&headers);
+        assert!(stripped.contains_key("content-type"));
+        assert!(stripped.contains_key("user-agent"));
+        assert!(!stripped.contains_key("authorization"));
+        assert!(!stripped.contains_key("x-auth-token"));
+    }
+
+    #[test]
+    fn test_pagination_params_defaults() {
+        let params: PaginationParams = serde_json::from_str("{}").unwrap();
+        assert!(params.skip.is_none());
+        assert!(params.top.is_none());
+    }
+
+    #[test]
+    fn test_pagination_params_with_values() {
+        let json = r#"{"$skip": 10, "$top": 25}"#;
+        let params: PaginationParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.skip, Some(10));
+        assert_eq!(params.top, Some(25));
+    }
+
+    #[test]
+    fn test_pagination_params_skip_only() {
+        let json = r#"{"$skip": 5}"#;
+        let params: PaginationParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.skip, Some(5));
+        assert!(params.top.is_none());
+    }
+
+    #[test]
+    fn test_revocation_payload_deserialization() {
+        let json = r#"{"agent_id": "vm-123"}"#;
+        let payload: RevocationPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.agent_id, "vm-123");
+    }
+
+    #[tokio::test]
+    async fn test_handle_keylime_revocation_not_found() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/revocation")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"agent_id": "unknown-vm"}"#))
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn test_default_page_size_constant() {
+        assert_eq!(DEFAULT_PAGE_SIZE, 50);
+    }
+
+    #[tokio::test]
+    async fn test_proxy_system_post_not_found() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/redfish/v1/Systems/nonexistent")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_proxy_system_patch_not_found() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let req = Request::builder()
+            .method(Method::PATCH)
+            .uri("/redfish/v1/Systems/nonexistent")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_proxy_system_delete_not_found() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let req = Request::builder()
+            .method(Method::DELETE)
+            .uri("/redfish/v1/Systems/nonexistent")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_proxy_chassis_post_not_found() {
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/redfish/v1/Chassis/nonexistent")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+}

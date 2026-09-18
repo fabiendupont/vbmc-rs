@@ -131,3 +131,198 @@ pub async fn get_metric_reports(_user: AuthenticatedUser) -> Json<Collection<ODa
         Vec::<ODataId>::new(),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_telemetry_service_resource_serialization() {
+        let resource = TelemetryServiceResource {
+            odata_id: "/redfish/v1/TelemetryService",
+            odata_type: "#TelemetryService.v1_3_0.TelemetryService",
+            id: "TelemetryService",
+            name: "Telemetry Service",
+            description: "Telemetry and metrics service",
+            service_enabled: true,
+            metric_definitions: ODataId::new("/redfish/v1/TelemetryService/MetricDefinitions"),
+            metric_reports: ODataId::new("/redfish/v1/TelemetryService/MetricReports"),
+            max_reports: 10,
+            min_collection_interval: "PT10S",
+            supported_collection_functions: vec!["Average", "Maximum", "Minimum"],
+            status: super::super::types::Status::enabled_ok(),
+        };
+
+        let value = serde_json::to_value(&resource).unwrap();
+
+        assert_eq!(value["@odata.id"], "/redfish/v1/TelemetryService");
+        assert_eq!(
+            value["@odata.type"],
+            "#TelemetryService.v1_3_0.TelemetryService"
+        );
+        assert_eq!(value["Id"], "TelemetryService");
+        assert_eq!(value["Name"], "Telemetry Service");
+        assert_eq!(value["Description"], "Telemetry and metrics service");
+        assert_eq!(value["ServiceEnabled"], true);
+        assert_eq!(
+            value["MetricDefinitions"]["@odata.id"],
+            "/redfish/v1/TelemetryService/MetricDefinitions"
+        );
+        assert_eq!(
+            value["MetricReports"]["@odata.id"],
+            "/redfish/v1/TelemetryService/MetricReports"
+        );
+        assert_eq!(value["MaxReports"], 10);
+        assert_eq!(value["MinCollectionInterval"], "PT10S");
+        assert!(value["SupportedCollectionFunctions"].is_array());
+        assert!(value["Status"].is_object());
+    }
+
+    #[test]
+    fn test_metric_definition_serialization() {
+        let metric = MetricDefinition {
+            odata_id: "/redfish/v1/TelemetryService/MetricDefinitions/HttpRequestsTotal"
+                .to_string(),
+            odata_type: "#MetricDefinition.v1_3_0.MetricDefinition",
+            id: "HttpRequestsTotal".to_string(),
+            name: "HTTP Requests Total".to_string(),
+            metric_type: "Counter".to_string(),
+            units: Some("{requests}".to_string()),
+        };
+
+        let value = serde_json::to_value(&metric).unwrap();
+
+        assert_eq!(
+            value["@odata.id"],
+            "/redfish/v1/TelemetryService/MetricDefinitions/HttpRequestsTotal"
+        );
+        assert_eq!(
+            value["@odata.type"],
+            "#MetricDefinition.v1_3_0.MetricDefinition"
+        );
+        assert_eq!(value["Id"], "HttpRequestsTotal");
+        assert_eq!(value["Name"], "HTTP Requests Total");
+        assert_eq!(value["MetricType"], "Counter");
+        assert_eq!(value["Units"], "{requests}");
+    }
+
+    #[test]
+    fn test_metric_definition_skip_none_units() {
+        let metric = MetricDefinition {
+            odata_id: "/redfish/v1/TelemetryService/MetricDefinitions/VmPowerState".to_string(),
+            odata_type: "#MetricDefinition.v1_3_0.MetricDefinition",
+            id: "VmPowerState".to_string(),
+            name: "VM Power State".to_string(),
+            metric_type: "Discrete".to_string(),
+            units: None,
+        };
+
+        let value = serde_json::to_value(&metric).unwrap();
+        assert!(!value.as_object().unwrap().contains_key("Units"));
+    }
+
+    #[test]
+    fn test_metric_definition_with_units() {
+        let metric = MetricDefinition {
+            odata_id: "/test".to_string(),
+            odata_type: "#MetricDefinition.v1_3_0.MetricDefinition",
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            metric_type: "Gauge".to_string(),
+            units: Some("s".to_string()),
+        };
+
+        let value = serde_json::to_value(&metric).unwrap();
+        assert_eq!(value["Units"], "s");
+    }
+
+    #[test]
+    fn test_built_in_metric_definitions() {
+        let defs = built_in_metric_definitions();
+        assert_eq!(defs.len(), 3);
+
+        let http_total = defs.iter().find(|d| d.id == "HttpRequestsTotal").unwrap();
+        assert_eq!(http_total.name, "HTTP Requests Total");
+        assert_eq!(http_total.metric_type, "Counter");
+        assert_eq!(http_total.units, Some("{requests}".to_string()));
+
+        let http_duration = defs.iter().find(|d| d.id == "HttpRequestDuration").unwrap();
+        assert_eq!(http_duration.name, "HTTP Request Duration");
+        assert_eq!(http_duration.metric_type, "Gauge");
+        assert_eq!(http_duration.units, Some("s".to_string()));
+
+        let vm_power = defs.iter().find(|d| d.id == "VmPowerState").unwrap();
+        assert_eq!(vm_power.name, "VM Power State");
+        assert_eq!(vm_power.metric_type, "Discrete");
+        assert_eq!(vm_power.units, None);
+    }
+
+    #[test]
+    fn test_built_in_metric_definitions_unique_ids() {
+        let defs = built_in_metric_definitions();
+        let mut ids = std::collections::HashSet::new();
+        for def in &defs {
+            assert!(
+                ids.insert(def.id.clone()),
+                "Duplicate metric ID: {}",
+                def.id
+            );
+        }
+    }
+
+    #[test]
+    fn test_built_in_metric_definitions_unique_odata_ids() {
+        let defs = built_in_metric_definitions();
+        let mut odata_ids = std::collections::HashSet::new();
+        for def in &defs {
+            assert!(
+                odata_ids.insert(def.odata_id.clone()),
+                "Duplicate @odata.id: {}",
+                def.odata_id
+            );
+        }
+    }
+
+    #[test]
+    fn test_metric_definition_clone() {
+        let metric = MetricDefinition {
+            odata_id: "/test".to_string(),
+            odata_type: "#MetricDefinition.v1_3_0.MetricDefinition",
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            metric_type: "Counter".to_string(),
+            units: Some("test_unit".to_string()),
+        };
+
+        let cloned = metric.clone();
+        assert_eq!(metric.id, cloned.id);
+        assert_eq!(metric.name, cloned.name);
+        assert_eq!(metric.metric_type, cloned.metric_type);
+        assert_eq!(metric.units, cloned.units);
+    }
+
+    #[test]
+    fn test_telemetry_service_supported_functions() {
+        let resource = TelemetryServiceResource {
+            odata_id: "/redfish/v1/TelemetryService",
+            odata_type: "#TelemetryService.v1_3_0.TelemetryService",
+            id: "TelemetryService",
+            name: "Telemetry Service",
+            description: "Telemetry and metrics service",
+            service_enabled: true,
+            metric_definitions: ODataId::new("/redfish/v1/TelemetryService/MetricDefinitions"),
+            metric_reports: ODataId::new("/redfish/v1/TelemetryService/MetricReports"),
+            max_reports: 10,
+            min_collection_interval: "PT10S",
+            supported_collection_functions: vec!["Average", "Maximum", "Minimum"],
+            status: super::super::types::Status::enabled_ok(),
+        };
+
+        let value = serde_json::to_value(&resource).unwrap();
+        let functions = value["SupportedCollectionFunctions"].as_array().unwrap();
+        assert_eq!(functions.len(), 3);
+        assert!(functions.contains(&serde_json::json!("Average")));
+        assert!(functions.contains(&serde_json::json!("Maximum")));
+        assert!(functions.contains(&serde_json::json!("Minimum")));
+    }
+}

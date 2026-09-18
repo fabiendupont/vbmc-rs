@@ -339,3 +339,216 @@ mod tests {
         assert!(result.is_ok());
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+    use crate::backend::types as bt;
+
+    #[test]
+    fn test_qemu_backend_new() {
+        let mut sockets = std::collections::HashMap::new();
+        sockets.insert(
+            "vm1".to_string(),
+            std::path::PathBuf::from("/var/run/qmp1.sock"),
+        );
+        sockets.insert(
+            "vm2".to_string(),
+            std::path::PathBuf::from("/var/run/qmp2.sock"),
+        );
+
+        let backend = QemuBackend::new(sockets.clone());
+        assert_eq!(backend.sockets.len(), 2);
+        assert_eq!(
+            backend.sockets.get("vm1").unwrap(),
+            &std::path::PathBuf::from("/var/run/qmp1.sock")
+        );
+    }
+
+    #[test]
+    fn test_build_backend() {
+        let mut systems = std::collections::HashMap::new();
+        let mut with_socket = crate::redfish::test_harness::system_config("test-vm");
+        with_socket.socket_path = Some(std::path::PathBuf::from("/tmp/test.sock"));
+        systems.insert("test-vm".to_string(), with_socket);
+        systems.insert(
+            "no-socket".to_string(),
+            crate::redfish::test_harness::system_config("no-socket"),
+        );
+
+        let config = crate::redfish::test_harness::test_config(systems);
+
+        let backend = build_backend(&config);
+        match backend {
+            super::super::Backend::Qemu(qemu) => {
+                assert_eq!(qemu.sockets.len(), 1);
+                assert!(qemu.sockets.contains_key("test-vm"));
+                assert!(!qemu.sockets.contains_key("no-socket"));
+            }
+            _ => panic!("Expected Qemu backend"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_vm_create_not_supported() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let config = bt::VmCreateConfig::default();
+        let result = backend.vm_create("test", config).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackendError::NotSupported(msg) => {
+                assert!(msg.contains("QEMU backend is manage-only"));
+            }
+            other => panic!("Expected NotSupported, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_vm_set_secure_boot_not_supported() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_set_secure_boot("test", true).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackendError::NotSupported(msg) => {
+                assert!(msg.contains("secure boot"));
+            }
+            other => panic!("Expected NotSupported, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_vm_serial_console_not_supported() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_serial_console("test").await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackendError::NotSupported(msg) => {
+                assert!(msg.contains("serial console"));
+            }
+            other => panic!("Expected NotSupported, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_vm_insert_iso_not_supported() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let result = backend
+            .vm_insert_iso("test", "http://example.com/image.iso", "cd0")
+            .await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackendError::NotSupported(msg) => {
+                assert!(msg.contains("download path"));
+            }
+            other => panic!("Expected NotSupported, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_vm_eject_iso_not_supported() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_eject_iso("test", "cd0").await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackendError::NotSupported(msg) => {
+                assert!(msg.contains("vm_remove_device"));
+            }
+            other => panic!("Expected NotSupported, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_pci_class_ethernet_constant() {
+        assert_eq!(PCI_CLASS_ETHERNET, 0x020000);
+    }
+
+    #[tokio::test]
+    async fn test_vm_boot_nonexistent_system() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_boot("nonexistent").await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackendError::VmNotFound => {}
+            other => panic!("Expected VmNotFound, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_vm_shutdown_nonexistent_system() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_shutdown("nonexistent").await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackendError::VmNotFound => {}
+            other => panic!("Expected VmNotFound, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_vm_delete_nonexistent_system() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_delete("nonexistent").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_vm_power_button_nonexistent_system() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_power_button("nonexistent").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_vm_reboot_nonexistent_system() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_reboot("nonexistent").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_vm_add_disk_nonexistent_system() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let disk = bt::DiskCreateConfig {
+            path: Some("/tmp/disk.qcow2".to_string()),
+            id: None,
+            readonly: false,
+            vhost_user: None,
+            vhost_socket: None,
+        };
+        let result = backend.vm_add_disk("nonexistent", disk).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_vm_remove_device_nonexistent_system() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_remove_device("nonexistent", "disk0").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_vmm_ping_nonexistent_system() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let result = backend.vmm_ping("nonexistent").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_vm_counters_nonexistent_system() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_counters("nonexistent").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_vm_info_nonexistent_system() {
+        let backend = QemuBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_info("nonexistent").await;
+        assert!(result.is_err());
+    }
+}

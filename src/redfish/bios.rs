@@ -199,3 +199,174 @@ pub async fn reset_bios(
         serde_json::json!({"message": "BIOS settings reset to defaults"}),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_bios_resource_serialization() {
+        let resource = BiosResource {
+            odata_id: "/redfish/v1/Systems/vm1/Bios".to_string(),
+            odata_type: "#Bios.v1_2_1.Bios",
+            id: "Bios",
+            name: "BIOS Configuration",
+            description: "BIOS configuration",
+            attributes: BiosAttributes::default(),
+            attribute_registry: "BiosAttributeRegistryVbmc.1.0",
+            reset_bios_to_defaults_pending: false,
+            links: BiosLinks {
+                active_software_image: super::super::types::ODataId::new(
+                    "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
+                ),
+            },
+            actions: BiosActions {
+                reset_bios: super::super::systems::ActionTarget {
+                    target: "/redfish/v1/Systems/vm1/Bios/Actions/Bios.ResetBios".to_string(),
+                },
+            },
+            settings: SettingsObject {
+                settings_object: super::super::types::ODataId::new(
+                    "/redfish/v1/Systems/vm1/Bios/Settings",
+                ),
+            },
+        };
+
+        let value = serde_json::to_value(&resource).unwrap();
+
+        assert_eq!(value["@odata.id"], "/redfish/v1/Systems/vm1/Bios");
+        assert_eq!(value["@odata.type"], "#Bios.v1_2_1.Bios");
+        assert_eq!(value["Id"], "Bios");
+        assert_eq!(value["Name"], "BIOS Configuration");
+        assert_eq!(value["Description"], "BIOS configuration");
+        assert_eq!(value["AttributeRegistry"], "BiosAttributeRegistryVbmc.1.0");
+        assert_eq!(value["ResetBiosToDefaultsPending"], false);
+        assert!(value["Attributes"].is_object());
+        assert!(value["Links"].is_object());
+        assert!(value["Actions"].is_object());
+        assert!(value["@Redfish.Settings"].is_object());
+    }
+
+    #[test]
+    fn test_bios_attributes_skip_serializing_none() {
+        let attrs = BiosAttributes {
+            boot_order: None,
+            secure_boot_mode: None,
+        };
+
+        let value = serde_json::to_value(&attrs).unwrap();
+        assert!(!value.as_object().unwrap().contains_key("BootOrder"));
+        assert!(!value.as_object().unwrap().contains_key("SecureBootMode"));
+    }
+
+    #[test]
+    fn test_bios_attributes_serialize_some() {
+        let attrs = BiosAttributes {
+            boot_order: Some("Hdd,Pxe,Cd".to_string()),
+            secure_boot_mode: Some("UserMode".to_string()),
+        };
+
+        let value = serde_json::to_value(&attrs).unwrap();
+        assert_eq!(value["BootOrder"], "Hdd,Pxe,Cd");
+        assert_eq!(value["SecureBootMode"], "UserMode");
+    }
+
+    #[test]
+    fn test_bios_attributes_partial() {
+        let attrs = BiosAttributes {
+            boot_order: Some("Hdd".to_string()),
+            secure_boot_mode: None,
+        };
+
+        let value = serde_json::to_value(&attrs).unwrap();
+        assert_eq!(value["BootOrder"], "Hdd");
+        assert!(!value.as_object().unwrap().contains_key("SecureBootMode"));
+    }
+
+    #[test]
+    fn test_bios_actions_serialization() {
+        let actions = BiosActions {
+            reset_bios: super::super::systems::ActionTarget {
+                target: "/redfish/v1/Systems/vm1/Bios/Actions/Bios.ResetBios".to_string(),
+            },
+        };
+
+        let value = serde_json::to_value(&actions).unwrap();
+        assert_eq!(
+            value["#Bios.ResetBios"]["target"],
+            "/redfish/v1/Systems/vm1/Bios/Actions/Bios.ResetBios"
+        );
+    }
+
+    #[test]
+    fn test_bios_links_serialization() {
+        let links = BiosLinks {
+            active_software_image: super::super::types::ODataId::new(
+                "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
+            ),
+        };
+
+        let value = serde_json::to_value(&links).unwrap();
+        assert_eq!(
+            value["ActiveSoftwareImage"]["@odata.id"],
+            "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs"
+        );
+    }
+
+    #[test]
+    fn test_settings_object_serialization() {
+        let settings = SettingsObject {
+            settings_object: super::super::types::ODataId::new(
+                "/redfish/v1/Systems/vm1/Bios/Settings",
+            ),
+        };
+
+        let value = serde_json::to_value(&settings).unwrap();
+        assert_eq!(
+            value["SettingsObject"]["@odata.id"],
+            "/redfish/v1/Systems/vm1/Bios/Settings"
+        );
+    }
+
+    #[test]
+    fn test_bios_attributes_default() {
+        let attrs = BiosAttributes::default();
+        assert_eq!(attrs.boot_order, None);
+        assert_eq!(attrs.secure_boot_mode, None);
+    }
+
+    #[test]
+    fn test_bios_attributes_clone() {
+        let attrs = BiosAttributes {
+            boot_order: Some("test".to_string()),
+            secure_boot_mode: Some("mode".to_string()),
+        };
+        let cloned = attrs.clone();
+        assert_eq!(attrs.boot_order, cloned.boot_order);
+        assert_eq!(attrs.secure_boot_mode, cloned.secure_boot_mode);
+    }
+
+    #[test]
+    fn test_patch_bios_settings_request_deserialization() {
+        let json = json!({
+            "Attributes": {
+                "BootOrder": "Hdd,Pxe",
+                "SecureBootMode": "UserMode"
+            }
+        });
+
+        let request: PatchBiosSettingsRequest = serde_json::from_value(json).unwrap();
+        assert!(request.attributes.is_some());
+        let attrs = request.attributes.unwrap();
+        assert_eq!(attrs.boot_order, Some("Hdd,Pxe".to_string()));
+        assert_eq!(attrs.secure_boot_mode, Some("UserMode".to_string()));
+    }
+
+    #[test]
+    fn test_patch_bios_settings_request_no_attributes() {
+        let json = json!({});
+        let request: PatchBiosSettingsRequest = serde_json::from_value(json).unwrap();
+        assert!(request.attributes.is_none());
+    }
+}

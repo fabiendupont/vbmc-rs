@@ -326,3 +326,314 @@ mod tests {
         assert_eq!(bytes[3], 0x20);
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_request_empty() {
+        assert!(parse_request(&[]).is_none());
+    }
+
+    #[test]
+    fn test_parse_request_single_byte() {
+        assert!(parse_request(&[0x18]).is_none());
+    }
+
+    #[test]
+    fn test_parse_request_with_data() {
+        let raw = [0x18, 0x01, 0xAB, 0xCD];
+        let req = parse_request(&raw).unwrap();
+        assert_eq!(req.netfn, NETFN_APP);
+        assert_eq!(req.cmd, CMD_GET_DEVICE_ID);
+        assert_eq!(req.data, &[0xAB, 0xCD]);
+    }
+
+    #[test]
+    fn test_parse_request_no_data() {
+        let raw = [0x00, 0x01];
+        let req = parse_request(&raw).unwrap();
+        assert_eq!(req.netfn, NETFN_CHASSIS);
+        assert_eq!(req.cmd, CMD_GET_CHASSIS_STATUS);
+        assert!(req.data.is_empty());
+    }
+
+    #[test]
+    fn test_handle_get_channel_auth_cap() {
+        let req = IpmiRequest {
+            netfn: NETFN_APP,
+            cmd: CMD_GET_CHANNEL_AUTH_CAP,
+            data: &[],
+        };
+        match handle_request(&req, VmPowerState::On, 0x00) {
+            HandleResult::Response(resp) => {
+                assert_eq!(resp.completion_code, CC_OK);
+                assert_eq!(resp.data.len(), 8);
+                assert_eq!(resp.data[0], 0x00);
+                assert_eq!(resp.data[1], 0x04);
+            }
+            _ => panic!("expected Response"),
+        }
+    }
+
+    #[test]
+    fn test_handle_get_session_info() {
+        let req = IpmiRequest {
+            netfn: NETFN_APP,
+            cmd: CMD_GET_SESSION_INFO,
+            data: &[],
+        };
+        match handle_request(&req, VmPowerState::On, 0x00) {
+            HandleResult::Response(resp) => {
+                assert_eq!(resp.completion_code, CC_OK);
+                assert_eq!(resp.data, vec![0x00, 0x00, 0x00]);
+            }
+            _ => panic!("expected Response"),
+        }
+    }
+
+    #[test]
+    fn test_handle_set_global_enables() {
+        let req = IpmiRequest {
+            netfn: NETFN_APP,
+            cmd: CMD_SET_GLOBAL_ENABLES,
+            data: &[0x01],
+        };
+        match handle_request(&req, VmPowerState::On, 0x00) {
+            HandleResult::Response(resp) => {
+                assert_eq!(resp.completion_code, CC_OK);
+                assert!(resp.data.is_empty());
+            }
+            _ => panic!("expected Response"),
+        }
+    }
+
+    #[test]
+    fn test_handle_get_global_enables() {
+        let req = IpmiRequest {
+            netfn: NETFN_APP,
+            cmd: CMD_GET_GLOBAL_ENABLES,
+            data: &[],
+        };
+        match handle_request(&req, VmPowerState::On, 0x00) {
+            HandleResult::Response(resp) => {
+                assert_eq!(resp.completion_code, CC_OK);
+                assert_eq!(resp.data, vec![0x00]);
+            }
+            _ => panic!("expected Response"),
+        }
+    }
+
+    #[test]
+    fn test_chassis_status_unknown() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_GET_CHASSIS_STATUS,
+            data: &[],
+        };
+        match handle_request(&req, VmPowerState::Unknown, 0x00) {
+            HandleResult::Response(resp) => {
+                assert_eq!(resp.completion_code, CC_OK);
+                assert_eq!(resp.data[0] & 0x01, 0x00);
+            }
+            _ => panic!("expected Response"),
+        }
+    }
+
+    #[test]
+    fn test_chassis_control_power_cycle() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_CHASSIS_CONTROL,
+            data: &[0x02],
+        };
+        match handle_request(&req, VmPowerState::On, 0x00) {
+            HandleResult::ChassisAction(action, resp) => {
+                assert_eq!(action, ChassisAction::PowerCycle);
+                assert_eq!(resp.completion_code, CC_OK);
+            }
+            _ => panic!("expected ChassisAction"),
+        }
+    }
+
+    #[test]
+    fn test_chassis_control_hard_reset() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_CHASSIS_CONTROL,
+            data: &[0x03],
+        };
+        match handle_request(&req, VmPowerState::On, 0x00) {
+            HandleResult::ChassisAction(action, resp) => {
+                assert_eq!(action, ChassisAction::HardReset);
+                assert_eq!(resp.completion_code, CC_OK);
+            }
+            _ => panic!("expected ChassisAction"),
+        }
+    }
+
+    #[test]
+    fn test_chassis_control_pulse() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_CHASSIS_CONTROL,
+            data: &[0x04],
+        };
+        match handle_request(&req, VmPowerState::On, 0x00) {
+            HandleResult::ChassisAction(action, resp) => {
+                assert_eq!(action, ChassisAction::Pulse);
+                assert_eq!(resp.completion_code, CC_OK);
+            }
+            _ => panic!("expected ChassisAction"),
+        }
+    }
+
+    #[test]
+    fn test_chassis_control_soft_shutdown() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_CHASSIS_CONTROL,
+            data: &[0x05],
+        };
+        match handle_request(&req, VmPowerState::On, 0x00) {
+            HandleResult::ChassisAction(action, resp) => {
+                assert_eq!(action, ChassisAction::SoftShutdown);
+                assert_eq!(resp.completion_code, CC_OK);
+            }
+            _ => panic!("expected ChassisAction"),
+        }
+    }
+
+    #[test]
+    fn test_chassis_control_no_data() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_CHASSIS_CONTROL,
+            data: &[],
+        };
+        match handle_request(&req, VmPowerState::On, 0x00) {
+            HandleResult::Response(resp) => {
+                assert_eq!(resp.completion_code, CC_INVALID_DATA);
+            }
+            _ => panic!("expected Response"),
+        }
+    }
+
+    #[test]
+    fn test_chassis_control_invalid_action() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_CHASSIS_CONTROL,
+            data: &[0xFF],
+        };
+        match handle_request(&req, VmPowerState::On, 0x00) {
+            HandleResult::Response(resp) => {
+                assert_eq!(resp.completion_code, CC_INVALID_DATA);
+            }
+            _ => panic!("expected Response"),
+        }
+    }
+
+    #[test]
+    fn test_get_boot_options_param_5() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_GET_SYSTEM_BOOT_OPTIONS,
+            data: &[0x05],
+        };
+        match handle_request(&req, VmPowerState::On, 0x24) {
+            HandleResult::Response(resp) => {
+                assert_eq!(resp.completion_code, CC_OK);
+                assert_eq!(resp.data[0], 0x01);
+                assert_eq!(resp.data[1], 0x05);
+                assert_eq!(resp.data[2], 0x80);
+                assert_eq!(resp.data[3], 0x24);
+            }
+            _ => panic!("expected Response"),
+        }
+    }
+
+    #[test]
+    fn test_get_boot_options_other_param() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_GET_SYSTEM_BOOT_OPTIONS,
+            data: &[0x03],
+        };
+        match handle_request(&req, VmPowerState::On, 0x00) {
+            HandleResult::Response(resp) => {
+                assert_eq!(resp.completion_code, CC_OK);
+                assert_eq!(resp.data[0], 0x01);
+                assert_eq!(resp.data[1], 0x03);
+                assert_eq!(resp.data[2], 0x00);
+            }
+            _ => panic!("expected Response"),
+        }
+    }
+
+    #[test]
+    fn test_get_boot_options_no_data() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_GET_SYSTEM_BOOT_OPTIONS,
+            data: &[],
+        };
+        match handle_request(&req, VmPowerState::On, 0x00) {
+            HandleResult::Response(resp) => {
+                assert_eq!(resp.completion_code, CC_OK);
+                assert_eq!(resp.data[0], 0x01);
+                assert_eq!(resp.data[1], 0x00);
+            }
+            _ => panic!("expected Response"),
+        }
+    }
+
+    #[test]
+    fn test_set_boot_options() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_SET_SYSTEM_BOOT_OPTIONS,
+            data: &[0x05, 0x80, 0x24],
+        };
+        match handle_request(&req, VmPowerState::On, 0x00) {
+            HandleResult::Response(resp) => {
+                assert_eq!(resp.completion_code, CC_OK);
+                assert!(resp.data.is_empty());
+            }
+            _ => panic!("expected Response"),
+        }
+    }
+
+    #[test]
+    fn test_ipmi_response_error() {
+        let resp = IpmiResponse::error(NETFN_APP, CMD_GET_DEVICE_ID, CC_INVALID_CMD);
+        assert_eq!(resp.netfn, NETFN_APP | 0x01);
+        assert_eq!(resp.cmd, CMD_GET_DEVICE_ID);
+        assert_eq!(resp.completion_code, CC_INVALID_CMD);
+        assert!(resp.data.is_empty());
+    }
+
+    #[test]
+    fn test_response_to_bytes_with_data() {
+        let resp = IpmiResponse::ok(
+            NETFN_CHASSIS,
+            CMD_GET_CHASSIS_STATUS,
+            vec![0x01, 0x00, 0x40, 0x00],
+        );
+        let bytes = resp.to_bytes();
+        assert_eq!(bytes.len(), 7);
+        assert_eq!(bytes[0] >> 2, NETFN_CHASSIS | 0x01);
+        assert_eq!(bytes[1], CMD_GET_CHASSIS_STATUS);
+        assert_eq!(bytes[2], CC_OK);
+        assert_eq!(&bytes[3..], &[0x01, 0x00, 0x40, 0x00]);
+    }
+
+    #[test]
+    fn test_response_to_bytes_no_data() {
+        let resp = IpmiResponse::error(NETFN_APP, 0xFF, CC_INVALID_CMD);
+        let bytes = resp.to_bytes();
+        assert_eq!(bytes.len(), 3);
+        assert_eq!(bytes[2], CC_INVALID_CMD);
+    }
+}

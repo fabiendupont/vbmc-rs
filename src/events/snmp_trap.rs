@@ -323,3 +323,154 @@ mod tests {
         assert_ne!(oid1, oid2);
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_encode_length_short() {
+        let mut buf = Vec::new();
+        encode_length(&mut buf, 50);
+        assert_eq!(buf, vec![50]);
+    }
+
+    #[test]
+    fn test_encode_length_medium() {
+        let mut buf = Vec::new();
+        encode_length(&mut buf, 200);
+        assert_eq!(buf, vec![0x81, 200]);
+    }
+
+    #[test]
+    fn test_encode_length_long() {
+        let mut buf = Vec::new();
+        encode_length(&mut buf, 512);
+        assert_eq!(buf, vec![0x82, 0x02, 0x00]);
+    }
+
+    #[test]
+    fn test_encode_integer_positive() {
+        let encoded = encode_integer(255);
+        assert_eq!(encoded[0], 0x02);
+        assert!(encoded.len() >= 3);
+    }
+
+    #[test]
+    fn test_encode_integer_negative_sign_bit() {
+        let encoded = encode_integer(128);
+        assert_eq!(encoded[0], 0x02);
+    }
+
+    #[test]
+    fn test_encode_timeticks() {
+        let encoded = encode_timeticks(12345);
+        assert_eq!(encoded[0], 0x43);
+        assert!(encoded.len() > 1);
+    }
+
+    #[test]
+    fn test_encode_timeticks_zero() {
+        let encoded = encode_timeticks(0);
+        assert_eq!(encoded, vec![0x43, 0x01, 0x00]);
+    }
+
+    #[test]
+    fn test_encode_oid_component_small() {
+        let mut buf = Vec::new();
+        encode_oid_component(&mut buf, 42);
+        assert_eq!(buf, vec![42]);
+    }
+
+    #[test]
+    fn test_encode_oid_component_large() {
+        let mut buf = Vec::new();
+        encode_oid_component(&mut buf, 200);
+        assert!(buf.len() >= 2);
+        assert_eq!(buf[0] & 0x80, 0x80);
+    }
+
+    #[test]
+    fn test_build_event_oid_has_enterprise_prefix() {
+        let oid = build_event_oid("TestEvent");
+        assert_eq!(&oid[..VBMC_ENTERPRISE_OID.len()], VBMC_ENTERPRISE_OID);
+    }
+
+    #[test]
+    fn test_build_event_oid_hash_within_range() {
+        let oid = build_event_oid("AnyMessage");
+        let hash_component = oid[VBMC_ENTERPRISE_OID.len()];
+        assert!(hash_component < 10000);
+    }
+
+    #[test]
+    fn test_build_snmpv2c_trap_has_correct_structure() {
+        let packet = build_snmpv2c_trap(
+            b"public",
+            &[1, 3, 6, 1, 4, 1, 99999, 42],
+            "TestID",
+            "Test message",
+            "Warning",
+        );
+
+        assert_eq!(packet[0], 0x30);
+        assert!(packet.len() > 50);
+
+        let packet_str = String::from_utf8_lossy(&packet);
+        assert!(packet_str.contains("public"));
+        assert!(packet_str.contains("TestID"));
+        assert!(packet_str.contains("Test message"));
+        assert!(packet_str.contains("Warning"));
+    }
+
+    #[tokio::test]
+    async fn test_snmp_trap_sender_exits_on_closed_channel() {
+        let listener = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let (tx, rx) = broadcast::channel::<RedfishEvent>(16);
+
+        let config = SnmpTrapConfig {
+            enabled: true,
+            receiver: addr.to_string(),
+            community: "public".to_string(),
+        };
+
+        let handle = tokio::spawn(snmp_trap_sender(rx, config));
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        drop(tx);
+
+        let result = tokio::time::timeout(tokio::time::Duration::from_secs(1), handle).await;
+        assert!(
+            result.is_ok(),
+            "snmp_trap_sender should exit when channel closes"
+        );
+    }
+
+    #[test]
+    fn test_encode_sequence() {
+        let content = vec![1, 2, 3];
+        let seq = encode_sequence(&content);
+        assert_eq!(seq[0], 0x30);
+        assert_eq!(seq[1], 3);
+        assert_eq!(&seq[2..], &content[..]);
+    }
+
+    #[test]
+    fn test_encode_tagged() {
+        let content = vec![0xAB, 0xCD];
+        let tagged = encode_tagged(0x99, &content);
+        assert_eq!(tagged[0], 0x99);
+        assert_eq!(tagged[1], 2);
+        assert_eq!(&tagged[2..], &content[..]);
+    }
+
+    #[test]
+    fn test_encode_oid_value() {
+        let oid = vec![1, 3, 6, 1, 2, 1];
+        let encoded = encode_oid_value(&oid);
+        assert_eq!(encoded[0], 0x06);
+    }
+}
