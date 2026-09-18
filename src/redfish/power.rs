@@ -126,6 +126,7 @@ async fn clear_once_boot_override(state: &AppState, system_id: &str) {
                     target: "None".to_string(),
                     enabled: "Disabled".to_string(),
                     mode: None,
+                    uefi_target: None,
                 },
             )
             .await;

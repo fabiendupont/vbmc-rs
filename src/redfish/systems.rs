@@ -242,8 +242,11 @@ pub struct BootOptions {
     pub remaining_automatic_retry_attempts: u32,
     #[serde(rename = "HttpBootUri")]
     pub http_boot_uri: &'static str,
-    #[serde(rename = "UefiTargetBootSourceOverride")]
-    pub uefi_target: &'static str,
+    #[serde(
+        rename = "UefiTargetBootSourceOverride",
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub uefi_target: String,
     #[serde(rename = "BootNext")]
     pub boot_next: &'static str,
     #[serde(rename = "TrustedModuleRequiredToBoot")]
@@ -402,6 +405,7 @@ pub async fn get_system(
                 target: Some(kv.target),
                 enabled: kv.enabled,
                 mode: kv.mode,
+                uefi_target: kv.uefi_target,
             }
         }
         _ => vm_state.boot_override.clone(),
@@ -467,7 +471,7 @@ pub async fn get_system(
         automatic_retry_attempts: 0,
         remaining_automatic_retry_attempts: 0,
         http_boot_uri: "",
-        uefi_target: "",
+        uefi_target: boot_override.uefi_target.clone().unwrap_or_default(),
         boot_next: "",
         trusted_module_required_to_boot: "Disabled",
         boot_order_property_selection: "BootOrder",
@@ -639,6 +643,8 @@ pub struct PatchBootOptions {
     pub boot_source_override_enabled: Option<String>,
     #[serde(rename = "BootSourceOverrideMode")]
     pub boot_source_override_mode: Option<String>,
+    #[serde(rename = "UefiTargetBootSourceOverride")]
+    pub uefi_target_boot_source_override: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -676,6 +682,9 @@ pub async fn patch_system(
         if let Some(mode) = boot.boot_source_override_mode {
             vm_state.boot_override.mode = Some(mode);
         }
+        if let Some(uefi) = boot.uefi_target_boot_source_override {
+            vm_state.boot_override.uefi_target = Some(uefi);
+        }
         state.save_vm_state(&system_id, &vm_state);
 
         let override_info = BootOverrideInfo {
@@ -686,6 +695,7 @@ pub async fn patch_system(
                 .unwrap_or_else(|| "None".to_string()),
             enabled: vm_state.boot_override.enabled.clone(),
             mode: vm_state.boot_override.mode.clone(),
+            uefi_target: vm_state.boot_override.uefi_target.clone(),
         };
         if let Err(e) = state
             .backend
@@ -816,11 +826,51 @@ mod tests {
             target: "Cd".to_string(),
             enabled: "Once".to_string(),
             mode: Some("UEFI".to_string()),
+            uefi_target: None,
         };
         let json = serde_json::to_string(&info).unwrap();
         let back: BootOverrideInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(back.target, "Cd");
         assert_eq!(back.enabled, "Once");
         assert_eq!(back.mode.as_deref(), Some("UEFI"));
+    }
+
+    #[test]
+    fn test_patch_pxe_target_deserializes() {
+        let json = r#"{"Boot":{"BootSourceOverrideTarget":"Pxe","BootSourceOverrideEnabled":"Continuous"}}"#;
+        let req: PatchSystemRequest = serde_json::from_str(json).unwrap();
+        let boot = req.boot.unwrap();
+        assert_eq!(boot.boot_source_override_target.as_deref(), Some("Pxe"));
+        assert!(boot.uefi_target_boot_source_override.is_none());
+    }
+
+    #[test]
+    fn test_patch_uefi_target_deserializes() {
+        let json = r#"{"Boot":{"BootSourceOverrideTarget":"Pxe","BootSourceOverrideEnabled":"Continuous","UefiTargetBootSourceOverride":"http://boot.example.com/boot.img"}}"#;
+        let req: PatchSystemRequest = serde_json::from_str(json).unwrap();
+        let boot = req.boot.unwrap();
+        assert_eq!(boot.boot_source_override_target.as_deref(), Some("Pxe"));
+        assert_eq!(
+            boot.uefi_target_boot_source_override.as_deref(),
+            Some("http://boot.example.com/boot.img")
+        );
+    }
+
+    #[test]
+    fn test_boot_override_info_with_uefi_target_roundtrip() {
+        use crate::backend::types::BootOverrideInfo;
+        let info = BootOverrideInfo {
+            target: "Pxe".to_string(),
+            enabled: "Continuous".to_string(),
+            mode: Some("UEFI".to_string()),
+            uefi_target: Some("http://boot.example.com/boot.img".to_string()),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let back: BootOverrideInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.target, "Pxe");
+        assert_eq!(
+            back.uefi_target.as_deref(),
+            Some("http://boot.example.com/boot.img")
+        );
     }
 }

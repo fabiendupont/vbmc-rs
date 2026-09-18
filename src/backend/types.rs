@@ -159,6 +159,10 @@ pub struct BootOverrideInfo {
     pub target: String,
     pub enabled: String,
     pub mode: Option<String>,
+    /// UEFI HTTP boot URI (`UefiTargetBootSourceOverride`). Stored as a VM
+    /// annotation; KubeVirt does not natively configure HTTP boot targets, so
+    /// this is advisory only.
+    pub uefi_target: Option<String>,
 }
 
 #[derive(Debug, Clone)]

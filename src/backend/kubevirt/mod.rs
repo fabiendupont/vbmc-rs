@@ -65,6 +65,7 @@ fn pvc_phase(pvc: &PersistentVolumeClaim) -> String {
 const ANN_BOOT_TARGET: &str = "redfish.boot.source.override.target";
 const ANN_BOOT_ENABLED: &str = "redfish.boot.source.override.enabled";
 const ANN_BOOT_MODE: &str = "redfish.boot.source.override.mode";
+const ANN_BOOT_UEFI_TARGET: &str = "redfish.boot.source.override.uefi-target";
 const ANN_ONCE_ORIG: &str = "redfish.boot.once.original-order";
 const ANN_ONCE_VMI_UID: &str = "redfish.boot.once.vmi-uid";
 const LABEL_BOOT_ONCE: &str = "redfish.boot.once.enabled";
@@ -226,15 +227,17 @@ impl KubeVirtBackend {
     ) -> Result<(), BackendError> {
         let vm_api = self.vm_api(ns);
         let vm = vm_api.get(vm_name).await.map_err(map_kube_error)?;
-
-        let disks = vm
-            .spec
-            .template
-            .as_ref()
-            .and_then(|t| t.spec.as_ref())
+        let template_spec = vm.spec.template.as_ref().and_then(|t| t.spec.as_ref());
+        let devices = template_spec
             .and_then(|s| s.domain.as_ref())
-            .and_then(|d| d.devices.as_ref())
+            .and_then(|d| d.devices.as_ref());
+
+        let disks = devices
             .and_then(|d| d.disks.as_ref())
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        let ifaces = devices
+            .and_then(|d| d.interfaces.as_ref())
             .map(|v| v.as_slice())
             .unwrap_or(&[]);
 
@@ -249,9 +252,32 @@ impl KubeVirtBackend {
             }
         }
 
+        // For Pxe: first NIC gets bootOrder 1, all disks get 2+.
+        let iface_patches: Vec<serde_json::Value> = if target == "Pxe" {
+            ifaces
+                .iter()
+                .enumerate()
+                .map(|(i, iface)| {
+                    let name = iface.name.as_deref().unwrap_or("");
+                    if i == 0 {
+                        serde_json::json!({"name": name, "bootOrder": 1u32})
+                    } else {
+                        serde_json::json!({"name": name})
+                    }
+                })
+                .collect()
+        } else {
+            ifaces
+                .iter()
+                .map(|iface| serde_json::json!({"name": iface.name.as_deref().unwrap_or("")}))
+                .collect()
+        };
+
+        let disk_offset: u32 = if target == "Pxe" { 2 } else { 1 };
         let disk_patches: Vec<serde_json::Value> = disks
             .iter()
-            .map(|d| {
+            .enumerate()
+            .map(|(idx, d)| {
                 let name = d.name.as_deref().unwrap_or("");
                 let is_cdrom = d.cdrom.is_some();
                 let boot_order: Option<u32> = match target {
@@ -274,6 +300,7 @@ impl KubeVirtBackend {
                                 .map(|i| i as u32 + 1 + hdds.len() as u32)
                         }
                     }
+                    "Pxe" => Some(disk_offset + idx as u32),
                     _ => None,
                 };
                 match boot_order {
@@ -289,7 +316,8 @@ impl KubeVirtBackend {
                     "spec": {
                         "domain": {
                             "devices": {
-                                "disks": disk_patches
+                                "disks": disk_patches,
+                                "interfaces": iface_patches,
                             }
                         }
                     }
@@ -997,6 +1025,7 @@ impl VmmBackend for KubeVirtBackend {
             .cloned()
             .unwrap_or_else(|| "None".to_string());
         let mode = annotations.get(ANN_BOOT_MODE).cloned();
+        let uefi_target = annotations.get(ANN_BOOT_UEFI_TARGET).cloned();
 
         // For boot-once: detect whether the VMI has been restarted since the override was set.
         if enabled == "Once" {
@@ -1018,6 +1047,7 @@ impl VmmBackend for KubeVirtBackend {
                     target: "None".to_string(),
                     enabled: "Disabled".to_string(),
                     mode: None,
+                    uefi_target: None,
                 }));
             }
         }
@@ -1026,6 +1056,7 @@ impl VmmBackend for KubeVirtBackend {
             target,
             enabled,
             mode,
+            uefi_target,
         }))
     }
 
@@ -1048,6 +1079,7 @@ impl VmmBackend for KubeVirtBackend {
                             ANN_BOOT_TARGET: info.target,
                             ANN_BOOT_ENABLED: "Continuous",
                             ANN_BOOT_MODE: info.mode.as_deref().unwrap_or("UEFI"),
+                            ANN_BOOT_UEFI_TARGET: info.uefi_target.as_deref(),
                             ANN_ONCE_ORIG: null,
                             ANN_ONCE_VMI_UID: null
                         },
@@ -1104,6 +1136,7 @@ impl VmmBackend for KubeVirtBackend {
                             ANN_BOOT_TARGET: info.target,
                             ANN_BOOT_ENABLED: "Once",
                             ANN_BOOT_MODE: info.mode.as_deref().unwrap_or("UEFI"),
+                            ANN_BOOT_UEFI_TARGET: info.uefi_target.as_deref(),
                             ANN_ONCE_ORIG: orig_json,
                             ANN_ONCE_VMI_UID: vmi_uid
                         },
@@ -1467,6 +1500,10 @@ mod coverage_tests {
                                 .map(|i| i as u32 + 1 + hdds.len() as u32)
                         }
                     }
+                    "Pxe" => disks
+                        .iter()
+                        .position(|(n, _)| n == name)
+                        .map(|i| 2u32 + i as u32),
                     _ => None,
                 };
                 (name.to_string(), boot_order)
@@ -1519,6 +1556,46 @@ mod coverage_tests {
         assert_eq!(by_name["disk0"], Some(1));
         assert_eq!(by_name["disk1"], Some(2));
         assert_eq!(by_name["cdrom0"], Some(3));
+    }
+
+    // ---- Pxe boot order logic ----
+    // The Pxe target assigns disk_offset (2) + idx to every disk,
+    // leaving bootOrder 1 for the first NIC (handled in set_boot_order).
+    // We test the disk-side assignment via classify_disks with "Pxe" target.
+
+    #[test]
+    fn test_boot_order_pxe_target_disks_start_at_2() {
+        let disks = [("disk0", false), ("cdrom0", true)];
+        let result = classify_disks(&disks, "Pxe");
+        let by_name: std::collections::HashMap<_, _> = result.into_iter().collect();
+        // disk_offset=2, indices 0 and 1 → bootOrder 2 and 3
+        assert_eq!(by_name["disk0"], Some(2));
+        assert_eq!(by_name["cdrom0"], Some(3));
+    }
+
+    #[test]
+    fn test_boot_order_pxe_single_disk() {
+        let disks = [("disk0", false)];
+        let result = classify_disks(&disks, "Pxe");
+        let by_name: std::collections::HashMap<_, _> = result.into_iter().collect();
+        assert_eq!(by_name["disk0"], Some(2));
+    }
+
+    #[test]
+    fn test_boot_order_pxe_no_disks() {
+        let disks: [(&str, bool); 0] = [];
+        let result = classify_disks(&disks, "Pxe");
+        assert!(result.is_empty());
+    }
+
+    // ---- ANN_BOOT_UEFI_TARGET constant ----
+
+    #[test]
+    fn test_ann_boot_uefi_target_constant() {
+        assert_eq!(
+            ANN_BOOT_UEFI_TARGET,
+            "redfish.boot.source.override.uefi-target"
+        );
     }
 
     // ---- pvc_phase helper ----
