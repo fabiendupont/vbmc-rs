@@ -10,7 +10,7 @@ use crate::app_state::AppState;
 use crate::auth::AuthenticatedUser;
 use crate::auth::rbac::{Privilege, has_privilege};
 use crate::backend::VmmBackend;
-use crate::backend::types::VmPowerState;
+use crate::backend::types::{BootOverrideInfo, VmPowerState};
 
 #[derive(Debug, Serialize)]
 pub struct ComputerSystem {
@@ -389,7 +389,23 @@ pub async fn get_system(
 
     let name = sys_config.name.clone().unwrap_or_else(|| system_id.clone());
 
-    let vm_state = state.get_vm_state(&system_id);
+    let mut vm_state = state.get_vm_state(&system_id);
+
+    // Let the backend override boot state (e.g. KubeVirt auto-clears Once after reboot).
+    let boot_override = match state.backend.vm_get_boot_override(&system_id).await {
+        Ok(Some(kv)) => {
+            if kv.enabled == "Disabled" && vm_state.boot_override.enabled != "Disabled" {
+                vm_state.boot_override = crate::state::BootOverride::default();
+                state.save_vm_state(&system_id, &vm_state);
+            }
+            crate::state::BootOverride {
+                target: Some(kv.target),
+                enabled: kv.enabled,
+                mode: kv.mode,
+            }
+        }
+        _ => vm_state.boot_override.clone(),
+    };
 
     let (power_state, status, cpu_count, max_cpu_count, memory_gib, vm_uuid) =
         match state.backend.vm_info(&system_id).await {
@@ -430,14 +446,12 @@ pub async fn get_system(
     let cpu_model = get_host_cpu_model();
 
     let boot = BootOptions {
-        boot_source_override_target: vm_state
-            .boot_override
+        boot_source_override_target: boot_override
             .target
             .clone()
             .unwrap_or_else(|| "None".to_string()),
-        boot_source_override_enabled: vm_state.boot_override.enabled.clone(),
-        boot_source_override_mode: vm_state
-            .boot_override
+        boot_source_override_enabled: boot_override.enabled.clone(),
+        boot_source_override_mode: boot_override
             .mode
             .clone()
             .unwrap_or_else(|| "UEFI".to_string()),
@@ -661,6 +675,23 @@ pub async fn patch_system(
             vm_state.boot_override.mode = Some(mode);
         }
         state.save_vm_state(&system_id, &vm_state);
+
+        let override_info = BootOverrideInfo {
+            target: vm_state
+                .boot_override
+                .target
+                .clone()
+                .unwrap_or_else(|| "None".to_string()),
+            enabled: vm_state.boot_override.enabled.clone(),
+            mode: vm_state.boot_override.mode.clone(),
+        };
+        if let Err(e) = state
+            .backend
+            .vm_set_boot_override(&system_id, &override_info)
+            .await
+        {
+            tracing::warn!("vm_set_boot_override failed for {system_id}: {e}");
+        }
     }
 
     Ok(Json(serde_json::json!({"message": "System updated"})))
@@ -732,5 +763,62 @@ mod tests {
         let s = power_state_to_status(VmPowerState::Unknown);
         assert_eq!(s.state.as_deref(), Some("UnavailableOffline"));
         assert_eq!(s.health.as_deref(), Some("Critical"));
+    }
+
+    #[test]
+    fn test_patch_boot_options_deserialization_continuous() {
+        let json = r#"{"Boot":{"BootSourceOverrideTarget":"Cd","BootSourceOverrideEnabled":"Continuous"}}"#;
+        let req: PatchSystemRequest = serde_json::from_str(json).unwrap();
+        let boot = req.boot.unwrap();
+        assert_eq!(boot.boot_source_override_target.as_deref(), Some("Cd"));
+        assert_eq!(
+            boot.boot_source_override_enabled.as_deref(),
+            Some("Continuous")
+        );
+        assert!(boot.boot_source_override_mode.is_none());
+    }
+
+    #[test]
+    fn test_patch_boot_options_deserialization_disabled() {
+        let json = r#"{"Boot":{"BootSourceOverrideEnabled":"Disabled"}}"#;
+        let req: PatchSystemRequest = serde_json::from_str(json).unwrap();
+        let boot = req.boot.unwrap();
+        assert!(boot.boot_source_override_target.is_none());
+        assert_eq!(
+            boot.boot_source_override_enabled.as_deref(),
+            Some("Disabled")
+        );
+    }
+
+    #[test]
+    fn test_patch_boot_options_deserialization_once_with_mode() {
+        let json = r#"{"Boot":{"BootSourceOverrideTarget":"Hdd","BootSourceOverrideEnabled":"Once","BootSourceOverrideMode":"UEFI"}}"#;
+        let req: PatchSystemRequest = serde_json::from_str(json).unwrap();
+        let boot = req.boot.unwrap();
+        assert_eq!(boot.boot_source_override_target.as_deref(), Some("Hdd"));
+        assert_eq!(boot.boot_source_override_enabled.as_deref(), Some("Once"));
+        assert_eq!(boot.boot_source_override_mode.as_deref(), Some("UEFI"));
+    }
+
+    #[test]
+    fn test_patch_system_request_no_boot() {
+        let json = r#"{}"#;
+        let req: PatchSystemRequest = serde_json::from_str(json).unwrap();
+        assert!(req.boot.is_none());
+    }
+
+    #[test]
+    fn test_boot_override_info_serde_roundtrip() {
+        use crate::backend::types::BootOverrideInfo;
+        let info = BootOverrideInfo {
+            target: "Cd".to_string(),
+            enabled: "Once".to_string(),
+            mode: Some("UEFI".to_string()),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let back: BootOverrideInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.target, "Cd");
+        assert_eq!(back.enabled, "Once");
+        assert_eq!(back.mode.as_deref(), Some("UEFI"));
     }
 }

@@ -69,6 +69,8 @@ pub struct DomainSpec {
     pub devices: Option<Devices>,
     #[serde(default)]
     pub firmware: Option<Firmware>,
+    #[serde(default, rename = "rebootPolicy", skip_serializing_if = "Option::is_none")]
+    pub reboot_policy: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, JsonSchema)]
@@ -109,6 +111,12 @@ pub struct Disk {
     pub name: Option<String>,
     #[serde(default)]
     pub bus: Option<String>,
+    #[serde(default, rename = "bootOrder", skip_serializing_if = "Option::is_none")]
+    pub boot_order: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cdrom: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, JsonSchema)]
@@ -258,6 +266,7 @@ mod coverage_tests {
                 disks: Some(vec![Disk {
                     name: Some("disk0".to_string()),
                     bus: Some("virtio".to_string()),
+                    ..Default::default()
                 }]),
                 interfaces: Some(vec![Interface {
                     name: Some("eth0".to_string()),

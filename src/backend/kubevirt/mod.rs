@@ -9,6 +9,13 @@ use crate::backend::types as bt;
 use crate::backend::{BackendError, VmmBackend};
 use crate::config::AppConfig;
 
+const ANN_BOOT_TARGET: &str = "redfish.boot.source.override.target";
+const ANN_BOOT_ENABLED: &str = "redfish.boot.source.override.enabled";
+const ANN_BOOT_MODE: &str = "redfish.boot.source.override.mode";
+const ANN_ONCE_ORIG: &str = "redfish.boot.once.original-order";
+const ANN_ONCE_VMI_UID: &str = "redfish.boot.once.vmi-uid";
+const LABEL_BOOT_ONCE: &str = "redfish.boot.once.enabled";
+
 pub struct KubeVirtBackend {
     client: kube::Client,
     vms: HashMap<String, VmMapping>,
@@ -153,6 +160,148 @@ impl KubeVirtBackend {
         // Discard the response body; tolerate empty (202/204) responses.
         self.client
             .request_text(req)
+            .await
+            .map_err(map_kube_error)?;
+        Ok(())
+    }
+
+    async fn set_boot_order(
+        &self,
+        ns: &str,
+        vm_name: &str,
+        target: &str,
+    ) -> Result<(), BackendError> {
+        let vm_api = self.vm_api(ns);
+        let vm = vm_api.get(vm_name).await.map_err(map_kube_error)?;
+
+        let disks = vm
+            .spec
+            .template
+            .as_ref()
+            .and_then(|t| t.spec.as_ref())
+            .and_then(|s| s.domain.as_ref())
+            .and_then(|d| d.devices.as_ref())
+            .and_then(|d| d.disks.as_ref())
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+
+        let mut cdroms: Vec<&str> = Vec::new();
+        let mut hdds: Vec<&str> = Vec::new();
+        for d in disks {
+            let name = d.name.as_deref().unwrap_or("");
+            if d.cdrom.is_some() {
+                cdroms.push(name);
+            } else {
+                hdds.push(name);
+            }
+        }
+
+        let disk_patches: Vec<serde_json::Value> = disks
+            .iter()
+            .map(|d| {
+                let name = d.name.as_deref().unwrap_or("");
+                let is_cdrom = d.cdrom.is_some();
+                let boot_order: Option<u32> = match target {
+                    "Cd" => {
+                        if is_cdrom {
+                            cdroms.iter().position(|&n| n == name).map(|i| i as u32 + 1)
+                        } else {
+                            hdds.iter()
+                                .position(|&n| n == name)
+                                .map(|i| i as u32 + 1 + cdroms.len() as u32)
+                        }
+                    }
+                    "Hdd" => {
+                        if !is_cdrom {
+                            hdds.iter().position(|&n| n == name).map(|i| i as u32 + 1)
+                        } else {
+                            cdroms
+                                .iter()
+                                .position(|&n| n == name)
+                                .map(|i| i as u32 + 1 + hdds.len() as u32)
+                        }
+                    }
+                    _ => None,
+                };
+                match boot_order {
+                    Some(n) => serde_json::json!({"name": name, "bootOrder": n}),
+                    None => serde_json::json!({"name": name}),
+                }
+            })
+            .collect();
+
+        let patch = serde_json::json!({
+            "spec": {
+                "template": {
+                    "spec": {
+                        "domain": {
+                            "devices": {
+                                "disks": disk_patches
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        vm_api
+            .patch(vm_name, &PatchParams::default(), &Patch::Merge(patch))
+            .await
+            .map_err(map_kube_error)?;
+        Ok(())
+    }
+
+    async fn restore_boot_once(&self, ns: &str, vm_name: &str) -> Result<(), BackendError> {
+        let vm_api = self.vm_api(ns);
+        let vm = vm_api.get(vm_name).await.map_err(map_kube_error)?;
+        let annotations = vm.metadata.annotations.as_ref().cloned().unwrap_or_default();
+
+        let disk_patches: Vec<serde_json::Value> = if let Some(orig_json) =
+            annotations.get(ANN_ONCE_ORIG)
+        {
+            let orig: std::collections::HashMap<String, Option<u32>> =
+                serde_json::from_str(orig_json)
+                    .map_err(|e| BackendError::ApiError(e.to_string()))?;
+            orig.into_iter()
+                .map(|(name, bo)| match bo {
+                    Some(n) => serde_json::json!({"name": name, "bootOrder": n}),
+                    None => serde_json::json!({"name": name}),
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+
+        let mut patch = serde_json::json!({
+            "metadata": {
+                "annotations": {
+                    ANN_BOOT_TARGET: null,
+                    ANN_BOOT_ENABLED: null,
+                    ANN_BOOT_MODE: null,
+                    ANN_ONCE_ORIG: null,
+                    ANN_ONCE_VMI_UID: null
+                },
+                "labels": {
+                    LABEL_BOOT_ONCE: null
+                }
+            },
+            "spec": {
+                "template": {
+                    "spec": {
+                        "domain": {
+                            "rebootPolicy": null
+                        }
+                    }
+                }
+            }
+        });
+
+        if !disk_patches.is_empty() {
+            patch["spec"]["template"]["spec"]["domain"]["devices"] =
+                serde_json::json!({"disks": disk_patches});
+        }
+
+        vm_api
+            .patch(vm_name, &PatchParams::default(), &Patch::Merge(patch))
             .await
             .map_err(map_kube_error)?;
         Ok(())
@@ -594,6 +743,149 @@ impl VmmBackend for KubeVirtBackend {
 
         Ok(())
     }
+
+    async fn vm_get_boot_override(
+        &self,
+        system_id: &str,
+    ) -> Result<Option<bt::BootOverrideInfo>, BackendError> {
+        let m = self.mapping_for(system_id)?;
+        let vm = self.vm_api(&m.namespace).get(&m.vm_name).await.map_err(map_kube_error)?;
+        let annotations = vm.metadata.annotations.as_ref().cloned().unwrap_or_default();
+
+        let enabled = match annotations.get(ANN_BOOT_ENABLED) {
+            Some(e) => e.clone(),
+            None => return Ok(None),
+        };
+        let target = annotations
+            .get(ANN_BOOT_TARGET)
+            .cloned()
+            .unwrap_or_else(|| "None".to_string());
+        let mode = annotations.get(ANN_BOOT_MODE).cloned();
+
+        // For boot-once: detect whether the VMI has been restarted since the override was set.
+        if enabled == "Once" {
+            let stored_uid = annotations.get(ANN_ONCE_VMI_UID).cloned().unwrap_or_default();
+            let current_uid = self
+                .vmi_api(&m.namespace)
+                .get(&m.vm_name)
+                .await
+                .ok()
+                .and_then(|vmi| vmi.metadata.uid)
+                .unwrap_or_default();
+            if !stored_uid.is_empty() && current_uid != stored_uid {
+                // VMI restarted — restore and report Disabled.
+                let _ = self.restore_boot_once(&m.namespace, &m.vm_name).await;
+                return Ok(Some(bt::BootOverrideInfo {
+                    target: "None".to_string(),
+                    enabled: "Disabled".to_string(),
+                    mode: None,
+                }));
+            }
+        }
+
+        Ok(Some(bt::BootOverrideInfo { target, enabled, mode }))
+    }
+
+    async fn vm_set_boot_override(
+        &self,
+        system_id: &str,
+        info: &bt::BootOverrideInfo,
+    ) -> Result<(), BackendError> {
+        let m = self.mapping_for(system_id)?;
+        let ns = &m.namespace;
+        let vm_name = &m.vm_name;
+
+        match info.enabled.as_str() {
+            "Continuous" => {
+                self.set_boot_order(ns, vm_name, &info.target).await?;
+                // Write Redfish annotations and clear any prior once state.
+                let patch = serde_json::json!({
+                    "metadata": {
+                        "annotations": {
+                            ANN_BOOT_TARGET: info.target,
+                            ANN_BOOT_ENABLED: "Continuous",
+                            ANN_BOOT_MODE: info.mode.as_deref().unwrap_or("UEFI"),
+                            ANN_ONCE_ORIG: null,
+                            ANN_ONCE_VMI_UID: null
+                        },
+                        "labels": { LABEL_BOOT_ONCE: null }
+                    },
+                    "spec": {
+                        "template": {
+                            "spec": {
+                                "domain": { "rebootPolicy": null }
+                            }
+                        }
+                    }
+                });
+                self.vm_api(ns)
+                    .patch(vm_name, &PatchParams::default(), &Patch::Merge(patch))
+                    .await
+                    .map_err(map_kube_error)?;
+            }
+            "Once" => {
+                // Capture original boot orders before rewriting.
+                let vm = self.vm_api(ns).get(vm_name).await.map_err(map_kube_error)?;
+                let original: std::collections::HashMap<String, Option<u32>> = vm
+                    .spec
+                    .template
+                    .as_ref()
+                    .and_then(|t| t.spec.as_ref())
+                    .and_then(|s| s.domain.as_ref())
+                    .and_then(|d| d.devices.as_ref())
+                    .and_then(|d| d.disks.as_ref())
+                    .map(|disks| {
+                        disks
+                            .iter()
+                            .filter_map(|d| d.name.clone().map(|n| (n, d.boot_order)))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let orig_json = serde_json::to_string(&original)
+                    .map_err(|e| BackendError::ApiError(e.to_string()))?;
+
+                // Get current VMI UID to detect restart later.
+                let vmi_uid = self
+                    .vmi_api(ns)
+                    .get(vm_name)
+                    .await
+                    .ok()
+                    .and_then(|vmi| vmi.metadata.uid)
+                    .unwrap_or_default();
+
+                self.set_boot_order(ns, vm_name, &info.target).await?;
+
+                let patch = serde_json::json!({
+                    "metadata": {
+                        "annotations": {
+                            ANN_BOOT_TARGET: info.target,
+                            ANN_BOOT_ENABLED: "Once",
+                            ANN_BOOT_MODE: info.mode.as_deref().unwrap_or("UEFI"),
+                            ANN_ONCE_ORIG: orig_json,
+                            ANN_ONCE_VMI_UID: vmi_uid
+                        },
+                        "labels": { LABEL_BOOT_ONCE: "enabled" }
+                    },
+                    "spec": {
+                        "template": {
+                            "spec": {
+                                "domain": { "rebootPolicy": "Terminate" }
+                            }
+                        }
+                    }
+                });
+                self.vm_api(ns)
+                    .patch(vm_name, &PatchParams::default(), &Patch::Merge(patch))
+                    .await
+                    .map_err(map_kube_error)?;
+            }
+            _ => {
+                // "Disabled" or anything else: restore original order and clear all override state.
+                self.restore_boot_once(ns, vm_name).await?;
+            }
+        }
+        Ok(())
+    }
 }
 
 pub async fn build_backend(config: &AppConfig) -> Result<super::Backend, BackendError> {
@@ -709,10 +1001,12 @@ mod coverage_tests {
                     types::Disk {
                         name: Some("disk0".to_string()),
                         bus: Some("virtio".to_string()),
+                        ..Default::default()
                     },
                     types::Disk {
                         name: Some("disk1".to_string()),
                         bus: Some("sata".to_string()),
+                        ..Default::default()
                     },
                 ]),
                 interfaces: Some(vec![
@@ -789,10 +1083,12 @@ mod coverage_tests {
                     types::Disk {
                         name: None,
                         bus: None,
+                        ..Default::default()
                     },
                     types::Disk {
                         name: None,
                         bus: None,
+                        ..Default::default()
                     },
                 ]),
                 interfaces: None,
@@ -873,5 +1169,105 @@ mod coverage_tests {
         // Test K/M/G suffixes (decimal)
         assert_eq!(parse_memory_string("1K"), 1000);
         assert_eq!(parse_memory_string("1M"), 1_000_000);
+    }
+
+    // ---- boot override annotation constants ----
+
+    #[test]
+    fn test_boot_override_annotation_constants() {
+        assert_eq!(ANN_BOOT_TARGET, "redfish.boot.source.override.target");
+        assert_eq!(ANN_BOOT_ENABLED, "redfish.boot.source.override.enabled");
+        assert_eq!(ANN_BOOT_MODE, "redfish.boot.source.override.mode");
+        assert_eq!(ANN_ONCE_ORIG, "redfish.boot.once.original-order");
+        assert_eq!(ANN_ONCE_VMI_UID, "redfish.boot.once.vmi-uid");
+        assert_eq!(LABEL_BOOT_ONCE, "redfish.boot.once.enabled");
+    }
+
+    // ---- set_boot_order disk classification logic ----
+    // We test the classification and boot order assignment logic in isolation
+    // by exercising it through a helper that mirrors the set_boot_order logic.
+
+    fn classify_disks(
+        disks: &[(/* name */ &str, /* is_cdrom */ bool)],
+        target: &str,
+    ) -> Vec<(String, Option<u32>)> {
+        let cdroms: Vec<&str> = disks.iter().filter(|d| d.1).map(|d| d.0).collect();
+        let hdds: Vec<&str> = disks.iter().filter(|d| !d.1).map(|d| d.0).collect();
+
+        disks
+            .iter()
+            .map(|(name, is_cdrom)| {
+                let boot_order: Option<u32> = match target {
+                    "Cd" => {
+                        if *is_cdrom {
+                            cdroms.iter().position(|&n| n == *name).map(|i| i as u32 + 1)
+                        } else {
+                            hdds.iter()
+                                .position(|&n| n == *name)
+                                .map(|i| i as u32 + 1 + cdroms.len() as u32)
+                        }
+                    }
+                    "Hdd" => {
+                        if !is_cdrom {
+                            hdds.iter().position(|&n| n == *name).map(|i| i as u32 + 1)
+                        } else {
+                            cdroms
+                                .iter()
+                                .position(|&n| n == *name)
+                                .map(|i| i as u32 + 1 + hdds.len() as u32)
+                        }
+                    }
+                    _ => None,
+                };
+                (name.to_string(), boot_order)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_boot_order_cd_target() {
+        let disks = [("disk0", false), ("cdrom0", true)];
+        let result = classify_disks(&disks, "Cd");
+        let by_name: std::collections::HashMap<_, _> = result.into_iter().collect();
+        assert_eq!(by_name["cdrom0"], Some(1)); // CD gets priority 1
+        assert_eq!(by_name["disk0"], Some(2));  // HDD gets priority 2
+    }
+
+    #[test]
+    fn test_boot_order_hdd_target() {
+        let disks = [("disk0", false), ("cdrom0", true)];
+        let result = classify_disks(&disks, "Hdd");
+        let by_name: std::collections::HashMap<_, _> = result.into_iter().collect();
+        assert_eq!(by_name["disk0"], Some(1));  // HDD gets priority 1
+        assert_eq!(by_name["cdrom0"], Some(2)); // CD gets priority 2
+    }
+
+    #[test]
+    fn test_boot_order_none_target() {
+        let disks = [("disk0", false), ("cdrom0", true)];
+        let result = classify_disks(&disks, "None");
+        for (_, bo) in &result {
+            assert_eq!(*bo, None);
+        }
+    }
+
+    #[test]
+    fn test_boot_order_multiple_cdroms_cd_target() {
+        let disks = [("disk0", false), ("cdrom0", true), ("cdrom1", true)];
+        let result = classify_disks(&disks, "Cd");
+        let by_name: std::collections::HashMap<_, _> = result.into_iter().collect();
+        assert_eq!(by_name["cdrom0"], Some(1));
+        assert_eq!(by_name["cdrom1"], Some(2));
+        assert_eq!(by_name["disk0"], Some(3));
+    }
+
+    #[test]
+    fn test_boot_order_multiple_hdds_hdd_target() {
+        let disks = [("disk0", false), ("disk1", false), ("cdrom0", true)];
+        let result = classify_disks(&disks, "Hdd");
+        let by_name: std::collections::HashMap<_, _> = result.into_iter().collect();
+        assert_eq!(by_name["disk0"], Some(1));
+        assert_eq!(by_name["disk1"], Some(2));
+        assert_eq!(by_name["cdrom0"], Some(3));
     }
 }
