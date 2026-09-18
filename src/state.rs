@@ -33,6 +33,8 @@ pub struct BootOverride {
     #[serde(default = "default_boot_override_enabled")]
     pub enabled: String,
     pub mode: Option<String>,
+    #[serde(default)]
+    pub uefi_target: Option<String>,
 }
 
 fn default_boot_override_enabled() -> String {
@@ -45,6 +47,7 @@ impl Default for BootOverride {
             target: None,
             enabled: default_boot_override_enabled(),
             mode: None,
+            uefi_target: None,
         }
     }
 }

@@ -164,6 +164,8 @@ pub struct Interface {
     pub bridge: Option<serde_json::Value>,
     #[serde(default)]
     pub masquerade: Option<serde_json::Value>,
+    #[serde(rename = "bootOrder", skip_serializing_if = "Option::is_none")]
+    pub boot_order: Option<u32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, JsonSchema)]
@@ -287,6 +289,7 @@ mod coverage_tests {
                     mac_address: Some("52:54:00:12:34:56".to_string()),
                     bridge: Some(serde_json::json!({})),
                     masquerade: None,
+                    boot_order: None,
                 }]),
             }),
             firmware: Some(Firmware {
@@ -332,6 +335,7 @@ mod coverage_tests {
             mac_address: Some("aa:bb:cc:dd:ee:ff".to_string()),
             bridge: None,
             masquerade: None,
+            boot_order: None,
         };
 
         let json = serde_json::to_string(&interface).unwrap();
