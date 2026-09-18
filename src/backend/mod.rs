@@ -11,7 +11,8 @@ pub mod types;
 use std::fmt;
 
 use types::{
-    DiskCreateConfig, SerialConsoleInfo, VmCounters, VmCreateConfig, VmInfo, VmmPingResponse,
+    BootOverrideInfo, DiskCreateConfig, SerialConsoleInfo, VmCounters, VmCreateConfig, VmInfo,
+    VmmPingResponse,
 };
 
 #[derive(Debug)]
@@ -171,6 +172,28 @@ pub trait VmmBackend: Send + Sync {
         system_id: &str,
         device_id: &str,
     ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send;
+
+    /// Read current boot override state from the backend. Returns `None` for backends
+    /// that do not persist boot override (state is kept on disk by the Redfish layer).
+    fn vm_get_boot_override(
+        &self,
+        system_id: &str,
+    ) -> impl std::future::Future<Output = Result<Option<BootOverrideInfo>, BackendError>> + Send
+    {
+        let _ = system_id;
+        async { Ok(None) }
+    }
+
+    /// Apply a boot override to the backend (e.g. rewrite VM disk boot order).
+    /// Backends that do not support this are a no-op.
+    fn vm_set_boot_override(
+        &self,
+        system_id: &str,
+        info: &BootOverrideInfo,
+    ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send {
+        let _ = (system_id, info);
+        async { Ok(()) }
+    }
 }
 
 pub enum Backend {
@@ -316,6 +339,21 @@ pub mod mock {
             Err(BackendError::NotSupported(
                 "use vm_remove_device".to_string(),
             ))
+        }
+
+        async fn vm_get_boot_override(
+            &self,
+            _system_id: &str,
+        ) -> Result<Option<bt::BootOverrideInfo>, BackendError> {
+            Ok(None)
+        }
+
+        async fn vm_set_boot_override(
+            &self,
+            _system_id: &str,
+            _info: &bt::BootOverrideInfo,
+        ) -> Result<(), BackendError> {
+            Ok(())
         }
     }
 }
@@ -567,6 +605,43 @@ impl VmmBackend for Backend {
             Self::Mockup(b) => b.vm_eject_iso(system_id, device_id).await,
             #[cfg(any(test, feature = "test-support"))]
             Self::Mock(b) => b.vm_eject_iso(system_id, device_id).await,
+        }
+    }
+
+    async fn vm_get_boot_override(
+        &self,
+        system_id: &str,
+    ) -> Result<Option<BootOverrideInfo>, BackendError> {
+        match self {
+            Self::CloudHypervisor(b) => b.vm_get_boot_override(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_get_boot_override(system_id).await,
+            #[cfg(feature = "qemu")]
+            Self::Qemu(b) => b.vm_get_boot_override(system_id).await,
+            #[cfg(feature = "libvirt")]
+            Self::Libvirt(b) => b.vm_get_boot_override(system_id).await,
+            Self::Mockup(b) => b.vm_get_boot_override(system_id).await,
+            #[cfg(any(test, feature = "test-support"))]
+            Self::Mock(b) => b.vm_get_boot_override(system_id).await,
+        }
+    }
+
+    async fn vm_set_boot_override(
+        &self,
+        system_id: &str,
+        info: &BootOverrideInfo,
+    ) -> Result<(), BackendError> {
+        match self {
+            Self::CloudHypervisor(b) => b.vm_set_boot_override(system_id, info).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_set_boot_override(system_id, info).await,
+            #[cfg(feature = "qemu")]
+            Self::Qemu(b) => b.vm_set_boot_override(system_id, info).await,
+            #[cfg(feature = "libvirt")]
+            Self::Libvirt(b) => b.vm_set_boot_override(system_id, info).await,
+            Self::Mockup(b) => b.vm_set_boot_override(system_id, info).await,
+            #[cfg(any(test, feature = "test-support"))]
+            Self::Mock(b) => b.vm_set_boot_override(system_id, info).await,
         }
     }
 }

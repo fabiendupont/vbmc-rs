@@ -154,6 +154,13 @@ pub struct VmCounters {
     pub net_tx_frames: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BootOverrideInfo {
+    pub target: String,
+    pub enabled: String,
+    pub mode: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SerialConsoleInfo {
     pub pty_path: Option<String>,
