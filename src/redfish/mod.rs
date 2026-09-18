@@ -58,9 +58,24 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::{delete, get, post};
+use tower::Layer;
+use tower_http::normalize_path::{NormalizePath, NormalizePathLayer};
 
 use crate::app_state::AppState;
 use compliance::ODataComplianceLayer;
+
+/// Redfish service, ready to serve, with trailing-slash path normalization.
+///
+/// Redfish clients request collections with a trailing slash — libredfish (used
+/// by NVIDIA NICo) fetches `/redfish/v1/Managers/` and `/redfish/v1/Systems/` —
+/// and a spec-compliant service must treat `/X` and `/X/` as the same resource.
+/// axum matches paths exactly, and a layer added via `Router::layer` runs *after*
+/// routing, so the trim must wrap the router from the outside. This returns
+/// `NormalizePath<Router>` rather than folding the layer into [`router`], which
+/// stays a plain `Router` so the integration tests can drive it directly.
+pub fn service(state: Arc<AppState>) -> NormalizePath<Router> {
+    NormalizePathLayer::trim_trailing_slash().layer(router(state))
+}
 
 pub fn router(state: Arc<AppState>) -> Router {
     if state.mockup_store.is_some() {

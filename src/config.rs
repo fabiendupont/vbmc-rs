@@ -141,7 +141,7 @@ pub struct AuthConfig {
     pub accounts_file: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
 pub struct DefaultsConfig {
     #[serde(default = "default_firmware_path")]
@@ -150,6 +150,23 @@ pub struct DefaultsConfig {
     pub secure_boot_firmware_path: String,
     #[serde(default = "default_boot_source")]
     pub boot_source: String,
+    /// Value reported as `ServiceRoot.Vendor`. Consumers such as NVIDIA NICo
+    /// gate discovery on a recognized vendor string; the Redfish virtual-BMC
+    /// emulator identities ("sushy", "redvirt", "contoso") map to a supported
+    /// emulator vendor. Defaults to "vbmc-rs".
+    #[serde(default = "default_vendor")]
+    pub vendor: String,
+}
+
+impl Default for DefaultsConfig {
+    fn default() -> Self {
+        Self {
+            firmware_path: default_firmware_path(),
+            secure_boot_firmware_path: default_secure_boot_firmware_path(),
+            boot_source: default_boot_source(),
+            vendor: default_vendor(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -280,6 +297,10 @@ fn default_secure_boot_firmware_path() -> String {
 
 fn default_boot_source() -> String {
     "Hdd".to_string()
+}
+
+fn default_vendor() -> String {
+    "vbmc-rs".to_string()
 }
 
 fn default_metrics_enabled() -> bool {
