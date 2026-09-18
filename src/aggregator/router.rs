@@ -295,7 +295,11 @@ async fn hybrid_reset(
 
     let reset_type = serde_json::from_slice::<serde_json::Value>(body)
         .ok()
-        .and_then(|v| v.get("ResetType").and_then(|t| t.as_str()).map(|s| s.to_string()))
+        .and_then(|v| {
+            v.get("ResetType")
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string())
+        })
         .unwrap_or_default();
 
     let (resource, action) = match reset_type.as_str() {

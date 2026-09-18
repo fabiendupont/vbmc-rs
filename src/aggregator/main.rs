@@ -94,7 +94,9 @@ async fn main() -> anyhow::Result<()> {
             });
 
             // VM watcher: discover all VMs including stopped ones.
-            let vm_reg = vm_registry.clone().expect("vm_registry always Some in kubevirt-hybrid");
+            let vm_reg = vm_registry
+                .clone()
+                .expect("vm_registry always Some in kubevirt-hybrid");
             let ns_vms = config.discovery.namespace.clone();
             let token_vms = cancel.clone();
             tokio::spawn(async move {
@@ -126,7 +128,10 @@ async fn main() -> anyhow::Result<()> {
         if config.auth_mode == "kubernetes" || config.discovery.mode == "kubevirt-hybrid" {
             match kube::Client::try_default().await {
                 Ok(c) => {
-                    info!("Kubernetes client created (auth_mode={}, discovery={})", config.auth_mode, config.discovery.mode);
+                    info!(
+                        "Kubernetes client created (auth_mode={}, discovery={})",
+                        config.auth_mode, config.discovery.mode
+                    );
                     Some(c)
                 }
                 Err(e) => {

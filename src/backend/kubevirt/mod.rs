@@ -253,23 +253,27 @@ impl KubeVirtBackend {
     async fn restore_boot_once(&self, ns: &str, vm_name: &str) -> Result<(), BackendError> {
         let vm_api = self.vm_api(ns);
         let vm = vm_api.get(vm_name).await.map_err(map_kube_error)?;
-        let annotations = vm.metadata.annotations.as_ref().cloned().unwrap_or_default();
+        let annotations = vm
+            .metadata
+            .annotations
+            .as_ref()
+            .cloned()
+            .unwrap_or_default();
 
-        let disk_patches: Vec<serde_json::Value> = if let Some(orig_json) =
-            annotations.get(ANN_ONCE_ORIG)
-        {
-            let orig: std::collections::HashMap<String, Option<u32>> =
-                serde_json::from_str(orig_json)
-                    .map_err(|e| BackendError::ApiError(e.to_string()))?;
-            orig.into_iter()
-                .map(|(name, bo)| match bo {
-                    Some(n) => serde_json::json!({"name": name, "bootOrder": n}),
-                    None => serde_json::json!({"name": name}),
-                })
-                .collect()
-        } else {
-            vec![]
-        };
+        let disk_patches: Vec<serde_json::Value> =
+            if let Some(orig_json) = annotations.get(ANN_ONCE_ORIG) {
+                let orig: std::collections::HashMap<String, Option<u32>> =
+                    serde_json::from_str(orig_json)
+                        .map_err(|e| BackendError::ApiError(e.to_string()))?;
+                orig.into_iter()
+                    .map(|(name, bo)| match bo {
+                        Some(n) => serde_json::json!({"name": name, "bootOrder": n}),
+                        None => serde_json::json!({"name": name}),
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
 
         let mut patch = serde_json::json!({
             "metadata": {
@@ -788,8 +792,17 @@ impl VmmBackend for KubeVirtBackend {
         system_id: &str,
     ) -> Result<Option<bt::BootOverrideInfo>, BackendError> {
         let m = self.mapping_for(system_id)?;
-        let vm = self.vm_api(&m.namespace).get(&m.vm_name).await.map_err(map_kube_error)?;
-        let annotations = vm.metadata.annotations.as_ref().cloned().unwrap_or_default();
+        let vm = self
+            .vm_api(&m.namespace)
+            .get(&m.vm_name)
+            .await
+            .map_err(map_kube_error)?;
+        let annotations = vm
+            .metadata
+            .annotations
+            .as_ref()
+            .cloned()
+            .unwrap_or_default();
 
         let enabled = match annotations.get(ANN_BOOT_ENABLED) {
             Some(e) => e.clone(),
@@ -803,7 +816,10 @@ impl VmmBackend for KubeVirtBackend {
 
         // For boot-once: detect whether the VMI has been restarted since the override was set.
         if enabled == "Once" {
-            let stored_uid = annotations.get(ANN_ONCE_VMI_UID).cloned().unwrap_or_default();
+            let stored_uid = annotations
+                .get(ANN_ONCE_VMI_UID)
+                .cloned()
+                .unwrap_or_default();
             let current_uid = self
                 .vmi_api(&m.namespace)
                 .get(&m.vm_name)
@@ -822,7 +838,11 @@ impl VmmBackend for KubeVirtBackend {
             }
         }
 
-        Ok(Some(bt::BootOverrideInfo { target, enabled, mode }))
+        Ok(Some(bt::BootOverrideInfo {
+            target,
+            enabled,
+            mode,
+        }))
     }
 
     async fn vm_set_boot_override(
@@ -1239,7 +1259,10 @@ mod coverage_tests {
                 let boot_order: Option<u32> = match target {
                     "Cd" => {
                         if *is_cdrom {
-                            cdroms.iter().position(|&n| n == *name).map(|i| i as u32 + 1)
+                            cdroms
+                                .iter()
+                                .position(|&n| n == *name)
+                                .map(|i| i as u32 + 1)
                         } else {
                             hdds.iter()
                                 .position(|&n| n == *name)
@@ -1269,7 +1292,7 @@ mod coverage_tests {
         let result = classify_disks(&disks, "Cd");
         let by_name: std::collections::HashMap<_, _> = result.into_iter().collect();
         assert_eq!(by_name["cdrom0"], Some(1)); // CD gets priority 1
-        assert_eq!(by_name["disk0"], Some(2));  // HDD gets priority 2
+        assert_eq!(by_name["disk0"], Some(2)); // HDD gets priority 2
     }
 
     #[test]
@@ -1277,7 +1300,7 @@ mod coverage_tests {
         let disks = [("disk0", false), ("cdrom0", true)];
         let result = classify_disks(&disks, "Hdd");
         let by_name: std::collections::HashMap<_, _> = result.into_iter().collect();
-        assert_eq!(by_name["disk0"], Some(1));  // HDD gets priority 1
+        assert_eq!(by_name["disk0"], Some(1)); // HDD gets priority 1
         assert_eq!(by_name["cdrom0"], Some(2)); // CD gets priority 2
     }
 
