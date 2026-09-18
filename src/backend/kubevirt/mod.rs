@@ -2,12 +2,65 @@ pub mod types;
 
 use std::collections::HashMap;
 
+use k8s_openapi::api::core::v1::PersistentVolumeClaim;
 use kube::Api;
 use kube::api::{DeleteParams, Patch, PatchParams};
 
 use crate::backend::types as bt;
 use crate::backend::{BackendError, VmmBackend};
 use crate::config::AppConfig;
+
+/// Core polling loop for PVC completion — accepts a phase-fetching closure so
+/// it can be unit-tested without a live Kubernetes cluster.
+///
+/// `get_phase` returns:
+/// - `Some(phase_string)` when the API responds (may be "", "Pending", "Bound", "Failed", …)
+/// - `None` on a transient API error (the loop retries)
+async fn wait_pvc_bound_inner<F, Fut>(
+    get_phase: F,
+    pvc_name: &str,
+    timeout_secs: u64,
+    poll_interval_ms: u64,
+) -> Result<(), BackendError>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Option<String>>,
+{
+    use std::time::Duration;
+    use tokio::time::{Instant, sleep};
+
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+
+    loop {
+        if Instant::now() >= deadline {
+            return Err(BackendError::ApiError(format!(
+                "PVC {pvc_name} did not reach Bound within {timeout_secs}s"
+            )));
+        }
+
+        match get_phase().await.as_deref() {
+            Some("Bound") => return Ok(()),
+            Some("Failed") | Some("Lost") => {
+                let phase = get_phase().await.unwrap_or_default();
+                return Err(BackendError::ApiError(format!(
+                    "PVC {pvc_name} entered failed state: {phase}"
+                )));
+            }
+            _ => {}
+        }
+
+        sleep(Duration::from_millis(poll_interval_ms)).await;
+    }
+}
+
+/// Extract the phase string from a PVC object. Returns an empty string
+/// when the status or phase field is absent.
+fn pvc_phase(pvc: &PersistentVolumeClaim) -> String {
+    pvc.status
+        .as_ref()
+        .and_then(|s| s.phase.clone())
+        .unwrap_or_default()
+}
 
 const ANN_BOOT_TARGET: &str = "redfish.boot.source.override.target";
 const ANN_BOOT_ENABLED: &str = "redfish.boot.source.override.enabled";
@@ -677,6 +730,34 @@ impl VmmBackend for KubeVirtBackend {
         )
         .await?;
 
+        // Wait for CDI to fully import the ISO before returning.
+        // This call runs inside the virtual_media background task, so blocking
+        // here is intentional — the task will only mark itself Completed (and
+        // fire any deferred power-on) once the ISO is actually ready.
+        {
+            let pvc_api: Api<PersistentVolumeClaim> = Api::namespaced(self.client.clone(), ns);
+            let pvc_name_c = pvc_name.clone();
+            wait_pvc_bound_inner(
+                move || {
+                    let api = pvc_api.clone();
+                    let name = pvc_name_c.clone();
+                    async move {
+                        match api.get(&name).await {
+                            Ok(pvc) => Some(pvc_phase(&pvc)),
+                            Err(e) => {
+                                tracing::warn!("Waiting for PVC {name}: {e}");
+                                None
+                            }
+                        }
+                    }
+                },
+                &pvc_name,
+                30 * 60,
+                5_000,
+            )
+            .await?;
+        }
+
         // If the VM is running, hotplug the PVC as a CDRom.
         // If not running, patch the VM spec so the device is attached on next boot.
         if self.vmi_api(ns).get(vm_name).await.is_ok() {
@@ -1331,5 +1412,135 @@ mod coverage_tests {
         assert_eq!(by_name["disk0"], Some(1));
         assert_eq!(by_name["disk1"], Some(2));
         assert_eq!(by_name["cdrom0"], Some(3));
+    }
+
+    // ---- pvc_phase helper ----
+
+    #[test]
+    fn test_pvc_phase_returns_bound_when_set() {
+        use k8s_openapi::api::core::v1::PersistentVolumeClaimStatus;
+        let pvc = PersistentVolumeClaim {
+            status: Some(PersistentVolumeClaimStatus {
+                phase: Some("Bound".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(pvc_phase(&pvc), "Bound");
+    }
+
+    #[test]
+    fn test_pvc_phase_returns_empty_when_no_status() {
+        let pvc = PersistentVolumeClaim::default();
+        assert_eq!(pvc_phase(&pvc), "");
+    }
+
+    #[test]
+    fn test_pvc_phase_returns_empty_when_phase_absent() {
+        use k8s_openapi::api::core::v1::PersistentVolumeClaimStatus;
+        let pvc = PersistentVolumeClaim {
+            status: Some(PersistentVolumeClaimStatus {
+                phase: None,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(pvc_phase(&pvc), "");
+    }
+
+    // ---- wait_pvc_bound_inner branch coverage ----
+
+    #[tokio::test]
+    async fn test_wait_pvc_bound_inner_returns_ok_on_bound() {
+        let result =
+            wait_pvc_bound_inner(|| async { Some("Bound".to_string()) }, "test-pvc", 60, 0).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_wait_pvc_bound_inner_errors_on_failed_phase() {
+        let result =
+            wait_pvc_bound_inner(|| async { Some("Failed".to_string()) }, "test-pvc", 60, 0).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("test-pvc"));
+    }
+
+    #[tokio::test]
+    async fn test_wait_pvc_bound_inner_errors_on_lost_phase() {
+        let result =
+            wait_pvc_bound_inner(|| async { Some("Lost".to_string()) }, "lost-pvc", 60, 0).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("lost-pvc"));
+    }
+
+    #[tokio::test]
+    async fn test_wait_pvc_bound_inner_times_out() {
+        // timeout_secs=0 means deadline is already past on the first iteration.
+        let result = wait_pvc_bound_inner(
+            || async { Some("Pending".to_string()) },
+            "timeout-pvc",
+            0,
+            0,
+        )
+        .await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("timeout-pvc"));
+        assert!(msg.contains("Bound"));
+    }
+
+    #[tokio::test]
+    async fn test_wait_pvc_bound_inner_retries_on_api_error_then_bound() {
+        use std::sync::{Arc, Mutex};
+        let call_count = Arc::new(Mutex::new(0u32));
+        let cc = call_count.clone();
+
+        let result = wait_pvc_bound_inner(
+            move || {
+                let cc = cc.clone();
+                async move {
+                    let mut n = cc.lock().unwrap();
+                    *n += 1;
+                    if *n < 3 {
+                        None // simulate transient API error
+                    } else {
+                        Some("Bound".to_string())
+                    }
+                }
+            },
+            "retry-pvc",
+            60,
+            0,
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(*call_count.lock().unwrap(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_wait_pvc_bound_inner_retries_pending_then_bound() {
+        use std::sync::{Arc, Mutex};
+        let call_count = Arc::new(Mutex::new(0u32));
+        let cc = call_count.clone();
+
+        let result = wait_pvc_bound_inner(
+            move || {
+                let cc = cc.clone();
+                async move {
+                    let mut n = cc.lock().unwrap();
+                    *n += 1;
+                    if *n < 2 {
+                        Some("Pending".to_string())
+                    } else {
+                        Some("Bound".to_string())
+                    }
+                }
+            },
+            "pending-pvc",
+            60,
+            0,
+        )
+        .await;
+        assert!(result.is_ok());
     }
 }
