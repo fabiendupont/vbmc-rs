@@ -52,7 +52,7 @@ pub struct ServiceRoot {
     #[serde(rename = "ServiceIdentification")]
     pub service_identification: String,
     #[serde(rename = "Vendor")]
-    pub vendor: &'static str,
+    pub vendor: String,
     #[serde(rename = "Product")]
     pub product: &'static str,
     #[serde(rename = "ProtocolFeaturesSupported")]
@@ -139,7 +139,7 @@ pub async fn get_service_root(State(state): State<Arc<AppState>>) -> Json<Servic
             "vbmc-rs-{}",
             state.instance_uuid.split('-').next().unwrap_or("0000")
         ),
-        vendor: "vbmc-rs",
+        vendor: state.config.defaults.vendor.clone(),
         product: "Virtual BMC",
         protocol_features_supported: ProtocolFeatures {
             expand_query: ExpandQuery {

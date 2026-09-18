@@ -6,6 +6,8 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::ServiceExt;
+use axum::extract::Request;
 use clap::Parser;
 use clap_complete::Shell;
 use tokio::net::TcpListener;
@@ -236,7 +238,7 @@ async fn main() -> anyhow::Result<()> {
             // Start the twin stream-out tick (no-op unless a twin.toml is loaded):
             // periodic ResourceUpdated events + MetricReport refresh over the store.
             redfish::mockup_stream::spawn_stream(app_state.clone());
-            let app = redfish::router(app_state);
+            let app = redfish::service(app_state);
 
             let scheme = if rustls_config.is_some() {
                 "https"
@@ -262,11 +264,11 @@ async fn main() -> anyhow::Result<()> {
                 });
                 axum_server::bind_rustls(addr, rustls_config)
                     .handle(handle)
-                    .serve(app.into_make_service())
+                    .serve(ServiceExt::<Request>::into_make_service(app))
                     .await?;
             } else {
                 let listener = TcpListener::bind(addr).await?;
-                axum::serve(listener, app)
+                axum::serve(listener, ServiceExt::<Request>::into_make_service(app))
                     .with_graceful_shutdown(async {
                         tokio::signal::ctrl_c().await.ok();
                     })
@@ -413,7 +415,7 @@ async fn main() -> anyhow::Result<()> {
         ));
     }
 
-    let app = redfish::router(app_state.clone());
+    let app = redfish::service(app_state.clone());
 
     if let Some(rustls_config) = rustls_config {
         if config.server.tls_client_ca.is_some() {
@@ -431,7 +433,7 @@ async fn main() -> anyhow::Result<()> {
         });
         axum_server::bind_rustls(addr, rustls_config)
             .handle(handle)
-            .serve(app.into_make_service())
+            .serve(ServiceExt::<Request>::into_make_service(app))
             .await?;
     } else {
         let listener = TcpListener::bind(addr).await?;
@@ -442,7 +444,7 @@ async fn main() -> anyhow::Result<()> {
             info!("Received shutdown signal");
             cancel_clone.cancel();
         });
-        axum::serve(listener, app)
+        axum::serve(listener, ServiceExt::<Request>::into_make_service(app))
             .with_graceful_shutdown(async move {
                 cancel.cancelled().await;
             })
