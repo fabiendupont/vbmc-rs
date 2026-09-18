@@ -1,5 +1,12 @@
 # vbmc-rs
 
+[![CI](https://github.com/fabiendupont/vbmc-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/fabiendupont/vbmc-rs/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/fabiendupont/vbmc-rs/branch/main/graph/badge.svg)](https://codecov.io/gh/fabiendupont/vbmc-rs)
+[![Release](https://img.shields.io/github/v/release/fabiendupont/vbmc-rs)](https://github.com/fabiendupont/vbmc-rs/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Redfish](https://img.shields.io/badge/Redfish-DMTF%20validated-brightgreen)](https://github.com/fabiendupont/vbmc-rs/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-mdBook-blue)](https://fabiendupont.github.io/vbmc-rs/)
+
 **Turn any virtual machine into a standards-compliant bare-metal server.**
 
 vbmc-rs is a Redfish virtual BMC (Baseboard Management Controller) written in Rust. It exposes the same REST API that physical servers use — so management tools like [Ironic](https://ironicbaremetal.org/), [MAAS](https://maas.io/), and [Tinkerbell](https://tinkerbell.org/) can provision VMs exactly like real hardware.

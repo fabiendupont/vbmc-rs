@@ -359,3 +359,187 @@ mod tests {
         assert_eq!(pcr_measurement_type(15), "MutableFirmware");
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_swtpm_client_new() {
+        let _client = SwtpmClient::new("/var/run/swtpm/swtpm.sock");
+        // Constructor succeeds; socket_path is private so cannot assert on it
+    }
+
+    #[test]
+    fn test_build_pcr_read_command_pcr15() {
+        let cmd = build_pcr_read_command(15);
+        // PCR 15 is in byte 1, bit 7
+        assert_eq!(cmd[17], 0x00);
+        assert_eq!(cmd[18], 0x80); // bit 7 of second byte
+        assert_eq!(cmd[19], 0x00);
+    }
+
+    #[test]
+    fn test_build_pcr_read_command_pcr23() {
+        let cmd = build_pcr_read_command(23);
+        // PCR 23 is in byte 2, bit 7
+        assert_eq!(cmd[17], 0x00);
+        assert_eq!(cmd[18], 0x00);
+        assert_eq!(cmd[19], 0x80); // bit 7 of third byte
+    }
+
+    #[test]
+    fn test_build_pcr_read_command_out_of_range() {
+        // PCR 24 and above: byte_index >= 3, so pcr_select remains zero
+        let cmd = build_pcr_read_command(24);
+        assert_eq!(cmd[17], 0x00);
+        assert_eq!(cmd[18], 0x00);
+        assert_eq!(cmd[19], 0x00);
+    }
+
+    #[test]
+    fn test_build_pcr_read_command_structure() {
+        let cmd = build_pcr_read_command(0);
+        // Check command size is correct
+        let size = u32::from_be_bytes([cmd[2], cmd[3], cmd[4], cmd[5]]);
+        assert_eq!(size as usize, cmd.len());
+    }
+
+    #[test]
+    fn test_parse_pcr_read_response_too_short() {
+        let body = vec![0u8; 4];
+        assert!(parse_pcr_read_response(&body).is_err());
+    }
+
+    #[test]
+    fn test_parse_pcr_read_response_selection_truncated() {
+        let mut body = Vec::new();
+        body.extend_from_slice(&0u32.to_be_bytes()); // pcrUpdateCounter
+        body.extend_from_slice(&1u32.to_be_bytes()); // selection count = 1
+        // Missing the actual selection data
+        assert!(parse_pcr_read_response(&body).is_err());
+    }
+
+    #[test]
+    fn test_parse_pcr_read_response_digest_list_truncated() {
+        let mut body = Vec::new();
+        body.extend_from_slice(&0u32.to_be_bytes()); // pcrUpdateCounter
+        body.extend_from_slice(&1u32.to_be_bytes()); // selection count = 1
+        body.extend_from_slice(&TPM2_ALG_SHA256.to_be_bytes()); // hash
+        body.push(3); // sizeofSelect
+        body.extend_from_slice(&[0x01, 0x00, 0x00]); // pcrSelect
+        // Missing digest count
+        assert!(parse_pcr_read_response(&body).is_err());
+    }
+
+    #[test]
+    fn test_parse_pcr_read_response_digest_size_truncated() {
+        let mut body = Vec::new();
+        body.extend_from_slice(&0u32.to_be_bytes()); // pcrUpdateCounter
+        body.extend_from_slice(&1u32.to_be_bytes()); // selection count
+        body.extend_from_slice(&TPM2_ALG_SHA256.to_be_bytes());
+        body.push(3);
+        body.extend_from_slice(&[0x01, 0x00, 0x00]);
+        body.extend_from_slice(&1u32.to_be_bytes()); // digest count = 1
+        // Missing digest size
+        assert!(parse_pcr_read_response(&body).is_err());
+    }
+
+    #[test]
+    fn test_parse_pcr_read_response_digest_data_truncated() {
+        let mut body = Vec::new();
+        body.extend_from_slice(&0u32.to_be_bytes());
+        body.extend_from_slice(&1u32.to_be_bytes());
+        body.extend_from_slice(&TPM2_ALG_SHA256.to_be_bytes());
+        body.push(3);
+        body.extend_from_slice(&[0x01, 0x00, 0x00]);
+        body.extend_from_slice(&1u32.to_be_bytes());
+        body.extend_from_slice(&32u16.to_be_bytes()); // digest size = 32
+        // Only provide 10 bytes instead of 32
+        body.extend_from_slice(&[0xAB; 10]);
+        assert!(parse_pcr_read_response(&body).is_err());
+    }
+
+    #[test]
+    fn test_parse_pcr_read_response_multiple_selections() {
+        let mut body = Vec::new();
+        body.extend_from_slice(&0u32.to_be_bytes());
+        body.extend_from_slice(&2u32.to_be_bytes()); // 2 selections
+        // First selection
+        body.extend_from_slice(&TPM2_ALG_SHA256.to_be_bytes());
+        body.push(3);
+        body.extend_from_slice(&[0x01, 0x00, 0x00]);
+        // Second selection
+        body.extend_from_slice(&TPM2_ALG_SHA256.to_be_bytes());
+        body.push(3);
+        body.extend_from_slice(&[0x00, 0x01, 0x00]);
+        // Digest list
+        body.extend_from_slice(&1u32.to_be_bytes());
+        body.extend_from_slice(&16u16.to_be_bytes());
+        let digest = vec![0xCD; 16];
+        body.extend_from_slice(&digest);
+
+        let result = parse_pcr_read_response(&body).unwrap();
+        assert_eq!(result, digest);
+    }
+
+    #[test]
+    fn test_validate_pcrs_empty_expected() {
+        let evidence = AttestationEvidence {
+            measurements: vec![MeasurementEntry {
+                index: 0,
+                measurement_type: "ImmutableROM".to_string(),
+                measurement: "test".to_string(),
+                hash_algorithm: "SHA-256".to_string(),
+                part_of_summary: true,
+                last_updated: None,
+            }],
+            ..Default::default()
+        };
+        let expected = std::collections::HashMap::new();
+        // No policy entries means all checks pass
+        assert_eq!(
+            validate_pcrs_against_policy(&evidence, &expected),
+            VerificationStatus::Success
+        );
+    }
+
+    #[test]
+    fn test_validate_pcrs_partial_match() {
+        let evidence = AttestationEvidence {
+            measurements: vec![
+                MeasurementEntry {
+                    index: 0,
+                    measurement_type: "ImmutableROM".to_string(),
+                    measurement: "abc123".to_string(),
+                    hash_algorithm: "SHA-256".to_string(),
+                    part_of_summary: true,
+                    last_updated: None,
+                },
+                MeasurementEntry {
+                    index: 7,
+                    measurement_type: "ImmutableROM".to_string(),
+                    measurement: "def456".to_string(),
+                    hash_algorithm: "SHA-256".to_string(),
+                    part_of_summary: true,
+                    last_updated: None,
+                },
+            ],
+            ..Default::default()
+        };
+
+        let mut expected = std::collections::HashMap::new();
+        expected.insert(0, "abc123".to_string());
+        // Only checking PCR 0, ignoring PCR 7
+        assert_eq!(
+            validate_pcrs_against_policy(&evidence, &expected),
+            VerificationStatus::Success
+        );
+    }
+
+    #[test]
+    fn test_pcr_measurement_type_boundary() {
+        assert_eq!(pcr_measurement_type(13), "MutableFirmware");
+        assert_eq!(pcr_measurement_type(100), "MutableFirmware");
+    }
+}

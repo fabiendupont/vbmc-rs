@@ -49,6 +49,8 @@ pub mod storage_controllers;
 pub mod systems;
 pub mod task_service;
 pub mod telemetry;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_harness;
 pub mod trusted_component;
 pub mod types;
 pub mod update_service;

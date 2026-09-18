@@ -351,3 +351,260 @@ pub async fn eject_media(
 
     Ok(Json(serde_json::json!({"message": "Media ejected"})))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::backend::mock::MockBackend;
+    use crate::redfish::test_harness::*;
+    use axum::http::{Method, StatusCode};
+
+    #[tokio::test]
+    async fn test_get_virtual_media_collection_success() {
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = get(&router, "/redfish/v1/Systems/test-system/VirtualMedia").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body["@odata.type"],
+            "#VirtualMediaCollection.VirtualMediaCollection"
+        );
+        assert_eq!(body["Name"], "Virtual Media Collection");
+        assert_eq!(body["Members@odata.count"], 1);
+        assert_eq!(
+            body["Members"][0]["@odata.id"],
+            "/redfish/v1/Systems/test-system/VirtualMedia/Cd"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_virtual_media_collection_system_not_found() {
+        let mock = MockBackend::new();
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) =
+            get(&router, "/redfish/v1/Systems/unknown-system/VirtualMedia").await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_virtual_media_success() {
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) =
+            get(&router, "/redfish/v1/Systems/test-system/VirtualMedia/Cd").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["@odata.type"], "#VirtualMedia.v1_6_0.VirtualMedia");
+        assert_eq!(body["Id"], "Cd");
+        assert_eq!(body["Name"], "Virtual CD");
+        assert_eq!(body["Inserted"], false);
+        assert_eq!(body["WriteProtected"], true);
+        assert_eq!(body["ConnectedVia"], "NotConnected");
+        assert!(
+            body["MediaTypes"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("CD"))
+        );
+        assert!(
+            body["MediaTypes"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("DVD"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_virtual_media_system_not_found() {
+        let mock = MockBackend::new();
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = get(
+            &router,
+            "/redfish/v1/Systems/unknown-system/VirtualMedia/Cd",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_virtual_media_invalid_media_id() {
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = get(
+            &router,
+            "/redfish/v1/Systems/test-system/VirtualMedia/Invalid",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_insert_media_download_failure() {
+        // MockBackend returns NotSupported for vm_insert_iso, so handler falls back
+        // to download path, which fails for non-existent URL. This exercises the
+        // privilege check, validation, and download-and-hotplug path.
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = request_json(
+            &router,
+            Method::POST,
+            "/redfish/v1/Systems/test-system/VirtualMedia/Cd/Actions/VirtualMedia.InsertMedia",
+            serde_json::json!({
+                "Image": "http://example.com/test.iso",
+                "Inserted": true,
+                "WriteProtected": true
+            }),
+        )
+        .await;
+
+        // Download fails for non-existent URL
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("download")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_insert_media_system_not_found() {
+        let mock = MockBackend::new();
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = request_json(
+            &router,
+            Method::POST,
+            "/redfish/v1/Systems/unknown-system/VirtualMedia/Cd/Actions/VirtualMedia.InsertMedia",
+            serde_json::json!({
+                "Image": "http://example.com/test.iso"
+            }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_insert_media_invalid_media_id() {
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = request_json(
+            &router,
+            Method::POST,
+            "/redfish/v1/Systems/test-system/VirtualMedia/Invalid/Actions/VirtualMedia.InsertMedia",
+            serde_json::json!({
+                "Image": "http://example.com/test.iso"
+            }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_eject_media_success() {
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = request(
+            &router,
+            Method::POST,
+            "/redfish/v1/Systems/test-system/VirtualMedia/Cd/Actions/VirtualMedia.EjectMedia",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["message"], "Media ejected");
+    }
+
+    #[tokio::test]
+    async fn test_eject_media_system_not_found() {
+        let mock = MockBackend::new();
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = request(
+            &router,
+            Method::POST,
+            "/redfish/v1/Systems/unknown-system/VirtualMedia/Cd/Actions/VirtualMedia.EjectMedia",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_eject_media_invalid_media_id() {
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = request(
+            &router,
+            Method::POST,
+            "/redfish/v1/Systems/test-system/VirtualMedia/Invalid/Actions/VirtualMedia.EjectMedia",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("not found")
+        );
+    }
+}

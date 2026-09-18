@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::{Path, State};
 use chrono::Utc;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::error::RedfishApiError;
 use crate::app_state::AppState;
@@ -14,7 +14,7 @@ use crate::backend::types::{DiskCreateConfig, VmCreateConfig};
 use crate::events::RedfishEvent;
 use crate::events::registry::*;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ResetRequest {
     #[serde(rename = "ResetType")]
     pub reset_type: String,
@@ -295,4 +295,185 @@ pub async fn reset_system(
     Ok(Json(
         serde_json::json!({"message": format!("Reset action '{}' completed", body.reset_type)}),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_reset_request_deserialization() {
+        let json = r#"{"ResetType": "On"}"#;
+        let req: ResetRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.reset_type, "On");
+    }
+
+    #[test]
+    fn test_reset_request_deserialization_all_types() {
+        let reset_types = vec![
+            "On",
+            "ForceOn",
+            "ForceOff",
+            "GracefulShutdown",
+            "GracefulRestart",
+            "ForceRestart",
+            "PushPowerButton",
+        ];
+
+        for reset_type in reset_types {
+            let json = format!(r#"{{"ResetType": "{}"}}"#, reset_type);
+            let req: ResetRequest = serde_json::from_str(&json).unwrap();
+            assert_eq!(req.reset_type, reset_type);
+        }
+    }
+
+    #[test]
+    fn test_reset_request_serialization() {
+        let req = ResetRequest {
+            reset_type: "On".to_string(),
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["ResetType"], "On");
+    }
+
+    // Integration tests using the test harness
+    #[tokio::test]
+    async fn test_reset_system_power_on() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+        use axum::http::{Method, StatusCode};
+
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = request_json(
+            &router,
+            Method::POST,
+            "/redfish/v1/Systems/test-system/Actions/ComputerSystem.Reset",
+            serde_json::json!({"ResetType": "On"}),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["message"].as_str().unwrap().contains("Reset action"));
+        assert!(body["message"].as_str().unwrap().contains("On"));
+    }
+
+    #[tokio::test]
+    async fn test_reset_system_graceful_restart() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+        use axum::http::{Method, StatusCode};
+
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = request_json(
+            &router,
+            Method::POST,
+            "/redfish/v1/Systems/test-system/Actions/ComputerSystem.Reset",
+            serde_json::json!({"ResetType": "GracefulRestart"}),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["message"].as_str().unwrap().contains("Reset action"));
+        assert!(
+            body["message"]
+                .as_str()
+                .unwrap()
+                .contains("GracefulRestart")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reset_system_force_off() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+        use axum::http::{Method, StatusCode};
+
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = request_json(
+            &router,
+            Method::POST,
+            "/redfish/v1/Systems/test-system/Actions/ComputerSystem.Reset",
+            serde_json::json!({"ResetType": "ForceOff"}),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["message"].as_str().unwrap().contains("Reset action"));
+        assert!(body["message"].as_str().unwrap().contains("ForceOff"));
+    }
+
+    #[tokio::test]
+    async fn test_reset_system_invalid_type() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+        use axum::http::Method;
+
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = request_json(
+            &router,
+            Method::POST,
+            "/redfish/v1/Systems/test-system/Actions/ComputerSystem.Reset",
+            serde_json::json!({"ResetType": "InvalidType"}),
+        )
+        .await;
+
+        assert!(status.is_client_error());
+        let error_msg = body["error"]["message"].as_str().unwrap().to_lowercase();
+        assert!(error_msg.contains("unsupported") || error_msg.contains("invalid"));
+    }
+
+    #[tokio::test]
+    async fn test_reset_system_malformed_body() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+        use axum::http::Method;
+
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, _, _) = request_json(
+            &router,
+            Method::POST,
+            "/redfish/v1/Systems/test-system/Actions/ComputerSystem.Reset",
+            serde_json::json!({"WrongField": "On"}),
+        )
+        .await;
+
+        assert!(status.is_client_error());
+    }
+
+    #[tokio::test]
+    async fn test_reset_system_not_found() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+        use axum::http::Method;
+
+        let mock = MockBackend::new();
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = request_json(
+            &router,
+            Method::POST,
+            "/redfish/v1/Systems/unknown-system/Actions/ComputerSystem.Reset",
+            serde_json::json!({"ResetType": "On"}),
+        )
+        .await;
+
+        assert!(status.is_client_error());
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("not found")
+        );
+    }
 }

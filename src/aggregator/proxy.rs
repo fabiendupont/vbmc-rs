@@ -74,3 +74,36 @@ impl ProxyClient {
         }
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_proxy_client_new_without_tls() {
+        let config = super::super::config::SidecarConnectionConfig {
+            port: 8000,
+            tls_ca: None,
+            tls_cert: None,
+            tls_key: None,
+        };
+
+        let result = ProxyClient::new(&config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_proxy_client_new_with_missing_tls_files() {
+        use std::path::PathBuf;
+
+        let config = super::super::config::SidecarConnectionConfig {
+            port: 8000,
+            tls_ca: Some(PathBuf::from("/nonexistent/ca.pem")),
+            tls_cert: Some(PathBuf::from("/nonexistent/cert.pem")),
+            tls_key: Some(PathBuf::from("/nonexistent/key.pem")),
+        };
+
+        let result = ProxyClient::new(&config);
+        assert!(result.is_err());
+    }
+}

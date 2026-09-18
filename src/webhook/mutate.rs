@@ -528,3 +528,321 @@ mod tests {
         assert_eq!(libvirt_mount["name"], "virt-run-libvirt");
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    fn make_pod(
+        labels: serde_json::Value,
+        volumes: Option<serde_json::Value>,
+    ) -> serde_json::Value {
+        let mut pod = serde_json::json!({
+            "metadata": {
+                "name": "virt-launcher-test-vm-abc123",
+                "namespace": "default",
+                "labels": labels
+            },
+            "spec": {
+                "containers": [{
+                    "name": "compute",
+                    "image": "registry.kubevirt.io/virt-launcher:latest"
+                }],
+                "volumes": []
+            }
+        });
+
+        if let Some(vols) = volumes {
+            pod["spec"]["volumes"] = vols;
+        }
+
+        pod
+    }
+
+    fn make_review(pod: serde_json::Value) -> AdmissionReview {
+        AdmissionReview {
+            api_version: "admission.k8s.io/v1".to_string(),
+            kind: "AdmissionReview".to_string(),
+            request: Some(AdmissionRequest {
+                uid: "test-uid-123".to_string(),
+                object: pod,
+            }),
+            response: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tls_secret_volume_mounted() {
+        let config = Arc::new(WebhookConfig {
+            sidecar_image: "vbmc-rs:test".to_string(),
+            bmc_network: "vbmc-bmc".to_string(),
+            tls_secret: Some("vbmc-tls-cert".to_string()),
+            keylime_url: None,
+            swtpm_socket: None,
+        });
+
+        let pod = make_pod(
+            serde_json::json!({
+                "kubevirt.io": "virt-launcher",
+                "vbmc-rs/system-id": "test-vm"
+            }),
+            None,
+        );
+        let review = make_review(pod);
+
+        let result = handle_mutate(State(config), Json(review)).await;
+        let resp = result.0.response.unwrap();
+        assert!(resp.allowed);
+
+        let patch_bytes = BASE64.decode(resp.patch.unwrap()).unwrap();
+        let patch: Vec<serde_json::Value> = serde_json::from_slice(&patch_bytes).unwrap();
+
+        let tls_volume = patch
+            .iter()
+            .find(|p| p["value"]["name"] == "vbmc-tls")
+            .unwrap();
+        assert_eq!(tls_volume["value"]["secret"]["secretName"], "vbmc-tls-cert");
+
+        let container_patch = patch
+            .iter()
+            .find(|p| p["path"] == "/spec/containers/-")
+            .unwrap();
+        let volume_mounts = container_patch["value"]["volumeMounts"].as_array().unwrap();
+        let tls_mount = volume_mounts
+            .iter()
+            .find(|m| m["name"] == "vbmc-tls")
+            .unwrap();
+        assert_eq!(tls_mount["mountPath"], "/etc/vbmc-tls");
+        assert_eq!(tls_mount["readOnly"], true);
+    }
+
+    #[tokio::test]
+    async fn test_keylime_url_configures_attestation() {
+        let config = Arc::new(WebhookConfig {
+            sidecar_image: "vbmc-rs:test".to_string(),
+            bmc_network: "vbmc-bmc".to_string(),
+            tls_secret: None,
+            keylime_url: Some("http://keylime:8080".to_string()),
+            swtpm_socket: None,
+        });
+
+        let pod = make_pod(
+            serde_json::json!({
+                "kubevirt.io": "virt-launcher",
+                "vbmc-rs/system-id": "test-vm"
+            }),
+            None,
+        );
+        let review = make_review(pod);
+
+        let result = handle_mutate(State(config), Json(review)).await;
+        let resp = result.0.response.unwrap();
+        assert!(resp.allowed);
+
+        let patch_bytes = BASE64.decode(resp.patch.unwrap()).unwrap();
+        let patch: Vec<serde_json::Value> = serde_json::from_slice(&patch_bytes).unwrap();
+
+        let container_patch = patch
+            .iter()
+            .find(|p| p["path"] == "/spec/containers/-")
+            .unwrap();
+        let command = container_patch["value"]["command"].as_array().unwrap();
+        let script = command[2].as_str().unwrap();
+
+        assert!(script.contains("spdm_enabled = true"));
+        assert!(script.contains("provider = \"keylime\""));
+        assert!(script.contains("provider_url = \"http://keylime:8080\""));
+    }
+
+    #[tokio::test]
+    async fn test_swtpm_socket_configures_attestation() {
+        let config = Arc::new(WebhookConfig {
+            sidecar_image: "vbmc-rs:test".to_string(),
+            bmc_network: "vbmc-bmc".to_string(),
+            tls_secret: None,
+            keylime_url: None,
+            swtpm_socket: Some("/var/run/swtpm/swtpm.sock".to_string()),
+        });
+
+        let pod = make_pod(
+            serde_json::json!({
+                "kubevirt.io": "virt-launcher",
+                "vbmc-rs/system-id": "test-vm"
+            }),
+            None,
+        );
+        let review = make_review(pod);
+
+        let result = handle_mutate(State(config), Json(review)).await;
+        let resp = result.0.response.unwrap();
+        assert!(resp.allowed);
+
+        let patch_bytes = BASE64.decode(resp.patch.unwrap()).unwrap();
+        let patch: Vec<serde_json::Value> = serde_json::from_slice(&patch_bytes).unwrap();
+
+        let container_patch = patch
+            .iter()
+            .find(|p| p["path"] == "/spec/containers/-")
+            .unwrap();
+        let command = container_patch["value"]["command"].as_array().unwrap();
+        let script = command[2].as_str().unwrap();
+
+        assert!(script.contains("spdm_enabled = true"));
+        assert!(script.contains("provider = \"swtpm\""));
+        assert!(script.contains("swtpm_socket = \"/var/run/swtpm/swtpm.sock\""));
+
+        let swtpm_volume = patch
+            .iter()
+            .find(|p| p["value"]["name"] == "swtpm-sock")
+            .unwrap();
+        assert_eq!(swtpm_volume["value"]["hostPath"]["path"], "/var/run/swtpm");
+
+        let volume_mounts = container_patch["value"]["volumeMounts"].as_array().unwrap();
+        let swtpm_mount = volume_mounts
+            .iter()
+            .find(|m| m["name"] == "swtpm-sock")
+            .unwrap();
+        assert_eq!(swtpm_mount["mountPath"], "/var/run/swtpm");
+        assert_eq!(swtpm_mount["readOnly"], true);
+    }
+
+    #[tokio::test]
+    async fn test_existing_network_annotation_merged() {
+        let config = Arc::new(WebhookConfig {
+            sidecar_image: "vbmc-rs:test".to_string(),
+            bmc_network: "vbmc-bmc".to_string(),
+            tls_secret: None,
+            keylime_url: None,
+            swtpm_socket: None,
+        });
+
+        let mut pod = make_pod(
+            serde_json::json!({
+                "kubevirt.io": "virt-launcher",
+                "vbmc-rs/system-id": "test-vm"
+            }),
+            None,
+        );
+        pod["metadata"]["annotations"] = serde_json::json!({
+            "k8s.v1.cni.cncf.io/networks": "existing-network"
+        });
+
+        let review = make_review(pod);
+
+        let result = handle_mutate(State(config), Json(review)).await;
+        let resp = result.0.response.unwrap();
+
+        let patch_bytes = BASE64.decode(resp.patch.unwrap()).unwrap();
+        let patch: Vec<serde_json::Value> = serde_json::from_slice(&patch_bytes).unwrap();
+
+        let network_patch = patch
+            .iter()
+            .find(|p| p["path"] == "/metadata/annotations/k8s.v1.cni.cncf.io~1networks")
+            .unwrap();
+        assert_eq!(network_patch["value"], "existing-network,vbmc-bmc");
+    }
+
+    #[tokio::test]
+    async fn test_admission_review_missing_request_allowed() {
+        let config = Arc::new(WebhookConfig {
+            sidecar_image: "vbmc-rs:test".to_string(),
+            bmc_network: "vbmc-bmc".to_string(),
+            tls_secret: None,
+            keylime_url: None,
+            swtpm_socket: None,
+        });
+
+        let review = AdmissionReview {
+            api_version: "admission.k8s.io/v1".to_string(),
+            kind: "AdmissionReview".to_string(),
+            request: None,
+            response: None,
+        };
+
+        let result = handle_mutate(State(config), Json(review)).await;
+        let resp = result.0.response.unwrap();
+        assert!(resp.allowed);
+        assert!(resp.patch.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_has_libvirt_volume_hostpath() {
+        let pod = serde_json::json!({
+            "spec": {
+                "volumes": [{
+                    "name": "libvirt-host",
+                    "hostPath": {
+                        "path": "/var/run/libvirt"
+                    }
+                }],
+                "containers": [{
+                    "volumeMounts": [{
+                        "name": "libvirt-host",
+                        "mountPath": "/var/run/libvirt"
+                    }]
+                }]
+            }
+        });
+
+        let result = has_libvirt_volume(&pod);
+        assert_eq!(result, Some("libvirt-host".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_has_libvirt_volume_no_match() {
+        let pod = serde_json::json!({
+            "spec": {
+                "volumes": [{
+                    "name": "other-volume",
+                    "emptyDir": {}
+                }],
+                "containers": [{
+                    "volumeMounts": [{
+                        "name": "other-volume",
+                        "mountPath": "/other/path"
+                    }]
+                }]
+            }
+        });
+
+        let result = has_libvirt_volume(&pod);
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn test_namespace_extracted_from_pod() {
+        let config = Arc::new(WebhookConfig {
+            sidecar_image: "vbmc-rs:test".to_string(),
+            bmc_network: "vbmc-bmc".to_string(),
+            tls_secret: None,
+            keylime_url: None,
+            swtpm_socket: None,
+        });
+
+        let mut pod = make_pod(
+            serde_json::json!({
+                "kubevirt.io": "virt-launcher",
+                "vbmc-rs/system-id": "test-vm"
+            }),
+            None,
+        );
+        pod["metadata"]["namespace"] = serde_json::json!("test-namespace");
+
+        let review = make_review(pod);
+
+        let result = handle_mutate(State(config), Json(review)).await;
+        let resp = result.0.response.unwrap();
+
+        let patch_bytes = BASE64.decode(resp.patch.unwrap()).unwrap();
+        let patch: Vec<serde_json::Value> = serde_json::from_slice(&patch_bytes).unwrap();
+
+        let container_patch = patch
+            .iter()
+            .find(|p| p["path"] == "/spec/containers/-")
+            .unwrap();
+        let command = container_patch["value"]["command"].as_array().unwrap();
+        let script = command[2].as_str().unwrap();
+
+        assert!(script.contains("chassis_id = \"test-namespace\""));
+    }
+}

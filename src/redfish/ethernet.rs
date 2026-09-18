@@ -96,3 +96,84 @@ pub async fn get_ethernet_interface(
         status: Status::enabled_ok(),
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ethernet_interface_serialization_with_mac() {
+        let interface = EthernetInterface {
+            odata_id: "/redfish/v1/Systems/vm1/EthernetInterfaces/NIC0".to_string(),
+            odata_type: "#EthernetInterface.v1_12_0.EthernetInterface",
+            id: "NIC0".to_string(),
+            name: "eth0".to_string(),
+            description: "Virtual network interface",
+            mac_address: Some("52:54:00:12:34:56".to_string()),
+            speed_mbps: 1000,
+            status: Status::enabled_ok(),
+        };
+
+        let json = serde_json::to_value(&interface).unwrap();
+        assert_eq!(
+            json["@odata.id"],
+            "/redfish/v1/Systems/vm1/EthernetInterfaces/NIC0"
+        );
+        assert_eq!(
+            json["@odata.type"],
+            "#EthernetInterface.v1_12_0.EthernetInterface"
+        );
+        assert_eq!(json["Id"], "NIC0");
+        assert_eq!(json["Name"], "eth0");
+        assert_eq!(json["Description"], "Virtual network interface");
+        assert_eq!(json["MACAddress"], "52:54:00:12:34:56");
+        assert_eq!(json["SpeedMbps"], 1000);
+    }
+
+    #[test]
+    fn test_ethernet_interface_serialization_without_mac() {
+        let interface = EthernetInterface {
+            odata_id: "/redfish/v1/Systems/vm1/EthernetInterfaces/NIC0".to_string(),
+            odata_type: "#EthernetInterface.v1_12_0.EthernetInterface",
+            id: "NIC0".to_string(),
+            name: "eth0".to_string(),
+            description: "Virtual network interface",
+            mac_address: None,
+            speed_mbps: 1000,
+            status: Status::enabled_ok(),
+        };
+
+        let json = serde_json::to_value(&interface).unwrap();
+        assert_eq!(
+            json["@odata.id"],
+            "/redfish/v1/Systems/vm1/EthernetInterfaces/NIC0"
+        );
+        assert_eq!(
+            json["@odata.type"],
+            "#EthernetInterface.v1_12_0.EthernetInterface"
+        );
+        assert_eq!(json["Id"], "NIC0");
+        assert!(json.get("MACAddress").is_none());
+        assert_eq!(json["SpeedMbps"], 1000);
+    }
+
+    #[test]
+    fn test_ethernet_interface_odata_rename() {
+        let interface = EthernetInterface {
+            odata_id: "/redfish/v1/Systems/vm1/EthernetInterfaces/NIC0".to_string(),
+            odata_type: "#EthernetInterface.v1_12_0.EthernetInterface",
+            id: "NIC0".to_string(),
+            name: "eth0".to_string(),
+            description: "Virtual network interface",
+            mac_address: Some("52:54:00:12:34:56".to_string()),
+            speed_mbps: 1000,
+            status: Status::enabled_ok(),
+        };
+
+        let json = serde_json::to_value(&interface).unwrap();
+        assert!(json.get("@odata.id").is_some());
+        assert!(json.get("@odata.type").is_some());
+        assert!(json.get("odata_id").is_none());
+        assert!(json.get("odata_type").is_none());
+    }
+}

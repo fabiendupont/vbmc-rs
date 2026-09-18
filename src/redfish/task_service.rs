@@ -173,3 +173,332 @@ pub async fn get_task_monitor(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_task_service_serialization() {
+        let service = TaskServiceResource {
+            odata_id: "/redfish/v1/TaskService",
+            odata_type: "#TaskService.v1_2_0.TaskService",
+            id: "TaskService",
+            name: "Task Service",
+            description: "Task management service",
+            service_enabled: true,
+            tasks: ODataId::new("/redfish/v1/TaskService/Tasks"),
+            completed_task_overwrite_policy: "Oldest",
+            task_auto_delete_timeout_minutes: 60,
+            date_time: "2024-01-01T00:00:00Z".to_string(),
+            life_cycle_event_on_task_state_change: false,
+            status: super::super::types::Status::enabled_ok(),
+        };
+
+        let value = serde_json::to_value(&service).unwrap();
+
+        assert_eq!(value["@odata.id"], "/redfish/v1/TaskService");
+        assert_eq!(value["@odata.type"], "#TaskService.v1_2_0.TaskService");
+        assert_eq!(value["Id"], "TaskService");
+        assert_eq!(value["Name"], "Task Service");
+        assert_eq!(value["ServiceEnabled"], true);
+        assert_eq!(value["Tasks"]["@odata.id"], "/redfish/v1/TaskService/Tasks");
+        assert_eq!(value["CompletedTaskOverWritePolicy"], "Oldest");
+        assert_eq!(value["TaskAutoDeleteTimeoutMinutes"], 60);
+        assert_eq!(value["DateTime"], "2024-01-01T00:00:00Z");
+        assert_eq!(value["LifeCycleEventOnTaskStateChange"], false);
+    }
+
+    #[test]
+    fn test_task_resource_serialization() {
+        let task = TaskResource {
+            odata_id: "/redfish/v1/TaskService/Tasks/123".to_string(),
+            odata_type: "#Task.v1_7_0.Task",
+            id: "123".to_string(),
+            name: "Update firmware".to_string(),
+            description: "Background task",
+            task_state: TaskState::Running,
+            task_status: "Running".to_string(),
+            start_time: "2024-01-01T00:00:00Z".to_string(),
+            end_time: None,
+            percent_complete: Some(50),
+            task_monitor: Some("/redfish/v1/TaskService/TaskMonitors/123".to_string()),
+        };
+
+        let value = serde_json::to_value(&task).unwrap();
+
+        assert_eq!(value["@odata.id"], "/redfish/v1/TaskService/Tasks/123");
+        assert_eq!(value["@odata.type"], "#Task.v1_7_0.Task");
+        assert_eq!(value["Id"], "123");
+        assert_eq!(value["Name"], "Update firmware");
+        assert_eq!(value["TaskState"], "Running");
+        assert_eq!(value["StartTime"], "2024-01-01T00:00:00Z");
+        assert_eq!(value["PercentComplete"], 50);
+        assert_eq!(
+            value["TaskMonitor"],
+            "/redfish/v1/TaskService/TaskMonitors/123"
+        );
+        // EndTime should be absent when None
+        assert!(value.get("EndTime").is_none());
+    }
+
+    #[test]
+    fn test_task_resource_with_end_time() {
+        let task = TaskResource {
+            odata_id: "/redfish/v1/TaskService/Tasks/123".to_string(),
+            odata_type: "#Task.v1_7_0.Task",
+            id: "123".to_string(),
+            name: "Update firmware".to_string(),
+            description: "Background task",
+            task_state: TaskState::Completed,
+            task_status: "OK".to_string(),
+            start_time: "2024-01-01T00:00:00Z".to_string(),
+            end_time: Some("2024-01-01T00:05:00Z".to_string()),
+            percent_complete: Some(100),
+            task_monitor: None,
+        };
+
+        let value = serde_json::to_value(&task).unwrap();
+
+        assert_eq!(value["TaskState"], "Completed");
+        assert_eq!(value["EndTime"], "2024-01-01T00:05:00Z");
+        assert_eq!(value["PercentComplete"], 100);
+        // TaskMonitor should be absent when None
+        assert!(value.get("TaskMonitor").is_none());
+    }
+
+    #[test]
+    fn test_task_resource_optional_fields_none() {
+        let task = TaskResource {
+            odata_id: "/redfish/v1/TaskService/Tasks/999".to_string(),
+            odata_type: "#Task.v1_7_0.Task",
+            id: "999".to_string(),
+            name: "Test".to_string(),
+            description: "Background task",
+            task_state: TaskState::New,
+            task_status: "Pending".to_string(),
+            start_time: "2024-01-01T00:00:00Z".to_string(),
+            end_time: None,
+            percent_complete: None,
+            task_monitor: None,
+        };
+
+        let value = serde_json::to_value(&task).unwrap();
+
+        // All three optional fields should be absent
+        assert!(value.get("EndTime").is_none());
+        assert!(value.get("PercentComplete").is_none());
+        assert!(value.get("TaskMonitor").is_none());
+    }
+}
+
+#[cfg(test)]
+mod harness_tests {
+    use crate::backend::mock::MockBackend;
+    use crate::redfish::test_harness as h;
+    use axum::http::StatusCode;
+    use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn test_get_task_service() {
+        let app = h::router_with_systems(HashMap::new());
+
+        let (status, json, _) = h::get(&app, "/redfish/v1/TaskService").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["@odata.id"], "/redfish/v1/TaskService");
+        assert_eq!(json["@odata.type"], "#TaskService.v1_2_0.TaskService");
+        assert_eq!(json["Id"], "TaskService");
+        assert_eq!(json["Name"], "Task Service");
+        assert_eq!(json["ServiceEnabled"], true);
+        assert_eq!(json["Tasks"]["@odata.id"], "/redfish/v1/TaskService/Tasks");
+        assert_eq!(json["CompletedTaskOverWritePolicy"], "Oldest");
+        assert_eq!(json["TaskAutoDeleteTimeoutMinutes"], 60);
+        assert!(json["DateTime"].is_string());
+    }
+
+    #[tokio::test]
+    async fn test_get_tasks_empty() {
+        let app = h::router_with_systems(HashMap::new());
+
+        let (status, json, _) = h::get(&app, "/redfish/v1/TaskService/Tasks").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["@odata.id"], "/redfish/v1/TaskService/Tasks");
+        assert_eq!(json["@odata.type"], "#TaskCollection.TaskCollection");
+        assert_eq!(json["Members@odata.count"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_tasks_with_tasks() {
+        let mock = MockBackend::new();
+        let state = h::app_state(mock, HashMap::new());
+
+        // Create some tasks
+        let task_id_1 = state.task_manager.create_task("Task 1");
+        let task_id_2 = state.task_manager.create_task("Task 2");
+        state
+            .task_manager
+            .complete_task(&task_id_2, Some(serde_json::json!({"result": "ok"})));
+
+        let app = h::router(state);
+        let (status, json, _) = h::get(&app, "/redfish/v1/TaskService/Tasks").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["Members@odata.count"], 2);
+        // Order is not guaranteed with DashMap, so check both tasks are present
+        let members: Vec<String> = json["Members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["@odata.id"].as_str().unwrap().to_string())
+            .collect();
+        assert!(members.contains(&format!("/redfish/v1/TaskService/Tasks/{}", task_id_1)));
+        assert!(members.contains(&format!("/redfish/v1/TaskService/Tasks/{}", task_id_2)));
+    }
+
+    #[tokio::test]
+    async fn test_get_task_running() {
+        let mock = MockBackend::new();
+        let state = h::app_state(mock, HashMap::new());
+
+        let task_id = state.task_manager.create_task("Test Task");
+
+        let app = h::router(state);
+        let (status, json, _) =
+            h::get(&app, &format!("/redfish/v1/TaskService/Tasks/{}", task_id)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            json["@odata.id"],
+            format!("/redfish/v1/TaskService/Tasks/{}", task_id)
+        );
+        assert_eq!(json["@odata.type"], "#Task.v1_7_0.Task");
+        assert_eq!(json["Id"], task_id);
+        assert_eq!(json["Name"], "Test Task");
+        assert_eq!(json["TaskState"], "Running");
+        assert_eq!(json["TaskStatus"], "OK");
+        assert!(json["StartTime"].is_string());
+        assert_eq!(json["PercentComplete"], 0);
+        assert_eq!(
+            json["TaskMonitor"],
+            format!("/redfish/v1/TaskService/TaskMonitors/{}", task_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_task_completed() {
+        let mock = MockBackend::new();
+        let state = h::app_state(mock, HashMap::new());
+
+        let task_id = state.task_manager.create_task("Completed Task");
+        state
+            .task_manager
+            .complete_task(&task_id, Some(serde_json::json!({"status": "success"})));
+
+        let app = h::router(state);
+        let (status, json, _) =
+            h::get(&app, &format!("/redfish/v1/TaskService/Tasks/{}", task_id)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["TaskState"], "Completed");
+        assert_eq!(json["PercentComplete"], 100);
+        assert!(json["EndTime"].is_string());
+    }
+
+    #[tokio::test]
+    async fn test_get_task_not_found() {
+        let app = h::router_with_systems(HashMap::new());
+
+        let (status, json, _) = h::get(&app, "/redfish/v1/TaskService/Tasks/9999").await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            json["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_task_monitor_running() {
+        let mock = MockBackend::new();
+        let state = h::app_state(mock, HashMap::new());
+
+        let task_id = state.task_manager.create_task("Monitor Test");
+
+        let app = h::router(state);
+        let (status, json, headers) = h::get(
+            &app,
+            &format!("/redfish/v1/TaskService/TaskMonitors/{}", task_id),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(json["TaskState"], "Running");
+        assert_eq!(json["PercentComplete"], 0);
+        assert!(headers.contains_key("location"));
+        assert_eq!(
+            headers["location"],
+            format!("/redfish/v1/TaskService/TaskMonitors/{}", task_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_task_monitor_completed() {
+        let mock = MockBackend::new();
+        let state = h::app_state(mock, HashMap::new());
+
+        let task_id = state.task_manager.create_task("Completed Monitor");
+        state
+            .task_manager
+            .complete_task(&task_id, Some(serde_json::json!({"message": "done"})));
+
+        let app = h::router(state);
+        let (status, json, _) = h::get(
+            &app,
+            &format!("/redfish/v1/TaskService/TaskMonitors/{}", task_id),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["message"], "done");
+    }
+
+    #[tokio::test]
+    async fn test_get_task_monitor_failed() {
+        let mock = MockBackend::new();
+        let state = h::app_state(mock, HashMap::new());
+
+        let task_id = state.task_manager.create_task("Failed Task");
+        state
+            .task_manager
+            .fail_task(&task_id, "Something went wrong");
+
+        let app = h::router(state);
+        let (status, json, _) = h::get(
+            &app,
+            &format!("/redfish/v1/TaskService/TaskMonitors/{}", task_id),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(json["error"], "Something went wrong");
+    }
+
+    #[tokio::test]
+    async fn test_get_task_monitor_not_found() {
+        let app = h::router_with_systems(HashMap::new());
+
+        let (status, json, _) = h::get(&app, "/redfish/v1/TaskService/TaskMonitors/9999").await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            json["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("not found")
+        );
+    }
+}

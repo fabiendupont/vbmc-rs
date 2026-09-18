@@ -627,4 +627,136 @@ mod tests {
         let grouped = group_disks_by_protocol(&disks);
         assert!(grouped.is_empty());
     }
+
+    // Integration tests using the test harness
+    #[tokio::test]
+    async fn test_get_controllers_collection() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+        use axum::http::StatusCode;
+
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = get(
+            &router,
+            "/redfish/v1/Systems/test-system/Storage/Virtio/Controllers",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body["@odata.type"],
+            "#StorageControllerCollection.StorageControllerCollection"
+        );
+        assert_eq!(body["Name"], "Storage Controller Collection");
+        assert!(body["Members"].is_array());
+        let members = body["Members"].as_array().unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(
+            members[0]["@odata.id"],
+            "/redfish/v1/Systems/test-system/Storage/Virtio/Controllers/0"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_controller() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+        use axum::http::StatusCode;
+
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = get(
+            &router,
+            "/redfish/v1/Systems/test-system/Storage/Virtio/Controllers/0",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body["@odata.type"],
+            "#StorageController.v1_7_0.StorageController"
+        );
+        assert_eq!(body["Id"], "0");
+        assert_eq!(body["Name"], "Virtio Controller");
+        assert_eq!(body["Manufacturer"], "vbmc-rs");
+        assert_eq!(body["Model"], "Virtual Virtio Controller");
+        assert!(body["SupportedDeviceProtocols"].is_array());
+        assert_eq!(body["Status"]["State"], "Enabled");
+        assert_eq!(body["Status"]["Health"], "OK");
+    }
+
+    #[tokio::test]
+    async fn test_get_controller_not_found_system() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+
+        let mock = MockBackend::new();
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = get(
+            &router,
+            "/redfish/v1/Systems/unknown-system/Storage/Virtio/Controllers/0",
+        )
+        .await;
+
+        assert!(status.is_client_error());
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_controller_invalid_id() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = get(
+            &router,
+            "/redfish/v1/Systems/test-system/Storage/Virtio/Controllers/99",
+        )
+        .await;
+
+        assert!(status.is_client_error());
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_controllers_collection_not_found() {
+        use crate::backend::mock::MockBackend;
+        use crate::redfish::test_harness::*;
+
+        let mock = MockBackend::new();
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, body, _) = get(
+            &router,
+            "/redfish/v1/Systems/unknown-system/Storage/Virtio/Controllers",
+        )
+        .await;
+
+        assert!(status.is_client_error());
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("not found")
+        );
+    }
 }

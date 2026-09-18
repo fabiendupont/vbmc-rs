@@ -368,3 +368,484 @@ pub async fn get_role(
         restricted: false,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::types::Status;
+    use super::*;
+
+    #[test]
+    fn test_account_service_serialization() {
+        let service = AccountServiceResource {
+            odata_id: "/redfish/v1/AccountService",
+            odata_type: "#AccountService.v1_15_0.AccountService",
+            id: "AccountService",
+            name: "Account Service",
+            description: "Account management service",
+            service_enabled: true,
+            accounts: ODataId::new("/redfish/v1/AccountService/Accounts"),
+            roles: ODataId::new("/redfish/v1/AccountService/Roles"),
+            lockout_threshold: 5,
+            lockout_duration: 300,
+            min_password_length: 1,
+            max_password_length: 128,
+            lockout_counter_reset_after: 300,
+            lockout_counter_reset_enabled: true,
+            local_account_auth: "Enabled",
+            auth_failure_logging_threshold: 3,
+            supported_account_types: vec!["Redfish"],
+            http_basic_auth: "Enabled",
+            password_expiration_days: 0,
+            require_change_password_action: false,
+            restricted_privileges: Vec::new(),
+            status: Status::enabled_ok(),
+        };
+
+        let value = serde_json::to_value(&service).unwrap();
+
+        assert_eq!(value["@odata.id"], "/redfish/v1/AccountService");
+        assert_eq!(
+            value["@odata.type"],
+            "#AccountService.v1_15_0.AccountService"
+        );
+        assert_eq!(value["Id"], "AccountService");
+        assert_eq!(value["Name"], "Account Service");
+        assert_eq!(value["ServiceEnabled"], true);
+        assert_eq!(
+            value["Accounts"]["@odata.id"],
+            "/redfish/v1/AccountService/Accounts"
+        );
+        assert_eq!(
+            value["Roles"]["@odata.id"],
+            "/redfish/v1/AccountService/Roles"
+        );
+        assert_eq!(value["AccountLockoutThreshold"], 5);
+        assert_eq!(value["AccountLockoutDuration"], 300);
+        assert_eq!(value["MinPasswordLength"], 1);
+        assert_eq!(value["MaxPasswordLength"], 128);
+        assert_eq!(value["AccountLockoutCounterResetAfter"], 300);
+        assert_eq!(value["AccountLockoutCounterResetEnabled"], true);
+        assert_eq!(value["LocalAccountAuth"], "Enabled");
+        assert_eq!(value["AuthFailureLoggingThreshold"], 3);
+        assert_eq!(
+            value["SupportedAccountTypes"],
+            serde_json::json!(["Redfish"])
+        );
+        assert_eq!(value["HTTPBasicAuth"], "Enabled");
+        assert_eq!(value["PasswordExpirationDays"], 0);
+        assert_eq!(value["RequireChangePasswordAction"], false);
+        assert_eq!(value["RestrictedPrivileges"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn test_account_resource_serialization() {
+        let account = AccountResource {
+            odata_id: "/redfish/v1/AccountService/Accounts/admin".to_string(),
+            odata_type: "#ManagerAccount.v1_12_0.ManagerAccount",
+            id: "admin".to_string(),
+            name: "Account: admin".to_string(),
+            description: "User account",
+            user_name: "admin".to_string(),
+            role_id: "Administrator".to_string(),
+            enabled: true,
+            locked: false,
+        };
+
+        let value = serde_json::to_value(&account).unwrap();
+
+        assert_eq!(
+            value["@odata.id"],
+            "/redfish/v1/AccountService/Accounts/admin"
+        );
+        assert_eq!(
+            value["@odata.type"],
+            "#ManagerAccount.v1_12_0.ManagerAccount"
+        );
+        assert_eq!(value["Id"], "admin");
+        assert_eq!(value["Name"], "Account: admin");
+        assert_eq!(value["UserName"], "admin");
+        assert_eq!(value["RoleId"], "Administrator");
+        assert_eq!(value["Enabled"], true);
+        assert_eq!(value["Locked"], false);
+    }
+
+    #[test]
+    fn test_role_resource_serialization() {
+        let role = RoleResource {
+            odata_id: "/redfish/v1/AccountService/Roles/Administrator".to_string(),
+            odata_type: "#Role.v1_3_1.Role",
+            id: "Administrator".to_string(),
+            role_id: "Administrator".to_string(),
+            name: "Administrator Role".to_string(),
+            description: "User role",
+            is_predefined: true,
+            assigned_privileges: vec![
+                "Login".to_string(),
+                "ConfigureManager".to_string(),
+                "ConfigureUsers".to_string(),
+            ],
+            alternate_role_id: "Administrator".to_string(),
+            oem_privileges: Vec::new(),
+            restricted: false,
+        };
+
+        let value = serde_json::to_value(&role).unwrap();
+
+        assert_eq!(
+            value["@odata.id"],
+            "/redfish/v1/AccountService/Roles/Administrator"
+        );
+        assert_eq!(value["@odata.type"], "#Role.v1_3_1.Role");
+        assert_eq!(value["Id"], "Administrator");
+        assert_eq!(value["RoleId"], "Administrator");
+        assert_eq!(value["Name"], "Administrator Role");
+        assert_eq!(value["IsPredefined"], true);
+        assert_eq!(
+            value["AssignedPrivileges"],
+            serde_json::json!(["Login", "ConfigureManager", "ConfigureUsers"])
+        );
+        assert_eq!(value["AlternateRoleId"], "Administrator");
+        assert_eq!(value["OemPrivileges"], serde_json::json!([]));
+        assert_eq!(value["Restricted"], false);
+    }
+
+    #[test]
+    fn test_create_account_request_deserialization() {
+        let json = serde_json::json!({
+            "UserName": "newuser",
+            "Password": "password123",
+            "RoleId": "Operator"
+        });
+
+        let request: CreateAccountRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(request.user_name, "newuser");
+        assert_eq!(request.password, "password123");
+        assert_eq!(request.role_id, "Operator");
+    }
+
+    #[test]
+    fn test_patch_account_request_deserialization() {
+        let json = serde_json::json!({
+            "Password": "newpassword",
+            "RoleId": "Administrator",
+            "Enabled": false
+        });
+
+        let request: PatchAccountRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(request.password, Some("newpassword".to_string()));
+        assert_eq!(request.role_id, Some("Administrator".to_string()));
+        assert_eq!(request.enabled, Some(false));
+    }
+
+    #[test]
+    fn test_patch_account_request_partial() {
+        let json = serde_json::json!({
+            "Password": "newpassword"
+        });
+
+        let request: PatchAccountRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(request.password, Some("newpassword".to_string()));
+        assert_eq!(request.role_id, None);
+        assert_eq!(request.enabled, None);
+    }
+
+    #[test]
+    fn test_patch_account_request_empty() {
+        let json = serde_json::json!({});
+
+        let request: PatchAccountRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(request.password, None);
+        assert_eq!(request.role_id, None);
+        assert_eq!(request.enabled, None);
+    }
+
+    // Integration tests using the test harness
+    use crate::backend::mock::MockBackend;
+    use crate::redfish::test_harness::{app_state, get, router, systems_with};
+
+    #[tokio::test]
+    async fn test_get_account_service_handler() {
+        let state = app_state(MockBackend::new(), systems_with("test-sys"));
+        let app = router(state);
+
+        let (status, json, _headers) = get(&app, "/redfish/v1/AccountService").await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(json["@odata.id"], "/redfish/v1/AccountService");
+        assert_eq!(
+            json["@odata.type"],
+            "#AccountService.v1_15_0.AccountService"
+        );
+        assert_eq!(json["Id"], "AccountService");
+        assert_eq!(
+            json["Accounts"]["@odata.id"],
+            "/redfish/v1/AccountService/Accounts"
+        );
+        assert_eq!(
+            json["Roles"]["@odata.id"],
+            "/redfish/v1/AccountService/Roles"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_accounts_collection_empty() {
+        let state = app_state(MockBackend::new(), systems_with("test-sys"));
+        let app = router(state);
+
+        let (status, json, _headers) = get(&app, "/redfish/v1/AccountService/Accounts").await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(json["@odata.id"], "/redfish/v1/AccountService/Accounts");
+        assert_eq!(json["Members@odata.count"], 0);
+        assert!(json["Members"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_get_accounts_collection_with_accounts() {
+        use crate::auth::accounts::AccountStore;
+        use std::sync::Arc;
+
+        let mut account_store = AccountStore::default();
+        account_store
+            .add_account("admin", "password", "Administrator")
+            .unwrap();
+        account_store
+            .add_account("user1", "password", "ReadOnly")
+            .unwrap();
+
+        let mock = MockBackend::new();
+        let config = crate::redfish::test_harness::test_config(systems_with("test-sys"));
+        let state = Arc::new(crate::app_state::AppState::new(
+            config,
+            crate::backend::Backend::Mock(mock),
+            account_store,
+            None,
+            None,
+        ));
+        let app = router(state);
+
+        let (status, json, _headers) = get(&app, "/redfish/v1/AccountService/Accounts").await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(json["Members@odata.count"], 2);
+        assert!(json["Members"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_get_account_not_found() {
+        let state = app_state(MockBackend::new(), systems_with("test-sys"));
+        let app = router(state);
+
+        let (status, json, _headers) =
+            get(&app, "/redfish/v1/AccountService/Accounts/nonexistent").await;
+
+        assert_eq!(status, axum::http::StatusCode::NOT_FOUND);
+        assert!(json["error"].is_object());
+    }
+
+    #[tokio::test]
+    async fn test_get_account_found() {
+        use crate::auth::accounts::AccountStore;
+        use std::sync::Arc;
+
+        let mut account_store = AccountStore::default();
+        account_store
+            .add_account("testuser", "password", "Operator")
+            .unwrap();
+
+        let mock = MockBackend::new();
+        let config = crate::redfish::test_harness::test_config(systems_with("test-sys"));
+        let state = Arc::new(crate::app_state::AppState::new(
+            config,
+            crate::backend::Backend::Mock(mock),
+            account_store,
+            None,
+            None,
+        ));
+        let app = router(state);
+
+        let (status, json, _headers) =
+            get(&app, "/redfish/v1/AccountService/Accounts/testuser").await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(
+            json["@odata.id"],
+            "/redfish/v1/AccountService/Accounts/testuser"
+        );
+        assert_eq!(json["UserName"], "testuser");
+        assert_eq!(json["RoleId"], "Operator");
+        assert_eq!(json["Enabled"], true);
+        assert_eq!(json["Locked"], false);
+    }
+
+    #[tokio::test]
+    async fn test_get_roles_collection() {
+        let state = app_state(MockBackend::new(), systems_with("test-sys"));
+        let app = router(state);
+
+        let (status, json, _headers) = get(&app, "/redfish/v1/AccountService/Roles").await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(json["@odata.id"], "/redfish/v1/AccountService/Roles");
+        assert_eq!(json["Members@odata.count"], 3);
+        assert!(json["Members"].is_array());
+        let members = json["Members"].as_array().unwrap();
+        assert!(
+            members
+                .iter()
+                .any(|m| m["@odata.id"] == "/redfish/v1/AccountService/Roles/Administrator")
+        );
+        assert!(
+            members
+                .iter()
+                .any(|m| m["@odata.id"] == "/redfish/v1/AccountService/Roles/Operator")
+        );
+        assert!(
+            members
+                .iter()
+                .any(|m| m["@odata.id"] == "/redfish/v1/AccountService/Roles/ReadOnly")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_role_administrator() {
+        let state = app_state(MockBackend::new(), systems_with("test-sys"));
+        let app = router(state);
+
+        let (status, json, _headers) =
+            get(&app, "/redfish/v1/AccountService/Roles/Administrator").await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(
+            json["@odata.id"],
+            "/redfish/v1/AccountService/Roles/Administrator"
+        );
+        assert_eq!(json["RoleId"], "Administrator");
+        assert_eq!(json["IsPredefined"], true);
+        assert!(json["AssignedPrivileges"].is_array());
+        let privs = json["AssignedPrivileges"].as_array().unwrap();
+        assert!(privs.contains(&serde_json::Value::String("Login".to_string())));
+        assert!(privs.contains(&serde_json::Value::String("ConfigureManager".to_string())));
+    }
+
+    #[tokio::test]
+    async fn test_get_role_operator() {
+        let state = app_state(MockBackend::new(), systems_with("test-sys"));
+        let app = router(state);
+
+        let (status, json, _headers) = get(&app, "/redfish/v1/AccountService/Roles/Operator").await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(json["RoleId"], "Operator");
+        assert!(json["AssignedPrivileges"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_get_role_readonly() {
+        let state = app_state(MockBackend::new(), systems_with("test-sys"));
+        let app = router(state);
+
+        let (status, json, _headers) = get(&app, "/redfish/v1/AccountService/Roles/ReadOnly").await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(json["RoleId"], "ReadOnly");
+    }
+
+    #[tokio::test]
+    async fn test_get_role_not_found() {
+        let state = app_state(MockBackend::new(), systems_with("test-sys"));
+        let app = router(state);
+
+        let (status, json, _headers) =
+            get(&app, "/redfish/v1/AccountService/Roles/InvalidRole").await;
+
+        assert_eq!(status, axum::http::StatusCode::NOT_FOUND);
+        assert!(json["error"].is_object());
+    }
+}
+
+#[cfg(test)]
+mod harness_tests {
+    use crate::backend::mock::MockBackend;
+    use crate::redfish::test_harness as h;
+    use axum::http::{Method, StatusCode};
+    use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn test_create_account_success() {
+        let app = h::router(h::app_state(MockBackend::new(), HashMap::new()));
+        let body = serde_json::json!({
+            "UserName": "newuser",
+            "Password": "hunter2pass",
+            "RoleId": "Operator"
+        });
+        let (status, json, _) = h::request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/AccountService/Accounts",
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(json["UserName"], "newuser");
+        assert_eq!(json["RoleId"], "Operator");
+    }
+
+    #[tokio::test]
+    async fn test_create_account_duplicate() {
+        let state = h::app_state_with_accounts(
+            MockBackend::new(),
+            HashMap::new(),
+            &[("bob", "bobpass12", "ReadOnly")],
+        );
+        let app = h::router(state);
+        let body = serde_json::json!({
+            "UserName": "bob",
+            "Password": "another-pass",
+            "RoleId": "Operator"
+        });
+        let (status, _, _) = h::request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/AccountService/Accounts",
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn test_patch_account_success() {
+        let state = h::app_state_with_accounts(
+            MockBackend::new(),
+            HashMap::new(),
+            &[("bob", "bobpass12", "ReadOnly")],
+        );
+        let app = h::router(state);
+        let body = serde_json::json!({ "RoleId": "Operator", "Enabled": false });
+        let (status, json, _) = h::request_json(
+            &app,
+            Method::PATCH,
+            "/redfish/v1/AccountService/Accounts/bob",
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["RoleId"], "Operator");
+        assert_eq!(json["Enabled"], false);
+    }
+
+    #[tokio::test]
+    async fn test_patch_account_not_found() {
+        let app = h::router(h::app_state(MockBackend::new(), HashMap::new()));
+        let body = serde_json::json!({ "RoleId": "Operator" });
+        let (status, _, _) = h::request_json(
+            &app,
+            Method::PATCH,
+            "/redfish/v1/AccountService/Accounts/ghost",
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+}

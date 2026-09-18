@@ -85,3 +85,133 @@ pub async fn get_environment_metrics(
         },
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_environment_metrics_resource_serialization() {
+        let resource = EnvironmentMetricsResource {
+            odata_id: "/redfish/v1/Chassis/test/EnvironmentMetrics".to_string(),
+            odata_type: "#EnvironmentMetrics.v1_3_0.EnvironmentMetrics",
+            id: "EnvironmentMetrics",
+            name: "Chassis Environment Metrics",
+            description: "Environmental metrics for the virtual chassis",
+            temperature_celsius: SensorExcerpt {
+                data_source_uri: ODataId::new(
+                    "/redfish/v1/Chassis/test/Sensors/AmbientTemp".to_string(),
+                ),
+                reading: 25.0,
+            },
+            humidity_percent: SensorExcerpt {
+                data_source_uri: ODataId::new(
+                    "/redfish/v1/Chassis/test/Sensors/Humidity".to_string(),
+                ),
+                reading: 45.0,
+            },
+            power_watts: SensorExcerpt {
+                data_source_uri: ODataId::new("/redfish/v1/Chassis/test/Sensors/Power".to_string()),
+                reading: 120.0,
+            },
+            fan_speeds_percent: vec![SensorExcerpt {
+                data_source_uri: ODataId::new("/redfish/v1/Chassis/test/Sensors/Fan".to_string()),
+                reading: 40.0,
+            }],
+            power_limit_watts: ControlExcerpt {
+                set_point: 500,
+                control_mode: "Automatic",
+            },
+        };
+
+        let json = serde_json::to_value(&resource).unwrap();
+        assert_eq!(
+            json["@odata.id"],
+            "/redfish/v1/Chassis/test/EnvironmentMetrics"
+        );
+        assert_eq!(
+            json["@odata.type"],
+            "#EnvironmentMetrics.v1_3_0.EnvironmentMetrics"
+        );
+        assert_eq!(json["Id"], "EnvironmentMetrics");
+        assert_eq!(json["Name"], "Chassis Environment Metrics");
+        assert_eq!(json["TemperatureCelsius"]["Reading"], 25.0);
+        assert_eq!(json["HumidityPercent"]["Reading"], 45.0);
+        assert_eq!(json["PowerWatts"]["Reading"], 120.0);
+    }
+
+    #[test]
+    fn test_sensor_excerpt_serialization() {
+        let excerpt = SensorExcerpt {
+            data_source_uri: ODataId::new("/redfish/v1/Chassis/test/Sensors/CpuTemp".to_string()),
+            reading: 42.5,
+        };
+
+        let json = serde_json::to_value(&excerpt).unwrap();
+        assert_eq!(json["Reading"], 42.5);
+        assert_eq!(
+            json["DataSourceUri"]["@odata.id"],
+            "/redfish/v1/Chassis/test/Sensors/CpuTemp"
+        );
+    }
+
+    #[test]
+    fn test_control_excerpt_serialization() {
+        let control = ControlExcerpt {
+            set_point: 750,
+            control_mode: "Manual",
+        };
+
+        let json = serde_json::to_value(&control).unwrap();
+        assert_eq!(json["SetPoint"], 750);
+        assert_eq!(json["ControlMode"], "Manual");
+    }
+
+    #[test]
+    fn test_fan_speeds_percent_array() {
+        let resource = EnvironmentMetricsResource {
+            odata_id: "/redfish/v1/Chassis/test/EnvironmentMetrics".to_string(),
+            odata_type: "#EnvironmentMetrics.v1_3_0.EnvironmentMetrics",
+            id: "EnvironmentMetrics",
+            name: "Test",
+            description: "Test",
+            temperature_celsius: SensorExcerpt {
+                data_source_uri: ODataId::new("/redfish/v1/Sensors/Temp".to_string()),
+                reading: 25.0,
+            },
+            humidity_percent: SensorExcerpt {
+                data_source_uri: ODataId::new("/redfish/v1/Sensors/Humidity".to_string()),
+                reading: 50.0,
+            },
+            power_watts: SensorExcerpt {
+                data_source_uri: ODataId::new("/redfish/v1/Sensors/Power".to_string()),
+                reading: 100.0,
+            },
+            fan_speeds_percent: vec![
+                SensorExcerpt {
+                    data_source_uri: ODataId::new("/redfish/v1/Sensors/Fan1".to_string()),
+                    reading: 40.0,
+                },
+                SensorExcerpt {
+                    data_source_uri: ODataId::new("/redfish/v1/Sensors/Fan2".to_string()),
+                    reading: 50.0,
+                },
+                SensorExcerpt {
+                    data_source_uri: ODataId::new("/redfish/v1/Sensors/Fan3".to_string()),
+                    reading: 60.0,
+                },
+            ],
+            power_limit_watts: ControlExcerpt {
+                set_point: 1000,
+                control_mode: "Automatic",
+            },
+        };
+
+        let json = serde_json::to_value(&resource).unwrap();
+        let fan_speeds = json["FanSpeedsPercent"].as_array().unwrap();
+        assert_eq!(fan_speeds.len(), 3);
+        assert_eq!(fan_speeds[0]["Reading"], 40.0);
+        assert_eq!(fan_speeds[1]["Reading"], 50.0);
+        assert_eq!(fan_speeds[2]["Reading"], 60.0);
+    }
+}

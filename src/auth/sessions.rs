@@ -218,3 +218,186 @@ mod tests {
         assert_eq!(token.len(), 43);
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_session_serialization() {
+        let now = Utc::now();
+        let session = Session {
+            id: "sess-123".to_string(),
+            username: "admin".to_string(),
+            role: "Administrator".to_string(),
+            token: "token-abc".to_string(),
+            created: now,
+            expires: now + Duration::seconds(3600),
+        };
+
+        let json = serde_json::to_string(&session).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["id"], "sess-123");
+        assert_eq!(parsed["username"], "admin");
+        assert_eq!(parsed["role"], "Administrator");
+        assert!(parsed.get("token").is_none());
+    }
+
+    #[test]
+    fn test_create_session_within_limit() {
+        let store = SessionStore::new(3600, 5);
+        for i in 1..=5 {
+            let session = store.create_session(&format!("user{}", i), "ReadOnly");
+            assert!(session.is_some());
+        }
+    }
+
+    #[test]
+    fn test_create_session_exceeds_max() {
+        let store = SessionStore::new(3600, 2);
+        assert!(store.create_session("user1", "ReadOnly").is_some());
+        assert!(store.create_session("user2", "ReadOnly").is_some());
+        assert!(store.create_session("user3", "ReadOnly").is_none());
+    }
+
+    #[test]
+    fn test_validate_token_not_expired() {
+        let store = SessionStore::new(3600, 64);
+        let session = store.create_session("admin", "Administrator").unwrap();
+
+        let validated = store.validate_token(&session.token);
+        assert!(validated.is_some());
+    }
+
+    #[test]
+    fn test_get_session_by_id_exists() {
+        let store = SessionStore::new(3600, 64);
+        let session = store.create_session("admin", "Administrator").unwrap();
+
+        let fetched = store.get_session_by_id(&session.id);
+        assert!(fetched.is_some());
+        assert_eq!(fetched.unwrap().username, "admin");
+    }
+
+    #[test]
+    fn test_get_session_by_id_nonexistent() {
+        let store = SessionStore::new(3600, 64);
+        assert!(store.get_session_by_id("nonexistent-id").is_none());
+    }
+
+    #[test]
+    fn test_delete_session_by_id_removes_from_validate() {
+        let store = SessionStore::new(3600, 64);
+        let session = store.create_session("admin", "Administrator").unwrap();
+        let token = session.token.clone();
+
+        assert!(store.delete_session_by_id(&session.id));
+        assert!(store.validate_token(&token).is_none());
+    }
+
+    #[test]
+    fn test_list_sessions_empty() {
+        let store = SessionStore::new(3600, 64);
+        assert_eq!(store.list_sessions().len(), 0);
+    }
+
+    #[test]
+    fn test_list_sessions_multiple() {
+        let store = SessionStore::new(3600, 64);
+        store.create_session("user1", "ReadOnly");
+        store.create_session("user2", "Operator");
+        store.create_session("user3", "Administrator");
+
+        let sessions = store.list_sessions();
+        assert_eq!(sessions.len(), 3);
+
+        let usernames: Vec<String> = sessions.iter().map(|s| s.username.clone()).collect();
+        assert!(usernames.contains(&"user1".to_string()));
+        assert!(usernames.contains(&"user2".to_string()));
+        assert!(usernames.contains(&"user3".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_expired_sessions_removed_on_validate() {
+        // The background sweeper only ticks every 60s; the authoritative
+        // expiry-removal path is validate_token, which drops a session once its
+        // wall-clock `expires` has passed. Verify that deterministically.
+        let store = SessionStore::new(1, 64);
+
+        let session1 = store.create_session("user1", "ReadOnly").unwrap();
+        let session2 = store.create_session("user2", "ReadOnly").unwrap();
+        assert_eq!(store.list_sessions().len(), 2);
+
+        // Sessions have a 1s timeout; wait past it, then access them.
+        tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+
+        assert!(store.validate_token(&session1.token).is_none());
+        assert!(store.validate_token(&session2.token).is_none());
+        assert_eq!(store.list_sessions().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_session_sweeper_cancellation() {
+        let store = SessionStore::new(3600, 64);
+
+        let cancel = CancellationToken::new();
+        store.start_sweeper(cancel.clone());
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        cancel.cancel();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    }
+
+    #[test]
+    fn test_session_expiry_calculation() {
+        let store = SessionStore::new(7200, 64);
+        let session = store.create_session("admin", "Administrator").unwrap();
+
+        let duration = (session.expires - session.created).num_seconds();
+        assert_eq!(duration, 7200);
+    }
+
+    #[test]
+    fn test_session_clone() {
+        let now = Utc::now();
+        let session = Session {
+            id: "sess-1".to_string(),
+            username: "test".to_string(),
+            role: "ReadOnly".to_string(),
+            token: "token-xyz".to_string(),
+            created: now,
+            expires: now + Duration::seconds(3600),
+        };
+
+        let cloned = session.clone();
+        assert_eq!(cloned.id, session.id);
+        assert_eq!(cloned.username, session.username);
+        assert_eq!(cloned.role, session.role);
+        assert_eq!(cloned.token, session.token);
+        assert_eq!(cloned.created, session.created);
+        assert_eq!(cloned.expires, session.expires);
+    }
+
+    #[test]
+    fn test_validate_token_removes_expired() {
+        let store = SessionStore::new(0, 64);
+        let session = store.create_session("user", "ReadOnly").unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        assert!(store.validate_token(&session.token).is_none());
+
+        let refetch = store.get_session_by_id(&session.id);
+        assert!(refetch.is_none(), "expired session should be removed");
+    }
+
+    #[test]
+    fn test_generate_token_uniqueness() {
+        let token1 = generate_token();
+        let token2 = generate_token();
+        assert_ne!(token1, token2);
+    }
+}
