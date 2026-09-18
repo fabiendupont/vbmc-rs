@@ -304,64 +304,167 @@ impl KubeVirtBackend {
     }
 
     async fn restore_boot_once(&self, ns: &str, vm_name: &str) -> Result<(), BackendError> {
-        let vm_api = self.vm_api(ns);
-        let vm = vm_api.get(vm_name).await.map_err(map_kube_error)?;
-        let annotations = vm
-            .metadata
-            .annotations
-            .as_ref()
-            .cloned()
-            .unwrap_or_default();
+        restore_boot_once_standalone(&self.client, ns, vm_name).await
+    }
+}
 
-        let disk_patches: Vec<serde_json::Value> =
-            if let Some(orig_json) = annotations.get(ANN_ONCE_ORIG) {
-                let orig: std::collections::HashMap<String, Option<u32>> =
-                    serde_json::from_str(orig_json)
-                        .map_err(|e| BackendError::ApiError(e.to_string()))?;
-                orig.into_iter()
-                    .map(|(name, bo)| match bo {
-                        Some(n) => serde_json::json!({"name": name, "bootOrder": n}),
-                        None => serde_json::json!({"name": name}),
-                    })
-                    .collect()
-            } else {
-                vec![]
-            };
+/// Determine whether a boot-once VMI event requires immediate restoration.
+/// Returns `Some((ns, vm_name))` when the VMI UID differs from the stored
+/// annotation (meaning the VMI was replaced after a guest reboot), or `None`
+/// when no action is needed.
+fn should_restore_boot_once(
+    vmi: &kube::api::DynamicObject,
+    stored_vmi_uid: Option<&str>,
+) -> Option<(String, String)> {
+    let stored_uid = stored_vmi_uid?;
+    if stored_uid.is_empty() {
+        return None;
+    }
+    let current_uid = vmi.metadata.uid.as_deref().unwrap_or_default();
+    if current_uid == stored_uid {
+        return None;
+    }
+    let ns = vmi.metadata.namespace.clone().unwrap_or_default();
+    let vm_name = vmi.metadata.name.clone().unwrap_or_default();
+    if ns.is_empty() || vm_name.is_empty() {
+        return None;
+    }
+    Some((ns, vm_name))
+}
 
-        let mut patch = serde_json::json!({
-            "metadata": {
-                "annotations": {
-                    ANN_BOOT_TARGET: null,
-                    ANN_BOOT_ENABLED: null,
-                    ANN_BOOT_MODE: null,
-                    ANN_ONCE_ORIG: null,
-                    ANN_ONCE_VMI_UID: null
-                },
-                "labels": {
-                    LABEL_BOOT_ONCE: null
-                }
+/// Build the VM merge-patch that clears all boot-once state and restores the
+/// original disk boot orders. `orig_json` is the JSON value of the
+/// `ANN_ONCE_ORIG` annotation (a map of disk name → original bootOrder).
+fn build_boot_once_restore_patch(
+    orig_json: Option<&str>,
+) -> Result<serde_json::Value, BackendError> {
+    let disk_patches: Vec<serde_json::Value> = if let Some(json) = orig_json {
+        let orig: std::collections::HashMap<String, Option<u32>> =
+            serde_json::from_str(json).map_err(|e| BackendError::ApiError(e.to_string()))?;
+        orig.into_iter()
+            .map(|(name, bo)| match bo {
+                Some(n) => serde_json::json!({"name": name, "bootOrder": n}),
+                None => serde_json::json!({"name": name}),
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+
+    let mut patch = serde_json::json!({
+        "metadata": {
+            "annotations": {
+                ANN_BOOT_TARGET: null,
+                ANN_BOOT_ENABLED: null,
+                ANN_BOOT_MODE: null,
+                ANN_ONCE_ORIG: null,
+                ANN_ONCE_VMI_UID: null
             },
-            "spec": {
-                "template": {
-                    "spec": {
-                        "domain": {
-                            "rebootPolicy": null
-                        }
+            "labels": { LABEL_BOOT_ONCE: null }
+        },
+        "spec": {
+            "template": {
+                "spec": {
+                    "domain": { "rebootPolicy": null }
+                }
+            }
+        }
+    });
+
+    if !disk_patches.is_empty() {
+        patch["spec"]["template"]["spec"]["domain"]["devices"] =
+            serde_json::json!({"disks": disk_patches});
+    }
+
+    Ok(patch)
+}
+
+/// Extract the stored VMI UID from a raw VM JSON value (as returned by the K8s
+/// API). Returns `None` when the annotation is absent or the JSON path is missing.
+fn stored_uid_from_vm_json(vm: &serde_json::Value) -> Option<&str> {
+    // JSON Pointer: only '/' → "~1" and '~' → "~0" are special.
+    // Annotation keys contain dots and hyphens — no escaping needed.
+    vm.pointer(&format!("/metadata/annotations/{ANN_ONCE_VMI_UID}"))
+        .and_then(|v| v.as_str())
+}
+
+/// Restore boot-once state on the VM after a VMI restart is detected.
+async fn restore_boot_once_standalone(
+    client: &kube::Client,
+    ns: &str,
+    vm_name: &str,
+) -> Result<(), BackendError> {
+    let vm_api: Api<types::VirtualMachine> = Api::namespaced(client.clone(), ns);
+    let vm = vm_api.get(vm_name).await.map_err(map_kube_error)?;
+    let orig_json = vm
+        .metadata
+        .annotations
+        .as_ref()
+        .and_then(|a| a.get(ANN_ONCE_ORIG))
+        .map(|s| s.as_str());
+
+    let patch = build_boot_once_restore_patch(orig_json)?;
+    vm_api
+        .patch(vm_name, &PatchParams::default(), &Patch::Merge(patch))
+        .await
+        .map_err(map_kube_error)?;
+    Ok(())
+}
+
+/// Watch all VirtualMachineInstances labeled `redfish.boot.once.enabled=enabled`.
+/// When a VMI's UID differs from the stored `ANN_ONCE_VMI_UID` annotation on
+/// the parent VM, restore the original boot order immediately so the new VMI
+/// boots from the correct device.
+pub async fn start_boot_once_watcher(client: kube::Client) {
+    use kube::api::{ApiResource, DynamicObject};
+    use kube::runtime::watcher;
+    use kube::runtime::watcher::Event;
+    use tokio_stream::StreamExt;
+
+    let vmi_ar = ApiResource {
+        group: "kubevirt.io".to_string(),
+        version: "v1".to_string(),
+        api_version: "kubevirt.io/v1".to_string(),
+        kind: "VirtualMachineInstance".to_string(),
+        plural: "virtualmachineinstances".to_string(),
+    };
+    let api: kube::Api<DynamicObject> = kube::Api::all_with(client.clone(), &vmi_ar);
+    let label_sel = format!("{LABEL_BOOT_ONCE}=enabled");
+    let watcher_config = watcher::Config::default().labels(&label_sel);
+    let mut stream = std::pin::pin!(watcher(api, watcher_config));
+
+    while let Some(event) = stream.next().await {
+        match event {
+            Ok(Event::Apply(vmi) | Event::InitApply(vmi)) => {
+                // Read stored VMI UID from the parent VM's annotations.
+                let ns = vmi.metadata.namespace.as_deref().unwrap_or_default();
+                let vm_name = vmi.metadata.name.as_deref().unwrap_or_default();
+                let stored_uid = if !ns.is_empty() && !vm_name.is_empty() {
+                    let url =
+                        format!("/apis/kubevirt.io/v1/namespaces/{ns}/virtualmachines/{vm_name}");
+                    match http::Request::get(&url).body(vec![]) {
+                        Ok(req) => match client.request::<serde_json::Value>(req).await {
+                            Ok(ref vm) => stored_uid_from_vm_json(vm).map(|s| s.to_string()),
+                            Err(_) => None,
+                        },
+                        Err(_) => None,
+                    }
+                } else {
+                    None
+                };
+
+                if let Some((ns, vm_name)) = should_restore_boot_once(&vmi, stored_uid.as_deref()) {
+                    tracing::info!(
+                        "boot-once watcher: VMI {ns}/{vm_name} restarted — restoring boot order"
+                    );
+                    if let Err(e) = restore_boot_once_standalone(&client, &ns, &vm_name).await {
+                        tracing::warn!("boot-once restore failed for {ns}/{vm_name}: {e}");
                     }
                 }
             }
-        });
-
-        if !disk_patches.is_empty() {
-            patch["spec"]["template"]["spec"]["domain"]["devices"] =
-                serde_json::json!({"disks": disk_patches});
+            Ok(_) => {}
+            Err(e) => tracing::warn!("boot-once watcher error: {e}"),
         }
-
-        vm_api
-            .patch(vm_name, &PatchParams::default(), &Patch::Merge(patch))
-            .await
-            .map_err(map_kube_error)?;
-        Ok(())
     }
 }
 
@@ -1046,6 +1149,10 @@ pub async fn build_backend(config: &AppConfig) -> Result<super::Backend, Backend
         })
         .collect();
 
+    // Spawn the boot-once watcher so that VMI restarts are detected and boot
+    // order is restored immediately rather than lazily on the next GET.
+    tokio::spawn(start_boot_once_watcher(client.clone()));
+
     Ok(super::Backend::KubeVirt(KubeVirtBackend { client, vms }))
 }
 
@@ -1542,5 +1649,125 @@ mod coverage_tests {
         )
         .await;
         assert!(result.is_ok());
+    }
+
+    // ---- should_restore_boot_once logic ----
+
+    fn make_vmi(uid: &str, ns: &str, name: &str) -> kube::api::DynamicObject {
+        serde_json::from_value(serde_json::json!({
+            "apiVersion": "kubevirt.io/v1",
+            "kind": "VirtualMachineInstance",
+            "metadata": {
+                "name": name,
+                "namespace": ns,
+                "uid": uid
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn test_should_restore_boot_once_same_uid_no_action() {
+        let vmi = make_vmi("uid-abc", "ns1", "my-vm");
+        assert!(should_restore_boot_once(&vmi, Some("uid-abc")).is_none());
+    }
+
+    #[test]
+    fn test_should_restore_boot_once_different_uid_returns_pair() {
+        let vmi = make_vmi("uid-new", "ns1", "my-vm");
+        let result = should_restore_boot_once(&vmi, Some("uid-old"));
+        assert_eq!(result, Some(("ns1".to_string(), "my-vm".to_string())));
+    }
+
+    #[test]
+    fn test_should_restore_boot_once_no_stored_uid_no_action() {
+        let vmi = make_vmi("uid-abc", "ns1", "my-vm");
+        assert!(should_restore_boot_once(&vmi, None).is_none());
+    }
+
+    #[test]
+    fn test_should_restore_boot_once_empty_stored_uid_no_action() {
+        let vmi = make_vmi("uid-abc", "ns1", "my-vm");
+        assert!(should_restore_boot_once(&vmi, Some("")).is_none());
+    }
+
+    #[test]
+    fn test_should_restore_boot_once_missing_namespace_no_action() {
+        let vmi: kube::api::DynamicObject = serde_json::from_value(serde_json::json!({
+            "apiVersion": "kubevirt.io/v1",
+            "kind": "VirtualMachineInstance",
+            "metadata": { "name": "my-vm", "uid": "uid-new" }
+        }))
+        .unwrap();
+        assert!(should_restore_boot_once(&vmi, Some("uid-old")).is_none());
+    }
+
+    // ---- build_boot_once_restore_patch ----
+
+    #[test]
+    fn test_build_boot_once_restore_patch_no_orig_json() {
+        let patch = build_boot_once_restore_patch(None).unwrap();
+        // No disks section when orig is absent.
+        assert!(patch["spec"]["template"]["spec"]["domain"]["devices"].is_null());
+        // All boot annotations cleared.
+        assert!(patch["metadata"]["annotations"][ANN_BOOT_TARGET].is_null());
+        assert!(patch["metadata"]["labels"][LABEL_BOOT_ONCE].is_null());
+    }
+
+    #[test]
+    fn test_build_boot_once_restore_patch_with_disk_orders() {
+        let orig = r#"{"disk0": 2, "cdrom0": null}"#;
+        let patch = build_boot_once_restore_patch(Some(orig)).unwrap();
+        let disks = patch["spec"]["template"]["spec"]["domain"]["devices"]["disks"]
+            .as_array()
+            .unwrap();
+        assert_eq!(disks.len(), 2);
+        // disk0 should have bootOrder=2; cdrom0 should have no bootOrder.
+        let disk0 = disks.iter().find(|d| d["name"] == "disk0").unwrap();
+        assert_eq!(disk0["bootOrder"], 2);
+        let cdrom0 = disks.iter().find(|d| d["name"] == "cdrom0").unwrap();
+        assert!(cdrom0.get("bootOrder").is_none() || cdrom0["bootOrder"].is_null());
+    }
+
+    #[test]
+    fn test_build_boot_once_restore_patch_invalid_json_errors() {
+        let result = build_boot_once_restore_patch(Some("{bad json"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_build_boot_once_restore_patch_empty_orig_no_disks() {
+        let orig = r#"{}"#;
+        let patch = build_boot_once_restore_patch(Some(orig)).unwrap();
+        // Empty map → no disks section.
+        assert!(patch["spec"]["template"]["spec"]["domain"]["devices"].is_null());
+    }
+
+    // ---- stored_uid_from_vm_json ----
+
+    #[test]
+    fn test_stored_uid_from_vm_json_present() {
+        let vm = serde_json::json!({
+            "metadata": {
+                "annotations": {
+                    "redfish.boot.once.vmi-uid": "abc-123"
+                }
+            }
+        });
+        assert_eq!(stored_uid_from_vm_json(&vm), Some("abc-123"));
+    }
+
+    #[test]
+    fn test_stored_uid_from_vm_json_absent() {
+        let vm = serde_json::json!({ "metadata": {} });
+        assert!(stored_uid_from_vm_json(&vm).is_none());
+    }
+
+    #[test]
+    fn test_stored_uid_from_vm_json_wrong_annotation() {
+        let vm = serde_json::json!({
+            "metadata": { "annotations": { "other.key": "value" } }
+        });
+        assert!(stored_uid_from_vm_json(&vm).is_none());
     }
 }
