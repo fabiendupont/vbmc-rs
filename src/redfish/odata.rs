@@ -26,3 +26,41 @@ pub async fn get_odata_service_document() -> Json<serde_json::Value> {
         ]
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_odata_service_document_structure() {
+        let response = get_odata_service_document().await;
+        let json = response.0;
+
+        assert_eq!(json["@odata.context"], "/redfish/v1/$metadata");
+        assert!(json["value"].is_array());
+        let services = json["value"].as_array().unwrap();
+        assert!(!services.is_empty());
+
+        // Check first service has required fields
+        let first = &services[0];
+        assert!(first["name"].is_string());
+        assert_eq!(first["kind"], "Singleton");
+        assert!(first["url"].is_string());
+    }
+
+    #[tokio::test]
+    async fn test_odata_service_document_contains_expected_services() {
+        let response = get_odata_service_document().await;
+        let json = response.0;
+        let services = json["value"].as_array().unwrap();
+
+        let names: Vec<&str> = services
+            .iter()
+            .map(|s| s["name"].as_str().unwrap())
+            .collect();
+
+        assert!(names.contains(&"Systems"));
+        assert!(names.contains(&"SessionService"));
+        assert!(names.contains(&"AccountService"));
+    }
+}

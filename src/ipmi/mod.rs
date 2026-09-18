@@ -212,3 +212,53 @@ fn handle_qemu_command(cmd: u8, data: &[u8], system_id: &str) -> Option<Vec<u8>>
         }
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_handle_qemu_command_version() {
+        let result = handle_qemu_command(0xFF, &[0x01], "test-system");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_handle_qemu_command_version_no_data() {
+        let result = handle_qemu_command(0xFF, &[], "test-system");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_handle_qemu_command_capabilities() {
+        let result = handle_qemu_command(0x08, &[0x01], "test-system");
+        assert!(result.is_some());
+        let response = result.unwrap();
+        assert_eq!(response, protocol::encode_noattn());
+    }
+
+    #[test]
+    fn test_handle_qemu_command_capabilities_no_data() {
+        let result = handle_qemu_command(0x08, &[], "test-system");
+        assert!(result.is_some());
+        let response = result.unwrap();
+        assert_eq!(response, protocol::encode_noattn());
+    }
+
+    #[test]
+    fn test_handle_qemu_command_unknown() {
+        let result = handle_qemu_command(0x42, &[0xAB, 0xCD], "test-system");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_chassis_action_equality() {
+        assert_eq!(ChassisAction::PowerOff, ChassisAction::PowerOff);
+        assert_eq!(ChassisAction::PowerOn, ChassisAction::PowerOn);
+        assert_eq!(ChassisAction::PowerCycle, ChassisAction::PowerCycle);
+        assert_eq!(ChassisAction::HardReset, ChassisAction::HardReset);
+        assert_eq!(ChassisAction::Pulse, ChassisAction::Pulse);
+        assert_eq!(ChassisAction::SoftShutdown, ChassisAction::SoftShutdown);
+        assert_ne!(ChassisAction::PowerOn, ChassisAction::PowerOff);
+    }
+}

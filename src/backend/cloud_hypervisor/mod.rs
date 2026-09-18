@@ -640,3 +640,344 @@ mod tests {
         assert!(ch.vhost_socket.is_none());
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+    use crate::backend::types as bt;
+
+    #[test]
+    fn test_cloud_hypervisor_backend_new() {
+        let mut sockets = std::collections::HashMap::new();
+        sockets.insert(
+            "vm1".to_string(),
+            std::path::PathBuf::from("/var/run/ch1.sock"),
+        );
+        sockets.insert(
+            "vm2".to_string(),
+            std::path::PathBuf::from("/var/run/ch2.sock"),
+        );
+
+        let backend = CloudHypervisorBackend::new(sockets.clone());
+        assert_eq!(backend.sockets.len(), 2);
+        assert_eq!(
+            backend.sockets.get("vm1").unwrap(),
+            &std::path::PathBuf::from("/var/run/ch1.sock")
+        );
+    }
+
+    #[test]
+    fn test_client_for_existing_system() {
+        let mut sockets = std::collections::HashMap::new();
+        sockets.insert("vm1".to_string(), std::path::PathBuf::from("/tmp/ch.sock"));
+        let backend = CloudHypervisorBackend::new(sockets);
+        let result = backend.client_for("vm1");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_client_for_missing_system() {
+        let backend = CloudHypervisorBackend::new(std::collections::HashMap::new());
+        let result = backend.client_for("nonexistent");
+        assert!(result.is_err());
+        match result {
+            Err(BackendError::VmNotFound) => {}
+            Err(other) => panic!("Expected VmNotFound, got: {other:?}"),
+            Ok(_) => panic!("Expected VmNotFound error, got Ok"),
+        }
+    }
+
+    #[test]
+    fn test_parse_response_success() {
+        let json = r#"{"state":"Running","config":{}}"#;
+        let result: Result<types::VmInfo, _> =
+            CloudHypervisorBackend::parse_response(StatusCode::OK, json.as_bytes());
+        assert!(result.is_ok());
+        let info = result.unwrap();
+        assert_eq!(info.state, "Running");
+    }
+
+    #[test]
+    fn test_parse_response_error_status() {
+        let msg = "VM not found";
+        let result: Result<types::VmInfo, _> =
+            CloudHypervisorBackend::parse_response(StatusCode::NOT_FOUND, msg.as_bytes());
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackendError::ApiError(err) => {
+                assert!(err.contains("404"));
+                assert!(err.contains("VM not found"));
+            }
+            other => panic!("Expected ApiError, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_response_invalid_json() {
+        let invalid = "not json at all";
+        let result: Result<types::VmInfo, _> =
+            CloudHypervisorBackend::parse_response(StatusCode::OK, invalid.as_bytes());
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackendError::ApiError(err) => {
+                assert!(err.contains("Failed to parse response"));
+            }
+            other => panic!("Expected ApiError, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_check_success_ok() {
+        let result = CloudHypervisorBackend::check_success(StatusCode::OK, b"");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_success_created() {
+        let result = CloudHypervisorBackend::check_success(StatusCode::CREATED, b"Created");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_success_no_content() {
+        let result = CloudHypervisorBackend::check_success(StatusCode::NO_CONTENT, b"");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_success_error() {
+        let result = CloudHypervisorBackend::check_success(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            b"Internal error",
+        );
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackendError::ApiError(err) => {
+                assert!(err.contains("500"));
+                assert!(err.contains("Internal error"));
+            }
+            other => panic!("Expected ApiError, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_ch_counters_empty() {
+        let json = serde_json::json!({});
+        let counters = parse_ch_counters(&json);
+        assert_eq!(counters.cpu_cycles.len(), 0);
+        assert_eq!(counters.instructions.len(), 0);
+        assert_eq!(counters.block_read_bytes, 0);
+        assert_eq!(counters.net_rx_bytes, 0);
+    }
+
+    #[test]
+    fn test_parse_ch_counters_cpu() {
+        let json = serde_json::json!({
+            "vcpu0": {"cpu_cycles": 1000000, "instructions": 500000},
+            "vcpu1": {"cpu_cycles": 2000000, "instructions": 1000000}
+        });
+        let counters = parse_ch_counters(&json);
+        assert_eq!(counters.cpu_cycles.len(), 2);
+        assert_eq!(counters.cpu_cycles[0], 1000000);
+        assert_eq!(counters.cpu_cycles[1], 2000000);
+        assert_eq!(counters.instructions[0], 500000);
+        assert_eq!(counters.instructions[1], 1000000);
+    }
+
+    #[test]
+    fn test_parse_ch_counters_block() {
+        let json = serde_json::json!({
+            "block_virtio0": {
+                "read_bytes": 1048576,
+                "write_bytes": 2097152,
+                "read_ops": 100,
+                "write_ops": 200
+            },
+            "block_virtio1": {
+                "read_bytes": 524288,
+                "write_bytes": 1048576,
+                "read_ops": 50,
+                "write_ops": 100
+            }
+        });
+        let counters = parse_ch_counters(&json);
+        assert_eq!(counters.block_read_bytes, 1048576 + 524288);
+        assert_eq!(counters.block_write_bytes, 2097152 + 1048576);
+        assert_eq!(counters.block_read_ops, 100 + 50);
+        assert_eq!(counters.block_write_ops, 200 + 100);
+    }
+
+    #[test]
+    fn test_parse_ch_counters_net() {
+        let json = serde_json::json!({
+            "net_virtio0": {
+                "rx_bytes": 1048576,
+                "tx_bytes": 2097152,
+                "rx_frames": 1000,
+                "tx_frames": 2000
+            },
+            "net_virtio1": {
+                "rx_bytes": 524288,
+                "tx_bytes": 1048576,
+                "rx_frames": 500,
+                "tx_frames": 1000
+            }
+        });
+        let counters = parse_ch_counters(&json);
+        assert_eq!(counters.net_rx_bytes, 1048576 + 524288);
+        assert_eq!(counters.net_tx_bytes, 2097152 + 1048576);
+        assert_eq!(counters.net_rx_frames, 1000 + 500);
+        assert_eq!(counters.net_tx_frames, 2000 + 1000);
+    }
+
+    #[test]
+    fn test_parse_ch_counters_mixed() {
+        let json = serde_json::json!({
+            "vcpu0": {"cpu_cycles": 1000000, "instructions": 500000},
+            "block_virtio0": {"read_bytes": 1048576, "write_bytes": 2097152},
+            "net_virtio0": {"rx_bytes": 524288, "tx_bytes": 1048576}
+        });
+        let counters = parse_ch_counters(&json);
+        assert_eq!(counters.cpu_cycles.len(), 1);
+        assert_eq!(counters.cpu_cycles[0], 1000000);
+        assert_eq!(counters.block_read_bytes, 1048576);
+        assert_eq!(counters.net_rx_bytes, 524288);
+    }
+
+    #[test]
+    fn test_parse_ch_counters_vcpu_non_sequential() {
+        // Test that vcpu indices are handled correctly
+        let json = serde_json::json!({
+            "vcpu2": {"cpu_cycles": 3000000, "instructions": 1500000}
+        });
+        let counters = parse_ch_counters(&json);
+        assert_eq!(counters.cpu_cycles.len(), 3);
+        assert_eq!(counters.cpu_cycles[0], 0);
+        assert_eq!(counters.cpu_cycles[1], 0);
+        assert_eq!(counters.cpu_cycles[2], 3000000);
+    }
+
+    #[test]
+    fn test_parse_ch_counters_invalid_vcpu_index() {
+        // Non-numeric vcpu suffix should be ignored
+        let json = serde_json::json!({
+            "vcpuXYZ": {"cpu_cycles": 1000000}
+        });
+        let counters = parse_ch_counters(&json);
+        assert_eq!(counters.cpu_cycles.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_ch_counters_not_object() {
+        // Non-object values should be skipped
+        let json = serde_json::json!({
+            "vcpu0": "not an object",
+            "block0": 12345
+        });
+        let counters = parse_ch_counters(&json);
+        assert_eq!(counters.cpu_cycles.len(), 0);
+        assert_eq!(counters.block_read_bytes, 0);
+    }
+
+    #[tokio::test]
+    async fn test_vm_set_secure_boot_succeeds() {
+        // CH backend returns Ok for secure boot (firmware-level setting)
+        let backend = CloudHypervisorBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_set_secure_boot("test", true).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_vm_serial_console_not_supported() {
+        let backend = CloudHypervisorBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_serial_console("test").await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackendError::NotSupported(msg) => {
+                assert!(msg.contains("serial console"));
+            }
+            other => panic!("Expected NotSupported, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_vm_insert_iso_not_supported() {
+        let backend = CloudHypervisorBackend::new(std::collections::HashMap::new());
+        let result = backend
+            .vm_insert_iso("test", "http://example.com/image.iso", "cd0")
+            .await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackendError::NotSupported(msg) => {
+                assert!(msg.contains("download path"));
+            }
+            other => panic!("Expected NotSupported, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_vm_eject_iso_not_supported() {
+        let backend = CloudHypervisorBackend::new(std::collections::HashMap::new());
+        let result = backend.vm_eject_iso("test", "cd0").await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackendError::NotSupported(msg) => {
+                assert!(msg.contains("vm_remove_device"));
+            }
+            other => panic!("Expected NotSupported, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_vm_create_config_to_ch_with_platform() {
+        let config = bt::VmCreateConfig {
+            platform: Some(bt::PlatformConfig {
+                num_pci_segments: Some(4),
+                iommu_segments: Some(vec![0, 1]),
+                serial_number: Some("SN12345".to_string()),
+                uuid: Some("550e8400-e29b-41d4-a716-446655440000".to_string()),
+                oem_strings: Some(vec!["OEM1".to_string(), "OEM2".to_string()]),
+            }),
+            ..Default::default()
+        };
+
+        let ch = vm_create_config_to_ch(config);
+        let platform = ch.platform.unwrap();
+        assert_eq!(platform.num_pci_segments, Some(4));
+        assert_eq!(platform.iommu_segments, Some(vec![0, 1]));
+        assert_eq!(platform.serial_number.as_deref(), Some("SN12345"));
+        assert_eq!(
+            platform.uuid.as_deref(),
+            Some("550e8400-e29b-41d4-a716-446655440000")
+        );
+        assert_eq!(
+            platform.oem_strings,
+            Some(vec!["OEM1".to_string(), "OEM2".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_ch_vm_info_to_vm_info_with_uuid() {
+        let ch_info = types::VmInfo {
+            config: types::VmConfig {
+                platform: Some(types::PlatformConfig {
+                    uuid: Some("12345678-1234-1234-1234-123456789012".to_string()),
+                    num_pci_segments: None,
+                    iommu_segments: None,
+                    serial_number: None,
+                    oem_strings: None,
+                }),
+                ..Default::default()
+            },
+            state: "Created".to_string(),
+            memory_actual_size: None,
+            device_tree: None,
+        };
+
+        let info = ch_vm_info_to_vm_info(ch_info);
+        assert_eq!(
+            info.uuid.as_deref(),
+            Some("12345678-1234-1234-1234-123456789012")
+        );
+    }
+}

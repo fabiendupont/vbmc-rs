@@ -255,3 +255,359 @@ pub async fn get_manager_log_entries(
         entries,
     )))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_log_service_serialization() {
+        let service = LogServiceResource {
+            odata_id: "/redfish/v1/Systems/vm1/LogServices/Console".to_string(),
+            odata_type: "#LogService.v1_5_0.LogService",
+            id: "Console".to_string(),
+            name: "Console Log".to_string(),
+            description: "Log service",
+            entries: ODataId::new("/redfish/v1/Systems/vm1/LogServices/Console/Entries"),
+            service_enabled: true,
+            overwrite_policy: "WrapsWhenFull",
+            max_number_of_records: 1000,
+            date_time: "2024-01-01T00:00:00Z".to_string(),
+            date_time_local_offset: "+00:00",
+            log_entry_type: "Event",
+            auto_dst_enabled: false,
+            syslog_filters: Vec::new(),
+            log_purposes: vec!["Diagnostic"],
+            overflow: false,
+            persistency: false,
+            status: Status::enabled_ok(),
+        };
+
+        let value = serde_json::to_value(&service).unwrap();
+
+        assert_eq!(
+            value["@odata.id"],
+            "/redfish/v1/Systems/vm1/LogServices/Console"
+        );
+        assert_eq!(value["@odata.type"], "#LogService.v1_5_0.LogService");
+        assert_eq!(value["Id"], "Console");
+        assert_eq!(value["Name"], "Console Log");
+        assert_eq!(
+            value["Entries"]["@odata.id"],
+            "/redfish/v1/Systems/vm1/LogServices/Console/Entries"
+        );
+        assert_eq!(value["ServiceEnabled"], true);
+        assert_eq!(value["OverWritePolicy"], "WrapsWhenFull");
+        assert_eq!(value["MaxNumberOfRecords"], 1000);
+        assert_eq!(value["DateTime"], "2024-01-01T00:00:00Z");
+        assert_eq!(value["DateTimeLocalOffset"], "+00:00");
+        assert_eq!(value["LogEntryType"], "Event");
+        assert_eq!(value["AutoDSTEnabled"], false);
+        assert_eq!(value["SyslogFilters"], serde_json::json!([]));
+        assert_eq!(value["LogPurposes"], serde_json::json!(["Diagnostic"]));
+        assert_eq!(value["Overflow"], false);
+        assert_eq!(value["Persistency"], false);
+    }
+
+    #[test]
+    fn test_log_service_with_multiple_purposes() {
+        let service = LogServiceResource {
+            odata_id: "/redfish/v1/Managers/vbmc/LogServices/Audit".to_string(),
+            odata_type: "#LogService.v1_5_0.LogService",
+            id: "Audit".to_string(),
+            name: "Audit Log".to_string(),
+            description: "Log service",
+            entries: ODataId::new("/redfish/v1/Managers/vbmc/LogServices/Audit/Entries"),
+            service_enabled: true,
+            overwrite_policy: "WrapsWhenFull",
+            max_number_of_records: 1000,
+            date_time: "2024-01-01T00:00:00Z".to_string(),
+            date_time_local_offset: "+00:00",
+            log_entry_type: "Event",
+            auto_dst_enabled: false,
+            syslog_filters: Vec::new(),
+            log_purposes: vec!["Security", "Diagnostic"],
+            overflow: false,
+            persistency: true,
+            status: Status::enabled_ok(),
+        };
+
+        let value = serde_json::to_value(&service).unwrap();
+
+        assert_eq!(
+            value["LogPurposes"],
+            serde_json::json!(["Security", "Diagnostic"])
+        );
+        assert_eq!(value["Persistency"], true);
+    }
+
+    #[test]
+    fn test_log_entry_serialization() {
+        let entry = LogEntryResource {
+            odata_id: "/redfish/v1/Managers/vbmc/LogServices/Audit/Entries/0".to_string(),
+            odata_type: "#LogEntry.v1_16_0.LogEntry",
+            id: "0".to_string(),
+            name: "Audit Entry 0".to_string(),
+            description: "Log entry",
+            entry_type: "Event",
+            message: "User logged in".to_string(),
+            created: Some("2024-01-01T00:00:00Z".to_string()),
+            severity: "OK",
+        };
+
+        let value = serde_json::to_value(&entry).unwrap();
+
+        assert_eq!(
+            value["@odata.id"],
+            "/redfish/v1/Managers/vbmc/LogServices/Audit/Entries/0"
+        );
+        assert_eq!(value["@odata.type"], "#LogEntry.v1_16_0.LogEntry");
+        assert_eq!(value["Id"], "0");
+        assert_eq!(value["Name"], "Audit Entry 0");
+        assert_eq!(value["EntryType"], "Event");
+        assert_eq!(value["Message"], "User logged in");
+        assert_eq!(value["Created"], "2024-01-01T00:00:00Z");
+        assert_eq!(value["Severity"], "OK");
+    }
+
+    #[test]
+    fn test_log_entry_without_created() {
+        let entry = LogEntryResource {
+            odata_id: "/redfish/v1/test/Entries/1".to_string(),
+            odata_type: "#LogEntry.v1_16_0.LogEntry",
+            id: "1".to_string(),
+            name: "Entry".to_string(),
+            description: "Log entry",
+            entry_type: "Event",
+            message: "Test message".to_string(),
+            created: None,
+            severity: "Warning",
+        };
+
+        let value = serde_json::to_value(&entry).unwrap();
+
+        assert_eq!(value["Message"], "Test message");
+        assert_eq!(value["Severity"], "Warning");
+        // Created should be absent when None
+        assert!(value.get("Created").is_none());
+    }
+}
+
+#[cfg(test)]
+mod harness_tests {
+    use crate::redfish::test_harness as h;
+    use axum::http::StatusCode;
+    use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn test_get_system_log_services_collection() {
+        let systems = h::systems_with("sys");
+        let app = h::router_with_systems(systems);
+
+        let (status, json, _) = h::get(&app, "/redfish/v1/Systems/sys/LogServices").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["@odata.id"], "/redfish/v1/Systems/sys/LogServices");
+        assert_eq!(
+            json["@odata.type"],
+            "#LogServiceCollection.LogServiceCollection"
+        );
+        assert_eq!(json["Members@odata.count"], 1);
+        assert_eq!(
+            json["Members"][0]["@odata.id"],
+            "/redfish/v1/Systems/sys/LogServices/Console"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_system_log_services_unknown_system() {
+        let systems = h::systems_with("sys");
+        let app = h::router_with_systems(systems);
+
+        let (status, json, _) = h::get(&app, "/redfish/v1/Systems/unknown/LogServices").await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            json["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_system_log_service() {
+        let systems = h::systems_with("sys");
+        let app = h::router_with_systems(systems);
+
+        let (status, json, _) = h::get(&app, "/redfish/v1/Systems/sys/LogServices/Console").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            json["@odata.id"],
+            "/redfish/v1/Systems/sys/LogServices/Console"
+        );
+        assert_eq!(json["@odata.type"], "#LogService.v1_5_0.LogService");
+        assert_eq!(json["Id"], "Console");
+        assert_eq!(json["Name"], "Console Log");
+        assert_eq!(json["ServiceEnabled"], true);
+        assert_eq!(json["OverWritePolicy"], "WrapsWhenFull");
+        assert_eq!(json["MaxNumberOfRecords"], 1000);
+        assert_eq!(
+            json["Entries"]["@odata.id"],
+            "/redfish/v1/Systems/sys/LogServices/Console/Entries"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_system_log_service_unknown_log_id() {
+        let systems = h::systems_with("sys");
+        let app = h::router_with_systems(systems);
+
+        let (status, json, _) = h::get(&app, "/redfish/v1/Systems/sys/LogServices/Unknown").await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            json["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_system_log_entries() {
+        let systems = h::systems_with("sys");
+        let app = h::router_with_systems(systems);
+
+        let (status, json, _) =
+            h::get(&app, "/redfish/v1/Systems/sys/LogServices/Console/Entries").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            json["@odata.id"],
+            "/redfish/v1/Systems/sys/LogServices/Console/Entries"
+        );
+        assert_eq!(
+            json["@odata.type"],
+            "#LogEntryCollection.LogEntryCollection"
+        );
+        // Console entries are empty (would come from serial console)
+        assert_eq!(json["Members@odata.count"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_system_log_entries_unknown_system() {
+        let systems = h::systems_with("sys");
+        let app = h::router_with_systems(systems);
+
+        let (status, json, _) = h::get(
+            &app,
+            "/redfish/v1/Systems/unknown/LogServices/Console/Entries",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            json["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_manager_log_services() {
+        let app = h::router_with_systems(HashMap::new());
+
+        let (status, json, _) = h::get(&app, "/redfish/v1/Managers/vbmc/LogServices").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["@odata.id"], "/redfish/v1/Managers/vbmc/LogServices");
+        assert_eq!(
+            json["@odata.type"],
+            "#LogServiceCollection.LogServiceCollection"
+        );
+        assert_eq!(json["Members@odata.count"], 1);
+        assert_eq!(
+            json["Members"][0]["@odata.id"],
+            "/redfish/v1/Managers/vbmc/LogServices/Audit"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_manager_log_service() {
+        let app = h::router_with_systems(HashMap::new());
+
+        let (status, json, _) = h::get(&app, "/redfish/v1/Managers/vbmc/LogServices/Audit").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            json["@odata.id"],
+            "/redfish/v1/Managers/vbmc/LogServices/Audit"
+        );
+        assert_eq!(json["@odata.type"], "#LogService.v1_5_0.LogService");
+        assert_eq!(json["Id"], "Audit");
+        assert_eq!(json["Name"], "Audit Log");
+        assert_eq!(json["ServiceEnabled"], true);
+        assert_eq!(json["Persistency"], true);
+        assert_eq!(
+            json["LogPurposes"],
+            serde_json::json!(["Security", "Diagnostic"])
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_manager_log_service_unknown_log_id() {
+        let app = h::router_with_systems(HashMap::new());
+
+        let (status, json, _) = h::get(&app, "/redfish/v1/Managers/vbmc/LogServices/Unknown").await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            json["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_manager_log_entries() {
+        let app = h::router_with_systems(HashMap::new());
+
+        let (status, json, _) =
+            h::get(&app, "/redfish/v1/Managers/vbmc/LogServices/Audit/Entries").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            json["@odata.id"],
+            "/redfish/v1/Managers/vbmc/LogServices/Audit/Entries"
+        );
+        assert_eq!(
+            json["@odata.type"],
+            "#LogEntryCollection.LogEntryCollection"
+        );
+        // Entries will be empty if no audit.jsonl file exists
+        assert!(json["Members@odata.count"].as_u64().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_get_manager_log_entries_unknown_log_id() {
+        let app = h::router_with_systems(HashMap::new());
+
+        let (status, json, _) = h::get(
+            &app,
+            "/redfish/v1/Managers/vbmc/LogServices/Unknown/Entries",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            json["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("not found")
+        );
+    }
+}

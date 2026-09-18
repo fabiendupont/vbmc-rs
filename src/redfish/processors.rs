@@ -378,3 +378,266 @@ fn get_host_cpu_manufacturer() -> String {
         })
         .unwrap_or_else(|| "Unknown".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_processor_serialization() {
+        let proc = Processor {
+            odata_id: "/redfish/v1/Systems/vm1/Processors/CPU0".to_string(),
+            odata_type: "#Processor.v1_18_0.Processor",
+            id: "CPU0",
+            name: "Virtual CPU",
+            description: "Virtual CPU",
+            processor_type: "CPU",
+            total_cores: 4,
+            total_threads: 8,
+            total_enabled_cores: 4,
+            instruction_set: "x86-64",
+            manufacturer: "Intel".to_string(),
+            model: "Xeon".to_string(),
+            socket: "CPU0",
+            processor_architecture: "x86",
+            max_speed_mhz: 3000,
+            base_speed_mhz: 3000,
+            operating_speed_mhz: 3000,
+            max_tdp_watts: 125,
+            tdp_watts: 125,
+            serial_number: "VBMC-CPU-vm1".to_string(),
+            part_number: "VBMC-CPU",
+            firmware_version: "N/A",
+            enabled: true,
+            power_state: "On",
+            turbo_state: "Disabled",
+            throttled: false,
+            uuid: "test-uuid".to_string(),
+            family: "Xeon",
+            version: "v1".to_string(),
+            processor_index: 0,
+            min_speed_mhz: 800,
+            spare_part_number: "VBMC-CPU-SPARE",
+            base_speed_priority_state: "Disabled",
+            high_speed_core_ids: vec![1, 2],
+            additional_firmware_versions: AdditionalFirmwareVersions {
+                bootloader: "",
+                microcode: "0x00000000",
+            },
+            proc_memory_summary: ProcMemorySummary {
+                total_cache_size_mib: 0,
+                total_memory_size_mib: 0,
+            },
+            replaceable: false,
+            speed_limit_mhz: 3000,
+            speed_locked: false,
+            throttle_causes: vec!["Thermal"],
+            location_indicator_active: false,
+            operating_speed_range_mhz: SpeedRange {
+                allowable_min: 800,
+                allowable_max: 3000,
+                allowable_numeric_values: vec![],
+                reading: 3000,
+                reading_units: "MHz",
+                control_mode: "Automatic",
+                data_source_uri: None,
+                setting_min: 800,
+                setting_max: 3000,
+            },
+            metrics: ODataId::new(
+                "/redfish/v1/Systems/vm1/Processors/CPU0/ProcessorMetrics".to_string(),
+            ),
+            proc_links: ProcessorLinks {
+                chassis: ODataId::new("/redfish/v1/Chassis/1".to_string()),
+                memory: vec![ODataId::new(
+                    "/redfish/v1/Systems/vm1/Memory/DIMM0".to_string(),
+                )],
+                endpoints: Vec::new(),
+                connected_processors: Vec::new(),
+                fabric_adapters: Vec::new(),
+                graphics_controller: None,
+                network_device_functions: Vec::new(),
+                pcie_device: None,
+                pcie_functions: Vec::new(),
+            },
+            location: super::super::types::RedfishLocation::new("CPU0", "Socket", 0),
+            assembly: ODataId::new("/redfish/v1/Systems/vm1/Processors/CPU0/Assembly".to_string()),
+            processor_id: ProcessorIdInfo {
+                vendor_id: "Intel".to_string(),
+                identification_registers: "0x00000000",
+                effective_family: "0x06",
+                effective_model: "0x3E",
+                step: "0x04",
+                microcode_info: "0x00000000",
+                protected_identification_number: "0",
+            },
+            status: Status::enabled_ok(),
+        };
+
+        let json = serde_json::to_value(&proc).unwrap();
+        assert_eq!(json["@odata.id"], "/redfish/v1/Systems/vm1/Processors/CPU0");
+        assert_eq!(json["@odata.type"], "#Processor.v1_18_0.Processor");
+        assert_eq!(json["Id"], "CPU0");
+        assert_eq!(json["TotalCores"], 4);
+        assert_eq!(json["TotalThreads"], 8);
+        assert_eq!(json["MaxSpeedMHz"], 3000);
+        assert_eq!(json["HighSpeedCoreIDs"][0], 1);
+        assert_eq!(json["HighSpeedCoreIDs"][1], 2);
+    }
+
+    #[test]
+    fn test_speed_range_serialization() {
+        let range = SpeedRange {
+            allowable_min: 800,
+            allowable_max: 3000,
+            allowable_numeric_values: vec![800, 1600, 2400, 3000],
+            reading: 3000,
+            reading_units: "MHz",
+            control_mode: "Automatic",
+            data_source_uri: Some("/test/uri"),
+            setting_min: 800,
+            setting_max: 3000,
+        };
+
+        let json = serde_json::to_value(&range).unwrap();
+        assert_eq!(json["AllowableMin"], 800);
+        assert_eq!(json["AllowableMax"], 3000);
+        assert_eq!(json["Reading"], 3000);
+        assert_eq!(json["ReadingUnits"], "MHz");
+        assert_eq!(json["ControlMode"], "Automatic");
+        assert_eq!(json["DataSourceUri"], "/test/uri");
+        assert_eq!(json["SettingMin"], 800);
+        assert_eq!(json["SettingMax"], 3000);
+    }
+
+    #[test]
+    fn test_speed_range_skip_serializing_if_none() {
+        let range = SpeedRange {
+            allowable_min: 800,
+            allowable_max: 3000,
+            allowable_numeric_values: vec![],
+            reading: 3000,
+            reading_units: "MHz",
+            control_mode: "Automatic",
+            data_source_uri: None,
+            setting_min: 800,
+            setting_max: 3000,
+        };
+
+        let json = serde_json::to_value(&range).unwrap();
+        assert!(!json.as_object().unwrap().contains_key("DataSourceUri"));
+    }
+
+    #[test]
+    fn test_additional_firmware_versions_serialization() {
+        let fw = AdditionalFirmwareVersions {
+            bootloader: "v1.2.3",
+            microcode: "0xABCDEF",
+        };
+
+        let json = serde_json::to_value(&fw).unwrap();
+        assert_eq!(json["Bootloader"], "v1.2.3");
+        assert_eq!(json["Microcode"], "0xABCDEF");
+    }
+
+    #[test]
+    fn test_additional_firmware_versions_skip_empty() {
+        let fw = AdditionalFirmwareVersions {
+            bootloader: "",
+            microcode: "0x00000000",
+        };
+
+        let json = serde_json::to_value(&fw).unwrap();
+        assert!(!json.as_object().unwrap().contains_key("Bootloader"));
+        assert_eq!(json["Microcode"], "0x00000000");
+    }
+
+    #[test]
+    fn test_proc_memory_summary_serialization() {
+        let summary = ProcMemorySummary {
+            total_cache_size_mib: 64,
+            total_memory_size_mib: 4096,
+        };
+
+        let json = serde_json::to_value(&summary).unwrap();
+        assert_eq!(json["TotalCacheSizeMiB"], 64);
+        assert_eq!(json["TotalMemorySizeMiB"], 4096);
+    }
+
+    #[test]
+    fn test_processor_links_serialization() {
+        let links = ProcessorLinks {
+            chassis: ODataId::new("/redfish/v1/Chassis/1".to_string()),
+            memory: vec![ODataId::new(
+                "/redfish/v1/Systems/vm1/Memory/DIMM0".to_string(),
+            )],
+            endpoints: vec![],
+            connected_processors: vec![],
+            fabric_adapters: vec![],
+            graphics_controller: Some(ODataId::new(
+                "/redfish/v1/Chassis/1/Controllers/GPU0".to_string(),
+            )),
+            network_device_functions: vec![],
+            pcie_device: Some(ODataId::new(
+                "/redfish/v1/Systems/vm1/PCIeDevices/dev0".to_string(),
+            )),
+            pcie_functions: vec![],
+        };
+
+        let json = serde_json::to_value(&links).unwrap();
+        assert_eq!(json["Chassis"]["@odata.id"], "/redfish/v1/Chassis/1");
+        assert_eq!(
+            json["Memory"][0]["@odata.id"],
+            "/redfish/v1/Systems/vm1/Memory/DIMM0"
+        );
+        assert_eq!(
+            json["GraphicsController"]["@odata.id"],
+            "/redfish/v1/Chassis/1/Controllers/GPU0"
+        );
+        assert_eq!(
+            json["PCIeDevice"]["@odata.id"],
+            "/redfish/v1/Systems/vm1/PCIeDevices/dev0"
+        );
+    }
+
+    #[test]
+    fn test_processor_links_skip_none() {
+        let links = ProcessorLinks {
+            chassis: ODataId::new("/redfish/v1/Chassis/1".to_string()),
+            memory: vec![],
+            endpoints: vec![],
+            connected_processors: vec![],
+            fabric_adapters: vec![],
+            graphics_controller: None,
+            network_device_functions: vec![],
+            pcie_device: None,
+            pcie_functions: vec![],
+        };
+
+        let json = serde_json::to_value(&links).unwrap();
+        assert!(!json.as_object().unwrap().contains_key("GraphicsController"));
+        assert!(!json.as_object().unwrap().contains_key("PCIeDevice"));
+    }
+
+    #[test]
+    fn test_processor_id_info_serialization() {
+        let proc_id = ProcessorIdInfo {
+            vendor_id: "GenuineIntel".to_string(),
+            identification_registers: "0x12345678",
+            effective_family: "0x06",
+            effective_model: "0x3E",
+            step: "0x04",
+            microcode_info: "0xABCDEF01",
+            protected_identification_number: "123",
+        };
+
+        let json = serde_json::to_value(&proc_id).unwrap();
+        assert_eq!(json["VendorId"], "GenuineIntel");
+        assert_eq!(json["IdentificationRegisters"], "0x12345678");
+        assert_eq!(json["EffectiveFamily"], "0x06");
+        assert_eq!(json["EffectiveModel"], "0x3E");
+        assert_eq!(json["Step"], "0x04");
+        assert_eq!(json["MicrocodeInfo"], "0xABCDEF01");
+        assert_eq!(json["ProtectedIdentificationNumber"], "123");
+    }
+}

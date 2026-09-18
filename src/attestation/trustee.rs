@@ -186,3 +186,149 @@ mod tests {
         assert!(measurements.is_empty());
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_trustee_client_new() {
+        let _client = TrusteeClient::new("http://trustee.example.com:8080");
+        // Constructor succeeds; base_url is private so cannot assert on it
+    }
+
+    #[test]
+    fn test_parse_jwt_claims_with_all_config_types() {
+        let claims = serde_json::json!({
+            "tcb_status": "UpToDate",
+            "configuration": "sev-snp",
+            "platform_config": {"nested": "value"},
+            "guest_config": "guest-specific",
+            "fw_config": "edk2-stable"
+        });
+        let token = make_test_jwt(&claims);
+        let measurements = parse_jwt_claims(&token);
+
+        assert_eq!(measurements.len(), 5);
+        assert_eq!(measurements[0].measurement_type, "ImmutableROM");
+        assert_eq!(measurements[1].measurement_type, "HardwareConfiguration");
+        assert_eq!(measurements[2].measurement_type, "HardwareConfiguration");
+        assert_eq!(measurements[3].measurement_type, "HardwareConfiguration");
+        assert_eq!(measurements[4].measurement_type, "FirmwareConfiguration");
+    }
+
+    #[test]
+    fn test_parse_jwt_claims_with_only_launch_measurement() {
+        let claims = serde_json::json!({
+            "launch_measurement": "0123456789abcdef"
+        });
+        let token = make_test_jwt(&claims);
+        let measurements = parse_jwt_claims(&token);
+
+        assert_eq!(measurements.len(), 1);
+        assert_eq!(measurements[0].measurement_type, "ImmutableROM");
+        assert_eq!(measurements[0].index, 0);
+    }
+
+    #[test]
+    fn test_parse_jwt_claims_with_platform_config_object() {
+        let claims = serde_json::json!({
+            "platform_config": {
+                "cpu": "AMD",
+                "memory": "16GB"
+            }
+        });
+        let token = make_test_jwt(&claims);
+        let measurements = parse_jwt_claims(&token);
+
+        assert_eq!(measurements.len(), 1);
+        assert_eq!(measurements[0].measurement_type, "HardwareConfiguration");
+        // Should encode the JSON object as string
+        assert!(!measurements[0].measurement.is_empty());
+    }
+
+    #[test]
+    fn test_parse_jwt_claims_incremental_indices() {
+        let claims = serde_json::json!({
+            "tcb_status": "UpToDate",
+            "launch_measurement": "abc",
+            "configuration": "cfg",
+            "fw_config": "fw"
+        });
+        let token = make_test_jwt(&claims);
+        let measurements = parse_jwt_claims(&token);
+
+        assert_eq!(measurements.len(), 4);
+        assert_eq!(measurements[0].index, 0); // tcb_status
+        assert_eq!(measurements[1].index, 1); // launch_measurement
+        assert_eq!(measurements[2].index, 2); // configuration
+        assert_eq!(measurements[3].index, 3); // fw_config
+    }
+
+    #[test]
+    fn test_parse_jwt_claims_all_have_timestamps() {
+        let claims = serde_json::json!({
+            "tcb_status": "UpToDate",
+            "configuration": "test"
+        });
+        let token = make_test_jwt(&claims);
+        let measurements = parse_jwt_claims(&token);
+
+        for m in &measurements {
+            assert!(m.last_updated.is_some());
+            assert!(m.last_updated.as_ref().unwrap().contains("T"));
+        }
+    }
+
+    #[test]
+    fn test_parse_jwt_claims_malformed_base64() {
+        // Invalid base64 in payload section
+        let token = "header.!!!not-base64.signature"; // gitleaks:allow
+        let measurements = parse_jwt_claims(token);
+        assert!(measurements.is_empty());
+    }
+
+    #[test]
+    fn test_parse_jwt_claims_non_json_payload() {
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"not json data");
+        let token = format!("header.{}.signature", payload);
+        let measurements = parse_jwt_claims(&token);
+        assert!(measurements.is_empty());
+    }
+
+    #[test]
+    fn test_parse_jwt_claims_hash_algorithm_is_sha256() {
+        let claims = serde_json::json!({
+            "tcb_status": "UpToDate"
+        });
+        let token = make_test_jwt(&claims);
+        let measurements = parse_jwt_claims(&token);
+
+        for m in &measurements {
+            assert_eq!(m.hash_algorithm, "SHA-256");
+        }
+    }
+
+    #[test]
+    fn test_parse_jwt_claims_none_part_of_summary() {
+        let claims = serde_json::json!({
+            "tcb_status": "UpToDate",
+            "configuration": "test"
+        });
+        let token = make_test_jwt(&claims);
+        let measurements = parse_jwt_claims(&token);
+
+        for m in &measurements {
+            assert!(!m.part_of_summary);
+        }
+    }
+
+    fn make_test_jwt(claims: &serde_json::Value) -> String {
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(b"{\"alg\":\"RS256\",\"typ\":\"JWT\"}");
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(claims).unwrap());
+        let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"fake-signature");
+        format!("{header}.{payload}.{signature}")
+    }
+}

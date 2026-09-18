@@ -198,3 +198,234 @@ pub async fn replace_certificate(
         "message": "Certificate replaced successfully"
     })))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_certificate_service_serialization() {
+        let service = CertificateServiceResource {
+            odata_id: "/redfish/v1/CertificateService",
+            odata_type: "#CertificateService.v1_0_5.CertificateService",
+            id: "CertificateService",
+            name: "Certificate Service",
+            description: "Certificate management service",
+            certificate_locations: ODataId::new("/redfish/v1/CertificateService/CertificateLocations"),
+            actions: CertificateActions {
+                generate_csr: ActionTarget {
+                    target: "/redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR"
+                        .to_string(),
+                },
+                replace_certificate: ActionTarget {
+                    target:
+                        "/redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate"
+                            .to_string(),
+                },
+            },
+        };
+
+        let value = serde_json::to_value(&service).unwrap();
+
+        assert_eq!(value["@odata.id"], "/redfish/v1/CertificateService");
+        assert_eq!(
+            value["@odata.type"],
+            "#CertificateService.v1_0_5.CertificateService"
+        );
+        assert_eq!(value["Id"], "CertificateService");
+        assert_eq!(value["Name"], "Certificate Service");
+        assert_eq!(
+            value["CertificateLocations"]["@odata.id"],
+            "/redfish/v1/CertificateService/CertificateLocations"
+        );
+        assert_eq!(
+            value["Actions"]["#CertificateService.GenerateCSR"]["target"],
+            "/redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR"
+        );
+        assert_eq!(
+            value["Actions"]["#CertificateService.ReplaceCertificate"]["target"],
+            "/redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate"
+        );
+    }
+
+    #[test]
+    fn test_action_target_serialization() {
+        let action = ActionTarget {
+            target: "/redfish/v1/test/action".to_string(),
+        };
+
+        let value = serde_json::to_value(&action).unwrap();
+        assert_eq!(value["target"], "/redfish/v1/test/action");
+    }
+
+    #[test]
+    fn test_certificate_actions_serialization() {
+        let actions = CertificateActions {
+            generate_csr: ActionTarget {
+                target: "/redfish/v1/test/csr".to_string(),
+            },
+            replace_certificate: ActionTarget {
+                target: "/redfish/v1/test/replace".to_string(),
+            },
+        };
+
+        let value = serde_json::to_value(&actions).unwrap();
+        assert_eq!(
+            value["#CertificateService.GenerateCSR"]["target"],
+            "/redfish/v1/test/csr"
+        );
+        assert_eq!(
+            value["#CertificateService.ReplaceCertificate"]["target"],
+            "/redfish/v1/test/replace"
+        );
+    }
+
+    #[test]
+    fn test_generate_csr_response_serialization() {
+        let response = GenerateCSRResponse {
+            csr_string:
+                "-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----"
+                    .to_string(),
+        };
+
+        let value = serde_json::to_value(&response).unwrap();
+        assert_eq!(
+            value["CSRString"],
+            "-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----"
+        );
+    }
+
+    #[test]
+    fn test_generate_csr_request_deserialization() {
+        let json = serde_json::json!({
+            "CommonName": "test.example.com",
+            "Organization": "Test Org",
+            "Country": "US"
+        });
+
+        let request: GenerateCSRRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(request.common_name, "test.example.com");
+        assert_eq!(request.organization, Some("Test Org".to_string()));
+        assert_eq!(request.country, Some("US".to_string()));
+        assert_eq!(request.organizational_unit, None);
+    }
+
+    #[test]
+    fn test_generate_csr_request_with_optional_fields() {
+        let json = serde_json::json!({
+            "CommonName": "test.example.com"
+        });
+
+        let request: GenerateCSRRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(request.common_name, "test.example.com");
+        assert_eq!(request.organization, None);
+        assert_eq!(request.alternative_names, Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_replace_certificate_request_deserialization() {
+        let json = serde_json::json!({
+            "CertificateString": "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+            "CertificateType": "PEM"
+        });
+
+        let request: ReplaceCertificateRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            request.certificate_string,
+            "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"
+        );
+        assert_eq!(request.certificate_type, "PEM");
+    }
+}
+
+#[cfg(test)]
+mod harness_tests {
+    use crate::backend::mock::MockBackend;
+    use crate::redfish::test_harness as h;
+    use axum::http::{Method, StatusCode};
+    use std::collections::HashMap;
+
+    // Auth is disabled by default, so the AuthenticatedUser extractor yields an
+    // anonymous Administrator — which holds every privilege, letting these
+    // ConfigureManager-guarded handlers reach their bodies.
+
+    #[tokio::test]
+    async fn test_get_certificate_service() {
+        let app = h::router(h::app_state(MockBackend::new(), HashMap::new()));
+        let (status, json, _) = h::get(&app, "/redfish/v1/CertificateService").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["Id"], "CertificateService");
+        assert_eq!(
+            json["Actions"]["#CertificateService.GenerateCSR"]["target"],
+            "/redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_certificate_locations() {
+        let app = h::router(h::app_state(MockBackend::new(), HashMap::new()));
+        let (status, json, _) =
+            h::get(&app, "/redfish/v1/CertificateService/CertificateLocations").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["Id"], "CertificateLocations");
+    }
+
+    #[tokio::test]
+    async fn test_generate_csr_success() {
+        let app = h::router(h::app_state(MockBackend::new(), HashMap::new()));
+        let body = serde_json::json!({
+            "CommonName": "bmc.example.com",
+            "Organization": "Example",
+            "Country": "US"
+        });
+        let (status, json, _) = h::request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR",
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            json["CSRString"]
+                .as_str()
+                .unwrap()
+                .contains("CERTIFICATE REQUEST")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_replace_certificate_no_tls_configured() {
+        let app = h::router(h::app_state(MockBackend::new(), HashMap::new()));
+        let body = serde_json::json!({
+            "CertificateString": "-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----",
+            "CertificateType": "PEM"
+        });
+        let (status, _, _) = h::request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate",
+            body,
+        )
+        .await;
+        // TLS is not configured in the test harness -> BadRequest.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_replace_certificate_bad_type() {
+        let app = h::router(h::app_state(MockBackend::new(), HashMap::new()));
+        let body = serde_json::json!({
+            "CertificateString": "x",
+            "CertificateType": "DER"
+        });
+        let (status, _, _) = h::request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate",
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+}

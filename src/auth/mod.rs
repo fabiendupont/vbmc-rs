@@ -131,3 +131,274 @@ impl FromRequestParts<Arc<AppState>> for AuthenticatedUser {
         Err(AuthError)
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+    use crate::app_state::AppState;
+    use crate::auth::accounts::AccountStore;
+    use crate::backend::Backend;
+    use crate::backend::mock::MockBackend;
+    use crate::redfish::test_harness::{systems_with, test_config};
+    use axum::Router;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use axum::response::Json;
+    use axum::routing::get;
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    async fn test_handler(user: AuthenticatedUser) -> Json<serde_json::Value> {
+        Json(json!({
+            "username": user.username,
+            "role": user.role
+        }))
+    }
+
+    fn make_auth_app_state(auth_enabled: bool) -> Arc<AppState> {
+        let mut config = test_config(systems_with("vm1"));
+        config.auth.enabled = auth_enabled;
+
+        let mut account_store = AccountStore::default();
+        if auth_enabled {
+            account_store
+                .add_account("admin", "password123", "Administrator")
+                .unwrap();
+            account_store
+                .add_account("readonly", "readonly123", "ReadOnly")
+                .unwrap();
+        }
+
+        Arc::new(AppState::new(
+            config,
+            Backend::Mock(MockBackend::new()),
+            account_store,
+            None,
+            None,
+        ))
+    }
+
+    #[tokio::test]
+    async fn test_auth_disabled_returns_anonymous_administrator() {
+        let state = make_auth_app_state(false);
+        let app = Router::new()
+            .route("/test", get(test_handler))
+            .with_state(state);
+
+        let req = Request::builder().uri("/test").body(Body::empty()).unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+        assert_eq!(body["username"], "anonymous");
+        assert_eq!(body["role"], "Administrator");
+    }
+
+    #[tokio::test]
+    async fn test_auth_enabled_valid_basic_auth() {
+        let state = make_auth_app_state(true);
+        let app = Router::new()
+            .route("/test", get(test_handler))
+            .with_state(state);
+
+        let credentials = "admin:password123";
+        let encoded = BASE64.encode(credentials.as_bytes());
+
+        let req = Request::builder()
+            .uri("/test")
+            .header("Authorization", format!("Basic {}", encoded))
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+        assert_eq!(body["username"], "admin");
+        assert_eq!(body["role"], "Administrator");
+    }
+
+    #[tokio::test]
+    async fn test_auth_enabled_invalid_basic_auth() {
+        let state = make_auth_app_state(true);
+        let app = Router::new()
+            .route("/test", get(test_handler))
+            .with_state(state);
+
+        let credentials = "admin:wrongpassword";
+        let encoded = BASE64.encode(credentials.as_bytes());
+
+        let req = Request::builder()
+            .uri("/test")
+            .header("Authorization", format!("Basic {}", encoded))
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_auth_enabled_no_credentials() {
+        let state = make_auth_app_state(true);
+        let app = Router::new()
+            .route("/test", get(test_handler))
+            .with_state(state);
+
+        let req = Request::builder().uri("/test").body(Body::empty()).unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_auth_enabled_valid_token() {
+        let state = make_auth_app_state(true);
+
+        let session = state
+            .session_store
+            .create_session("admin", "Administrator")
+            .unwrap();
+
+        let app = Router::new()
+            .route("/test", get(test_handler))
+            .with_state(state);
+
+        let req = Request::builder()
+            .uri("/test")
+            .header("X-Auth-Token", &session.token)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+        assert_eq!(body["username"], "admin");
+        assert_eq!(body["role"], "Administrator");
+    }
+
+    #[tokio::test]
+    async fn test_auth_enabled_invalid_token() {
+        let state = make_auth_app_state(true);
+        let app = Router::new()
+            .route("/test", get(test_handler))
+            .with_state(state);
+
+        let req = Request::builder()
+            .uri("/test")
+            .header("X-Auth-Token", "invalid-token-12345")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_auth_error_into_response() {
+        let error = AuthError;
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_readonly_user_role() {
+        let state = make_auth_app_state(true);
+        let app = Router::new()
+            .route("/test", get(test_handler))
+            .with_state(state);
+
+        let credentials = "readonly:readonly123";
+        let encoded = BASE64.encode(credentials.as_bytes());
+
+        let req = Request::builder()
+            .uri("/test")
+            .header("Authorization", format!("Basic {}", encoded))
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+        assert_eq!(body["username"], "readonly");
+        assert_eq!(body["role"], "ReadOnly");
+    }
+
+    #[tokio::test]
+    async fn test_malformed_basic_auth_header() {
+        let state = make_auth_app_state(true);
+        let app = Router::new()
+            .route("/test", get(test_handler))
+            .with_state(state);
+
+        let req = Request::builder()
+            .uri("/test")
+            .header("Authorization", "Basic not-base64-!!!!")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_basic_auth_without_colon() {
+        let state = make_auth_app_state(true);
+        let app = Router::new()
+            .route("/test", get(test_handler))
+            .with_state(state);
+
+        let credentials = "usernameonly";
+        let encoded = BASE64.encode(credentials.as_bytes());
+
+        let req = Request::builder()
+            .uri("/test")
+            .header("Authorization", format!("Basic {}", encoded))
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_nonexistent_user() {
+        let state = make_auth_app_state(true);
+        let app = Router::new()
+            .route("/test", get(test_handler))
+            .with_state(state);
+
+        let credentials = "nonexistent:password";
+        let encoded = BASE64.encode(credentials.as_bytes());
+
+        let req = Request::builder()
+            .uri("/test")
+            .header("Authorization", format!("Basic {}", encoded))
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+}

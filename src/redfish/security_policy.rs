@@ -124,3 +124,147 @@ pub async fn patch_security_policy(
         },
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_security_policy_resource_serialization() {
+        let policy = SecurityPolicyResource {
+            odata_id: "/redfish/v1/SecurityPolicy",
+            odata_type: "#SecurityPolicy.v1_0_0.SecurityPolicy",
+            id: "SecurityPolicy",
+            name: "Security Policy",
+            description: "Security policy configuration",
+            spdm: SpdmPolicy { enabled: true },
+            tls: TlsPolicy {
+                minimum_version: Some("TLS_1_2".to_string()),
+            },
+        };
+
+        let json = serde_json::to_value(&policy).unwrap();
+        assert_eq!(json["@odata.id"], "/redfish/v1/SecurityPolicy");
+        assert_eq!(json["@odata.type"], "#SecurityPolicy.v1_0_0.SecurityPolicy");
+        assert_eq!(json["Id"], "SecurityPolicy");
+        assert_eq!(json["Name"], "Security Policy");
+        assert_eq!(json["Description"], "Security policy configuration");
+        assert_eq!(json["SPDM"]["Enabled"], true);
+        assert_eq!(json["TLS"]["MinimumVersion"], "TLS_1_2");
+    }
+
+    #[test]
+    fn test_spdm_policy_serialization() {
+        let spdm_enabled = SpdmPolicy { enabled: true };
+        let json_enabled = serde_json::to_value(&spdm_enabled).unwrap();
+        assert_eq!(json_enabled["Enabled"], true);
+
+        let spdm_disabled = SpdmPolicy { enabled: false };
+        let json_disabled = serde_json::to_value(&spdm_disabled).unwrap();
+        assert_eq!(json_disabled["Enabled"], false);
+    }
+
+    #[test]
+    fn test_tls_policy_serialization_with_version() {
+        let tls = TlsPolicy {
+            minimum_version: Some("TLS_1_3".to_string()),
+        };
+
+        let json = serde_json::to_value(&tls).unwrap();
+        assert_eq!(json["MinimumVersion"], "TLS_1_3");
+    }
+
+    #[test]
+    fn test_tls_policy_serialization_without_version() {
+        let tls = TlsPolicy {
+            minimum_version: None,
+        };
+
+        let json = serde_json::to_value(&tls).unwrap();
+        // MinimumVersion should be absent when None
+        assert!(!json.as_object().unwrap().contains_key("MinimumVersion"));
+    }
+
+    #[test]
+    fn test_patch_security_policy_request_deserialization_full() {
+        let json_str = r#"{
+            "SPDM": {
+                "Enabled": true
+            },
+            "TLS": {
+                "MinimumVersion": "TLS_1_3"
+            }
+        }"#;
+
+        let request: PatchSecurityPolicyRequest = serde_json::from_str(json_str).unwrap();
+        assert!(request.spdm.is_some());
+        assert_eq!(request.spdm.unwrap().enabled, Some(true));
+        assert!(request.tls.is_some());
+        assert_eq!(
+            request.tls.unwrap().minimum_version,
+            Some("TLS_1_3".to_string())
+        );
+    }
+
+    #[test]
+    fn test_patch_security_policy_request_deserialization_spdm_only() {
+        let json_str = r#"{
+            "SPDM": {
+                "Enabled": false
+            }
+        }"#;
+
+        let request: PatchSecurityPolicyRequest = serde_json::from_str(json_str).unwrap();
+        assert!(request.spdm.is_some());
+        assert_eq!(request.spdm.unwrap().enabled, Some(false));
+        assert!(request.tls.is_none());
+    }
+
+    #[test]
+    fn test_patch_security_policy_request_deserialization_tls_only() {
+        let json_str = r#"{
+            "TLS": {
+                "MinimumVersion": "TLS_1_2"
+            }
+        }"#;
+
+        let request: PatchSecurityPolicyRequest = serde_json::from_str(json_str).unwrap();
+        assert!(request.spdm.is_none());
+        assert!(request.tls.is_some());
+        assert_eq!(
+            request.tls.unwrap().minimum_version,
+            Some("TLS_1_2".to_string())
+        );
+    }
+
+    #[test]
+    fn test_patch_security_policy_request_deserialization_empty() {
+        let json_str = r#"{}"#;
+
+        let request: PatchSecurityPolicyRequest = serde_json::from_str(json_str).unwrap();
+        assert!(request.spdm.is_none());
+        assert!(request.tls.is_none());
+    }
+
+    #[test]
+    fn test_patch_spdm_policy_deserialization() {
+        let json_str = r#"{"Enabled": true}"#;
+        let patch: PatchSpdmPolicy = serde_json::from_str(json_str).unwrap();
+        assert_eq!(patch.enabled, Some(true));
+
+        let json_str_none = r#"{}"#;
+        let patch_none: PatchSpdmPolicy = serde_json::from_str(json_str_none).unwrap();
+        assert!(patch_none.enabled.is_none());
+    }
+
+    #[test]
+    fn test_patch_tls_policy_deserialization() {
+        let json_str = r#"{"MinimumVersion": "TLS_1_3"}"#;
+        let patch: PatchTlsPolicy = serde_json::from_str(json_str).unwrap();
+        assert_eq!(patch.minimum_version, Some("TLS_1_3".to_string()));
+
+        let json_str_none = r#"{}"#;
+        let patch_none: PatchTlsPolicy = serde_json::from_str(json_str_none).unwrap();
+        assert!(patch_none.minimum_version.is_none());
+    }
+}

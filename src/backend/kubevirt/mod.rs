@@ -673,3 +673,205 @@ mod tests {
         assert_eq!(vm1.hardware.memory_mib, 2048);
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_k8s_name() {
+        assert_eq!(sanitize_k8s_name("simple"), "simple");
+        assert_eq!(sanitize_k8s_name("UPPERCASE"), "uppercase");
+        assert_eq!(sanitize_k8s_name("with-dashes"), "with-dashes");
+        assert_eq!(sanitize_k8s_name("with_underscores"), "with-underscores");
+        assert_eq!(sanitize_k8s_name("with spaces"), "with-spaces");
+        assert_eq!(sanitize_k8s_name("with.dots"), "with-dots");
+        assert_eq!(sanitize_k8s_name("with/slashes"), "with-slashes");
+        assert_eq!(sanitize_k8s_name("123-numbers"), "123-numbers");
+        assert_eq!(sanitize_k8s_name("-leading-dash"), "leading-dash");
+        assert_eq!(sanitize_k8s_name("trailing-dash-"), "trailing-dash");
+        assert_eq!(sanitize_k8s_name("--multiple--"), "multiple");
+    }
+
+    #[test]
+    fn test_extract_info_from_domain_full() {
+        let domain = types::DomainSpec {
+            cpu: Some(types::CPU {
+                cores: Some(4),
+                sockets: Some(2),
+                threads: Some(1),
+            }),
+            memory: Some(types::Memory {
+                guest: Some("8Gi".to_string()),
+            }),
+            devices: Some(types::Devices {
+                disks: Some(vec![
+                    types::Disk {
+                        name: Some("disk0".to_string()),
+                        bus: Some("virtio".to_string()),
+                    },
+                    types::Disk {
+                        name: Some("disk1".to_string()),
+                        bus: Some("sata".to_string()),
+                    },
+                ]),
+                interfaces: Some(vec![
+                    types::Interface {
+                        name: Some("eth0".to_string()),
+                        mac_address: Some("52:54:00:12:34:56".to_string()),
+                        ..Default::default()
+                    },
+                    types::Interface {
+                        name: Some("eth1".to_string()),
+                        mac_address: None,
+                        ..Default::default()
+                    },
+                ]),
+            }),
+            firmware: Some(types::Firmware {
+                bootloader: Some(types::Bootloader {
+                    efi: Some(types::EFI {
+                        secure_boot: Some(true),
+                    }),
+                }),
+            }),
+            ..Default::default()
+        };
+
+        let (cpu_count, memory_bytes, disks, nics, secure_boot) =
+            KubeVirtBackend::extract_info_from_domain(&domain);
+
+        assert_eq!(cpu_count, 8); // 4 cores * 2 sockets * 1 thread
+        assert_eq!(memory_bytes, 8 * 1024 * 1024 * 1024);
+        assert_eq!(disks.len(), 2);
+        assert_eq!(disks[0].id, "disk0");
+        assert_eq!(disks[1].id, "disk1");
+        assert_eq!(nics.len(), 2);
+        assert_eq!(nics[0].id, "eth0");
+        assert_eq!(nics[0].mac_address.as_deref(), Some("52:54:00:12:34:56"));
+        assert_eq!(nics[1].id, "eth1");
+        assert_eq!(nics[1].mac_address, None);
+        assert_eq!(secure_boot, Some(true));
+    }
+
+    #[test]
+    fn test_extract_info_from_domain_minimal() {
+        let domain = types::DomainSpec::default();
+        let (cpu_count, memory_bytes, disks, nics, secure_boot) =
+            KubeVirtBackend::extract_info_from_domain(&domain);
+
+        assert_eq!(cpu_count, 1); // default
+        assert_eq!(memory_bytes, 0);
+        assert_eq!(disks.len(), 0);
+        assert_eq!(nics.len(), 0);
+        assert_eq!(secure_boot, None);
+    }
+
+    #[test]
+    fn test_extract_info_from_domain_partial_cpu() {
+        let domain = types::DomainSpec {
+            cpu: Some(types::CPU {
+                cores: Some(2),
+                sockets: None,
+                threads: None,
+            }),
+            ..Default::default()
+        };
+        let (cpu_count, _, _, _, _) = KubeVirtBackend::extract_info_from_domain(&domain);
+        assert_eq!(cpu_count, 2); // 2 cores * 1 socket * 1 thread
+    }
+
+    #[test]
+    fn test_extract_info_from_domain_no_disk_names() {
+        let domain = types::DomainSpec {
+            devices: Some(types::Devices {
+                disks: Some(vec![
+                    types::Disk {
+                        name: None,
+                        bus: None,
+                    },
+                    types::Disk {
+                        name: None,
+                        bus: None,
+                    },
+                ]),
+                interfaces: None,
+            }),
+            ..Default::default()
+        };
+        let (_, _, disks, _, _) = KubeVirtBackend::extract_info_from_domain(&domain);
+        assert_eq!(disks.len(), 2);
+        assert_eq!(disks[0].id, "disk-0");
+        assert_eq!(disks[1].id, "disk-1");
+    }
+
+    #[test]
+    fn test_extract_info_from_domain_no_nic_names() {
+        let domain = types::DomainSpec {
+            devices: Some(types::Devices {
+                disks: None,
+                interfaces: Some(vec![types::Interface {
+                    name: None,
+                    mac_address: Some("aa:bb:cc:dd:ee:ff".to_string()),
+                    ..Default::default()
+                }]),
+            }),
+            ..Default::default()
+        };
+        let (_, _, _, nics, _) = KubeVirtBackend::extract_info_from_domain(&domain);
+        assert_eq!(nics.len(), 1);
+        assert_eq!(nics[0].id, "nic-0");
+        assert_eq!(nics[0].mac_address.as_deref(), Some("aa:bb:cc:dd:ee:ff"));
+    }
+
+    #[test]
+    fn test_extract_info_from_domain_secure_boot_false() {
+        let domain = types::DomainSpec {
+            firmware: Some(types::Firmware {
+                bootloader: Some(types::Bootloader {
+                    efi: Some(types::EFI {
+                        secure_boot: Some(false),
+                    }),
+                }),
+            }),
+            ..Default::default()
+        };
+        let (_, _, _, _, secure_boot) = KubeVirtBackend::extract_info_from_domain(&domain);
+        assert_eq!(secure_boot, Some(false));
+    }
+
+    #[test]
+    fn test_map_kube_error() {
+        // Test that kube errors are mapped to BackendError::ApiError
+        let kube_err = kube::Error::Api(Box::new(kube::core::Status {
+            message: "resource not found".to_string(),
+            reason: "NotFound".to_string(),
+            code: 404,
+            ..Default::default()
+        }));
+        let backend_err = map_kube_error(kube_err);
+        match backend_err {
+            BackendError::ApiError(msg) => {
+                assert!(msg.contains("resource not found") || msg.contains("NotFound"));
+            }
+            _ => panic!("Expected ApiError"),
+        }
+    }
+
+    #[test]
+    fn test_parse_memory_string_edge_cases() {
+        // Test empty and whitespace
+        assert_eq!(parse_memory_string(""), 0);
+        assert_eq!(parse_memory_string("   "), 0);
+        // Test mixed case (should fail gracefully)
+        assert_eq!(parse_memory_string("1gi"), 0);
+        // Test no suffix
+        assert_eq!(parse_memory_string("12345"), 12345);
+        // Test Ki/Mi/Gi suffixes
+        assert_eq!(parse_memory_string("1Ki"), 1024);
+        assert_eq!(parse_memory_string("1Mi"), 1024 * 1024);
+        // Test K/M/G suffixes (decimal)
+        assert_eq!(parse_memory_string("1K"), 1000);
+        assert_eq!(parse_memory_string("1M"), 1_000_000);
+    }
+}

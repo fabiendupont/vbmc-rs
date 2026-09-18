@@ -195,3 +195,57 @@ async fn handle_ws_proxy(socket: WebSocket, upstream_url: String, system_id: Str
         _ = client_to_upstream => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::backend::mock::MockBackend;
+    use crate::redfish::test_harness::*;
+    use axum::http::{Method, StatusCode};
+
+    // Note: This module's primary handler (serial_console_ws) requires a valid WebSocket
+    // upgrade handshake. Axum's WebSocketUpgrade extractor validates headers before the
+    // handler body runs, so testing the handler's internal logic (system existence checks,
+    // backend error handling) requires a full WebSocket client, which is beyond the scope
+    // of router+oneshot unit tests. The following tests verify route registration and
+    // expected behavior for non-WebSocket requests.
+
+    #[tokio::test]
+    async fn test_serial_console_route_exists() {
+        // Verify the route is registered. Without proper WebSocket upgrade headers,
+        // we expect 426 Upgrade Required or 400 Bad Request.
+        let mock = MockBackend::new().with_vm("test-system", running_vm());
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, _, _) = request(
+            &router,
+            Method::GET,
+            "/redfish/v1/Systems/test-system/SerialConsole",
+        )
+        .await;
+
+        // Axum rejects non-WebSocket requests before the handler runs
+        assert!(
+            status == StatusCode::UPGRADE_REQUIRED || status.is_client_error(),
+            "Expected WebSocket upgrade error, got {status}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_serial_console_unknown_system_route() {
+        // Even with an unknown system, WebSocket validation happens first
+        let mock = MockBackend::new();
+        let router = router(app_state(mock, systems_with("test-system")));
+
+        let (status, _, _) = request(
+            &router,
+            Method::GET,
+            "/redfish/v1/Systems/unknown-system/SerialConsole",
+        )
+        .await;
+
+        assert!(
+            status == StatusCode::UPGRADE_REQUIRED || status.is_client_error(),
+            "Expected WebSocket upgrade error, got {status}"
+        );
+    }
+}
