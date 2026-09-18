@@ -11,6 +11,7 @@ use axum::routing::{get, post};
 use futures_util::{SinkExt, StreamExt};
 use tracing::{info, warn};
 
+use super::discovery::{KubeVirtVmEntry, SidecarEndpoint};
 use super::k8s_auth::KubernetesUser;
 use super::k8s_authz;
 use super::state::AggregatorState;
@@ -142,46 +143,247 @@ fn strip_auth_headers(headers: &HeaderMap) -> HeaderMap {
     proxy_headers
 }
 
+fn vm_entry_to_endpoint(entry: &KubeVirtVmEntry) -> SidecarEndpoint {
+    SidecarEndpoint {
+        system_id: entry.system_id.clone(),
+        namespace: entry.namespace.clone(),
+        vm_name: entry.vm_name.clone(),
+        url: String::new(),
+    }
+}
+
+fn parse_memory_mib(s: &str) -> u64 {
+    let s = s.trim();
+    if let Some(n) = s.strip_suffix("Gi") {
+        n.parse::<u64>().unwrap_or(0) * 1024
+    } else if let Some(n) = s.strip_suffix("Mi") {
+        n.parse::<u64>().unwrap_or(0)
+    } else if let Some(n) = s.strip_suffix("Ki") {
+        n.parse::<u64>().unwrap_or(0) / 1024
+    } else if let Some(n) = s.strip_suffix('G') {
+        n.parse::<u64>().unwrap_or(0) * 953
+    } else if let Some(n) = s.strip_suffix('M') {
+        n.parse::<u64>().unwrap_or(0)
+    } else {
+        s.parse::<u64>().unwrap_or(0) / (1024 * 1024)
+    }
+}
+
+async fn hybrid_system_get(
+    state: &AggregatorState,
+    entry: &KubeVirtVmEntry,
+    system_id: &str,
+) -> Result<Response, StatusCode> {
+    let client = state
+        .kube_client
+        .as_ref()
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let url = format!(
+        "/apis/kubevirt.io/v1/namespaces/{}/virtualmachines/{}",
+        entry.namespace, entry.vm_name
+    );
+    let req = http::Request::get(&url)
+        .body(vec![])
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let vm: serde_json::Value = client.request(req).await.map_err(|e| {
+        warn!("Failed to get VM from K8s API: {e}");
+        StatusCode::BAD_GATEWAY
+    })?;
+
+    let domain = vm.pointer("/spec/template/spec/domain");
+
+    let cpu_cores = domain
+        .and_then(|d| d.pointer("/cpu/cores"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1);
+    let cpu_sockets = domain
+        .and_then(|d| d.pointer("/cpu/sockets"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1);
+    let cpu_threads = domain
+        .and_then(|d| d.pointer("/cpu/threads"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1);
+    let total_cpus = cpu_cores * cpu_sockets * cpu_threads;
+
+    let memory_mib = domain
+        .and_then(|d| d.pointer("/memory/guest"))
+        .and_then(|v| v.as_str())
+        .map(parse_memory_mib)
+        .unwrap_or(0);
+
+    let nics: Vec<serde_json::Value> = domain
+        .and_then(|d| d.pointer("/devices/interfaces"))
+        .and_then(|v| v.as_array())
+        .map(|ifaces| {
+            ifaces
+                .iter()
+                .enumerate()
+                .map(|(i, iface)| {
+                    let id = iface
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or(&format!("nic-{i}"))
+                        .to_string();
+                    let mut nic = serde_json::json!({
+                        "@odata.id": format!("/redfish/v1/Systems/{system_id}/EthernetInterfaces/{id}"),
+                        "Id": id,
+                        "Name": id,
+                    });
+                    if let Some(mac) = iface.get("macAddress").and_then(|m| m.as_str()) {
+                        nic["MACAddress"] = serde_json::Value::String(mac.to_string());
+                    }
+                    nic
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let secure_boot = domain
+        .and_then(|d| d.pointer("/firmware/bootloader/efi/secureBoot"))
+        .and_then(|v| v.as_bool());
+
+    let mut body = serde_json::json!({
+        "@odata.id": format!("/redfish/v1/Systems/{system_id}"),
+        "@odata.type": "#ComputerSystem.v1_19_0.ComputerSystem",
+        "Id": system_id,
+        "Name": entry.vm_name,
+        "SystemType": "Virtual",
+        "PowerState": "Off",
+        "Status": { "State": "StandbyOffline", "Health": "OK" },
+        "ProcessorSummary": {
+            "Count": total_cpus,
+            "Status": { "State": "StandbyOffline", "Health": "OK" }
+        },
+        "MemorySummary": {
+            "TotalSystemMemoryGiB": memory_mib as f64 / 1024.0,
+            "Status": { "State": "StandbyOffline", "Health": "OK" }
+        },
+        "EthernetInterfaces": {
+            "@odata.id": format!("/redfish/v1/Systems/{system_id}/EthernetInterfaces"),
+            "Members": nics,
+            "Members@odata.count": nics.len()
+        },
+        "Actions": {
+            "#ComputerSystem.Reset": {
+                "target": format!("/redfish/v1/Systems/{system_id}/Actions/ComputerSystem.Reset"),
+                "ResetType@Redfish.AllowableValues": ["On", "ForceOff", "GracefulShutdown", "GracefulRestart", "ForceRestart"]
+            }
+        }
+    });
+
+    if let Some(sb) = secure_boot {
+        body["SecureBoot"] = serde_json::json!({
+            "@odata.id": format!("/redfish/v1/Systems/{system_id}/SecureBoot"),
+            "SecureBootEnable": sb
+        });
+    }
+
+    Ok(Json(body).into_response())
+}
+
+async fn hybrid_reset(
+    state: &AggregatorState,
+    entry: &KubeVirtVmEntry,
+    body: &Bytes,
+) -> Result<Response, StatusCode> {
+    let client = state
+        .kube_client
+        .as_ref()
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let reset_type = serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("ResetType").and_then(|t| t.as_str()).map(|s| s.to_string()))
+        .unwrap_or_default();
+
+    let (resource, action) = match reset_type.as_str() {
+        "On" => ("virtualmachines", "start"),
+        "ForceOff" | "GracefulShutdown" => ("virtualmachines", "stop"),
+        "GracefulRestart" | "ForceRestart" => ("virtualmachines", "restart"),
+        "Nmi" => ("virtualmachineinstances", "softreboot"),
+        _ => {
+            return Ok((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!("Unknown or unsupported ResetType: {reset_type}")
+                })),
+            )
+                .into_response());
+        }
+    };
+
+    let url = format!(
+        "/apis/subresources.kubevirt.io/v1/namespaces/{}/{}/{}/{}",
+        entry.namespace, resource, entry.vm_name, action
+    );
+    let req = http::Request::put(&url)
+        .body(vec![])
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    client.request_text(req).await.map_err(|e| {
+        warn!("KubeVirt subresource call failed (action={action}): {e}");
+        StatusCode::BAD_GATEWAY
+    })?;
+
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
 async fn get_aggregated_systems(
     State(state): State<Arc<AggregatorState>>,
     user: KubernetesUser,
     axum::extract::Query(params): axum::extract::Query<PaginationParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let endpoints = state.registry.list();
     let mut all_members = Vec::new();
 
-    for endpoint in &endpoints {
-        if !check_endpoint_access(&state, &user, endpoint).await {
-            continue;
-        }
-
-        match state
-            .proxy
-            .forward(
-                endpoint,
-                Method::GET,
-                "/redfish/v1/Systems",
-                HeaderMap::new(),
-                None,
-            )
-            .await
-        {
-            Ok(resp) => {
-                let (parts, body) = resp.into_parts();
-                if parts.status.is_success()
-                    && let Ok(body_bytes) = axum::body::to_bytes(body, 1024 * 1024).await
-                    && let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&body_bytes)
-                    && let Some(members) = parsed.get("Members").and_then(|m| m.as_array())
-                {
-                    all_members.extend(members.iter().cloned());
-                }
+    if let Some(vm_reg) = &state.vm_registry {
+        // Hybrid mode: list all VMs from the VM registry (including stopped VMs).
+        for entry in vm_reg.list() {
+            let ep = vm_entry_to_endpoint(&entry);
+            if !check_endpoint_access(&state, &user, &ep).await {
+                continue;
             }
-            Err(status) => {
-                warn!(
-                    system_id = %endpoint.system_id,
-                    status = %status,
-                    "Failed to fetch Systems from sidecar"
-                );
+            all_members.push(serde_json::json!({
+                "@odata.id": format!("/redfish/v1/Systems/{}", entry.system_id)
+            }));
+        }
+    } else {
+        // Sidecar-only mode: discover members by forwarding to each sidecar.
+        let endpoints = state.registry.list();
+        for endpoint in &endpoints {
+            if !check_endpoint_access(&state, &user, endpoint).await {
+                continue;
+            }
+
+            match state
+                .proxy
+                .forward(
+                    endpoint,
+                    Method::GET,
+                    "/redfish/v1/Systems",
+                    HeaderMap::new(),
+                    None,
+                )
+                .await
+            {
+                Ok(resp) => {
+                    let (parts, body) = resp.into_parts();
+                    if parts.status.is_success()
+                        && let Ok(body_bytes) = axum::body::to_bytes(body, 1024 * 1024).await
+                        && let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&body_bytes)
+                        && let Some(members) = parsed.get("Members").and_then(|m| m.as_array())
+                    {
+                        all_members.extend(members.iter().cloned());
+                    }
+                }
+                Err(status) => {
+                    warn!(
+                        system_id = %endpoint.system_id,
+                        status = %status,
+                        "Failed to fetch Systems from sidecar"
+                    );
+                }
             }
         }
     }
@@ -218,24 +420,36 @@ async fn proxy_system_get(
     Path(system_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let endpoint = state
-        .registry
-        .get(&system_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    if !check_endpoint_access(&state, &user, &endpoint).await {
-        return Err(StatusCode::FORBIDDEN);
+    // Running VM with sidecar: proxy for full hot telemetry.
+    if let Some(endpoint) = state.registry.get(&system_id) {
+        if !check_endpoint_access(&state, &user, &endpoint).await {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        let path = format!("/redfish/v1/Systems/{system_id}");
+        return state
+            .proxy
+            .forward(
+                &endpoint,
+                Method::GET,
+                &path,
+                strip_auth_headers(&headers),
+                None,
+            )
+            .await;
     }
-    let path = format!("/redfish/v1/Systems/{system_id}");
-    state
-        .proxy
-        .forward(
-            &endpoint,
-            Method::GET,
-            &path,
-            strip_auth_headers(&headers),
-            None,
-        )
-        .await
+
+    // Hybrid mode: stopped VM — synthesize cold inventory from VM spec.
+    if let Some(vm_reg) = &state.vm_registry {
+        if let Some(vm_entry) = vm_reg.get(&system_id) {
+            let ep = vm_entry_to_endpoint(&vm_entry);
+            if !check_endpoint_access(&state, &user, &ep).await {
+                return Err(StatusCode::FORBIDDEN);
+            }
+            return hybrid_system_get(&state, &vm_entry, &system_id).await;
+        }
+    }
+
+    Err(StatusCode::NOT_FOUND)
 }
 
 async fn proxy_system_mutate(
@@ -301,6 +515,20 @@ async fn proxy_system_sub_mutate(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, StatusCode> {
+    // Hybrid mode: Reset action always goes to KubeVirt subresource API,
+    // even for stopped VMs (which have no sidecar endpoint).
+    if rest == "Actions/ComputerSystem.Reset" {
+        if let Some(vm_reg) = &state.vm_registry {
+            if let Some(vm_entry) = vm_reg.get(&system_id) {
+                let ep = vm_entry_to_endpoint(&vm_entry);
+                if !check_endpoint_access(&state, &user, &ep).await {
+                    return Err(StatusCode::FORBIDDEN);
+                }
+                return hybrid_reset(&state, &vm_entry, &body).await;
+            }
+        }
+    }
+
     let endpoint = state
         .registry
         .get(&system_id)
@@ -712,6 +940,7 @@ mod coverage_tests {
         Arc::new(AggregatorState {
             config,
             registry,
+            vm_registry: None,
             proxy,
             session_store: SessionStore::new(3600, 16),
             account_store: std::sync::Mutex::new(AccountStore::default()),
@@ -987,6 +1216,188 @@ mod coverage_tests {
             .method(Method::POST)
             .uri("/redfish/v1/Chassis/nonexistent")
             .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    // ---- hybrid helpers ----
+
+    #[test]
+    fn test_parse_memory_mib_gi() {
+        assert_eq!(parse_memory_mib("4Gi"), 4096);
+    }
+
+    #[test]
+    fn test_parse_memory_mib_mi() {
+        assert_eq!(parse_memory_mib("512Mi"), 512);
+    }
+
+    #[test]
+    fn test_parse_memory_mib_ki() {
+        assert_eq!(parse_memory_mib("4096Ki"), 4);
+    }
+
+    #[test]
+    fn test_parse_memory_mib_g() {
+        assert_eq!(parse_memory_mib("2G"), 1906); // 2 * 953
+    }
+
+    #[test]
+    fn test_parse_memory_mib_m() {
+        assert_eq!(parse_memory_mib("1024M"), 1024);
+    }
+
+    #[test]
+    fn test_parse_memory_mib_bytes() {
+        assert_eq!(parse_memory_mib("1048576"), 1);
+    }
+
+    #[test]
+    fn test_parse_memory_mib_invalid() {
+        assert_eq!(parse_memory_mib("bad"), 0);
+    }
+
+    #[test]
+    fn test_vm_entry_to_endpoint() {
+        use super::super::discovery::KubeVirtVmEntry;
+        let entry = KubeVirtVmEntry {
+            system_id: "sys-1".to_string(),
+            namespace: "ns1".to_string(),
+            vm_name: "my-vm".to_string(),
+        };
+        let ep = vm_entry_to_endpoint(&entry);
+        assert_eq!(ep.system_id, "sys-1");
+        assert_eq!(ep.namespace, "ns1");
+        assert_eq!(ep.vm_name, "my-vm");
+        assert!(ep.url.is_empty());
+    }
+
+    // ---- hybrid Systems collection ----
+
+    fn hybrid_state() -> Arc<AggregatorState> {
+        use super::super::discovery::{KubeVirtVmEntry, KubeVirtVmRegistry};
+        use super::super::k8s_auth::TokenCache;
+        use super::super::k8s_authz::AuthzCache;
+        use super::super::proxy::ProxyClient;
+        use vbmc_rs::auth::accounts::AccountStore;
+        use vbmc_rs::auth::sessions::SessionStore;
+        use vbmc_rs::config::{AuthConfig, ServerConfig};
+
+        let config = super::super::config::AggregatorConfig {
+            server: ServerConfig {
+                bind_address: "127.0.0.1".to_string(),
+                port: 8080,
+                tls_cert: None,
+                tls_key: None,
+                tls_client_ca: None,
+            },
+            auth: AuthConfig::default(),
+            auth_mode: "local".to_string(),
+            discovery: super::super::config::DiscoveryConfig {
+                mode: "kubevirt-hybrid".to_string(),
+                namespace: Some("default".to_string()),
+                label_selector: "app=vbmc".to_string(),
+                bmc_network: None,
+                endpoints: vec![],
+            },
+            sidecar: super::super::config::SidecarConnectionConfig {
+                port: 8000,
+                tls_ca: None,
+                tls_cert: None,
+                tls_key: None,
+            },
+        };
+
+        let registry = Arc::new(super::super::discovery::SidecarRegistry::new());
+        let vm_reg = Arc::new(KubeVirtVmRegistry::new());
+        vm_reg.register(KubeVirtVmEntry {
+            system_id: "vm-a".to_string(),
+            namespace: "default".to_string(),
+            vm_name: "my-vm-a".to_string(),
+        });
+        vm_reg.register(KubeVirtVmEntry {
+            system_id: "vm-b".to_string(),
+            namespace: "default".to_string(),
+            vm_name: "my-vm-b".to_string(),
+        });
+
+        let proxy = ProxyClient::new(&config.sidecar).unwrap();
+        Arc::new(AggregatorState {
+            config,
+            registry,
+            vm_registry: Some(vm_reg),
+            proxy,
+            session_store: SessionStore::new(3600, 16),
+            account_store: std::sync::Mutex::new(AccountStore::default()),
+            instance_uuid: "hybrid-uuid".to_string(),
+            kube_client: None,
+            token_cache: TokenCache::default(),
+            authz_cache: AuthzCache::default(),
+        })
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_systems_list_includes_all_vms() {
+        let state = hybrid_state();
+        let app = aggregator_router(state);
+
+        let (status, json) = get_json(&app, "/redfish/v1/Systems").await;
+        assert_eq!(status, StatusCode::OK);
+
+        let count = json["Members@odata.count"].as_u64().unwrap();
+        assert_eq!(count, 2);
+
+        let members = json["Members"].as_array().unwrap();
+        let ids: Vec<&str> = members
+            .iter()
+            .filter_map(|m| m["@odata.id"].as_str())
+            .collect();
+        assert!(ids.iter().any(|id| id.contains("vm-a")));
+        assert!(ids.iter().any(|id| id.contains("vm-b")));
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_system_get_not_in_registry_returns_404() {
+        let state = hybrid_state();
+        let app = aggregator_router(state);
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/redfish/v1/Systems/nonexistent")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_reset_known_vm_no_kube_client_returns_500() {
+        // vm-a is in the VM registry; no kube_client → 500
+        let state = hybrid_state();
+        let app = aggregator_router(state);
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/redfish/v1/Systems/vm-a/Actions/ComputerSystem.Reset")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"ResetType":"On"}"#))
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_reset_unknown_vm_falls_back_to_sidecar_not_found() {
+        // not in vm_registry, not in sidecar registry → 404
+        let state = hybrid_state();
+        let app = aggregator_router(state);
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/redfish/v1/Systems/nonexistent/Actions/ComputerSystem.Reset")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"ResetType":"On"}"#))
             .unwrap();
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
