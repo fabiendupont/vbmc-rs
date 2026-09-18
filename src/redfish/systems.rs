@@ -511,6 +511,8 @@ pub async fn get_system(
                     "ForceRestart".to_string(),
                     "ForceOn".to_string(),
                     "PushPowerButton".to_string(),
+                    "Pause".to_string(),
+                    "Resume".to_string(),
                 ],
             },
             set_default_boot_order: ActionTarget {

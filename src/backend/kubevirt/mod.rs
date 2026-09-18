@@ -356,12 +356,27 @@ impl VmmBackend for KubeVirtBackend {
 
         match vmi_api.get(&m.vm_name).await {
             Ok(vmi) => {
+                let paused = vmi
+                    .status
+                    .as_ref()
+                    .and_then(|s| s.conditions.as_ref())
+                    .map(|conds| {
+                        conds
+                            .iter()
+                            .any(|c| c.type_ == "Paused" && c.status == "True")
+                    })
+                    .unwrap_or(false);
+
                 let phase = vmi
                     .status
                     .as_ref()
                     .and_then(|s| s.phase.as_deref())
                     .unwrap_or("Unknown");
-                let power_state = types::phase_to_power_state(phase);
+                let power_state = if paused {
+                    bt::VmPowerState::Paused
+                } else {
+                    types::phase_to_power_state(phase)
+                };
 
                 let domain = vmi.spec.domain.as_ref();
                 let (cpu_count, memory_bytes, disks, nics, secure_boot) = domain
@@ -467,6 +482,30 @@ impl VmmBackend for KubeVirtBackend {
             &m.namespace,
             &m.vm_name,
             "restart",
+            vec![],
+        )
+        .await
+    }
+
+    async fn vm_pause(&self, system_id: &str) -> Result<(), BackendError> {
+        let m = self.mapping_for(system_id)?;
+        self.subresource_put(
+            "virtualmachineinstances",
+            &m.namespace,
+            &m.vm_name,
+            "pause",
+            vec![],
+        )
+        .await
+    }
+
+    async fn vm_resume(&self, system_id: &str) -> Result<(), BackendError> {
+        let m = self.mapping_for(system_id)?;
+        self.subresource_put(
+            "virtualmachineinstances",
+            &m.namespace,
+            &m.vm_name,
+            "unpause",
             vec![],
         )
         .await

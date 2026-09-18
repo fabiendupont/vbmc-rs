@@ -173,6 +173,30 @@ pub trait VmmBackend: Send + Sync {
         device_id: &str,
     ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send;
 
+    fn vm_pause(
+        &self,
+        system_id: &str,
+    ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send {
+        let _ = system_id;
+        async {
+            Err(BackendError::NotSupported(
+                "Pause not supported by this backend".to_string(),
+            ))
+        }
+    }
+
+    fn vm_resume(
+        &self,
+        system_id: &str,
+    ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send {
+        let _ = system_id;
+        async {
+            Err(BackendError::NotSupported(
+                "Resume not supported by this backend".to_string(),
+            ))
+        }
+    }
+
     /// Read current boot override state from the backend. Returns `None` for backends
     /// that do not persist boot override (state is kept on disk by the Redfish layer).
     fn vm_get_boot_override(
@@ -353,6 +377,14 @@ pub mod mock {
             _system_id: &str,
             _info: &bt::BootOverrideInfo,
         ) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        async fn vm_pause(&self, _system_id: &str) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        async fn vm_resume(&self, _system_id: &str) -> Result<(), BackendError> {
             Ok(())
         }
     }
@@ -642,6 +674,36 @@ impl VmmBackend for Backend {
             Self::Mockup(b) => b.vm_set_boot_override(system_id, info).await,
             #[cfg(any(test, feature = "test-support"))]
             Self::Mock(b) => b.vm_set_boot_override(system_id, info).await,
+        }
+    }
+
+    async fn vm_pause(&self, system_id: &str) -> Result<(), BackendError> {
+        match self {
+            Self::CloudHypervisor(b) => b.vm_pause(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_pause(system_id).await,
+            #[cfg(feature = "qemu")]
+            Self::Qemu(b) => b.vm_pause(system_id).await,
+            #[cfg(feature = "libvirt")]
+            Self::Libvirt(b) => b.vm_pause(system_id).await,
+            Self::Mockup(b) => b.vm_pause(system_id).await,
+            #[cfg(any(test, feature = "test-support"))]
+            Self::Mock(b) => b.vm_pause(system_id).await,
+        }
+    }
+
+    async fn vm_resume(&self, system_id: &str) -> Result<(), BackendError> {
+        match self {
+            Self::CloudHypervisor(b) => b.vm_resume(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_resume(system_id).await,
+            #[cfg(feature = "qemu")]
+            Self::Qemu(b) => b.vm_resume(system_id).await,
+            #[cfg(feature = "libvirt")]
+            Self::Libvirt(b) => b.vm_resume(system_id).await,
+            Self::Mockup(b) => b.vm_resume(system_id).await,
+            #[cfg(any(test, feature = "test-support"))]
+            Self::Mock(b) => b.vm_resume(system_id).await,
         }
     }
 }

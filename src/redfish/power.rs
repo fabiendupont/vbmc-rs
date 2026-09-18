@@ -101,6 +101,8 @@ fn emit_power_event(
     let power_state = match reset_type {
         "On" | "ForceOn" | "GracefulRestart" | "ForceRestart" => "On",
         "ForceOff" | "GracefulShutdown" => "Off",
+        "Pause" => "Paused",
+        "Resume" => "On",
         _ => "Unknown",
     };
     crate::telemetry::record_vm_power_state(system_id, power_state);
@@ -285,6 +287,34 @@ pub async fn reset_system(
                 Some(user.username.clone()),
             );
         }
+        "Pause" => {
+            state
+                .backend
+                .vm_pause(&system_id)
+                .await
+                .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+            emit_power_event(
+                &state,
+                &system_id,
+                "Pause",
+                SEVERITY_OK,
+                Some(user.username.clone()),
+            );
+        }
+        "Resume" => {
+            state
+                .backend
+                .vm_resume(&system_id)
+                .await
+                .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+            emit_power_event(
+                &state,
+                &system_id,
+                "Resume",
+                SEVERITY_OK,
+                Some(user.username.clone()),
+            );
+        }
         other => {
             return Err(RedfishApiError::BadRequest(format!(
                 "Unsupported ResetType: {other}"
@@ -318,6 +348,8 @@ mod tests {
             "GracefulRestart",
             "ForceRestart",
             "PushPowerButton",
+            "Pause",
+            "Resume",
         ];
 
         for reset_type in reset_types {
