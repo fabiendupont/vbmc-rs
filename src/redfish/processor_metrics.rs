@@ -196,3 +196,161 @@ fn get_host_cpu_mhz() -> u32 {
         })
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_processor_metrics_serialization() {
+        let metrics = ProcessorMetricsResource {
+            odata_id: "/redfish/v1/Systems/vm1/Processors/CPU0/ProcessorMetrics".to_string(),
+            odata_type: "#ProcessorMetrics.v1_6_0.ProcessorMetrics",
+            id: "ProcessorMetrics",
+            name: "Processor Metrics",
+            description: "Processor performance metrics",
+            bandwidth_percent: 75.5,
+            operating_speed_mhz: 3000,
+            throttling_celsius: 100,
+            frequency_ratio: 1.0,
+            kernel_percent: 10.5,
+            user_percent: 50.0,
+            local_memory_bandwidth_bytes: 1024000,
+            remote_memory_bandwidth_bytes: 512000,
+            core_voltage: CoreVoltage {
+                reading: 1.2,
+                data_source_uri: None,
+            },
+            correctable_core_error_count: 0,
+            uncorrectable_core_error_count: 0,
+            correctable_other_error_count: 0,
+            uncorrectable_other_error_count: 0,
+            core_metrics: vec![],
+        };
+
+        let json = serde_json::to_value(&metrics).unwrap();
+        assert_eq!(
+            json["@odata.id"],
+            "/redfish/v1/Systems/vm1/Processors/CPU0/ProcessorMetrics"
+        );
+        assert_eq!(
+            json["@odata.type"],
+            "#ProcessorMetrics.v1_6_0.ProcessorMetrics"
+        );
+        assert_eq!(json["Id"], "ProcessorMetrics");
+        assert_eq!(json["BandwidthPercent"], 75.5);
+        assert_eq!(json["OperatingSpeedMHz"], 3000);
+        assert_eq!(json["ThrottlingCelsius"], 100);
+        assert_eq!(json["FrequencyRatio"], 1.0);
+        assert_eq!(json["KernelPercent"], 10.5);
+        assert_eq!(json["UserPercent"], 50.0);
+        assert_eq!(json["LocalMemoryBandwidthBytes"], 1024000);
+        assert_eq!(json["RemoteMemoryBandwidthBytes"], 512000);
+    }
+
+    #[test]
+    fn test_core_voltage_serialization() {
+        let voltage = CoreVoltage {
+            reading: 1.35,
+            data_source_uri: Some("/test/uri"),
+        };
+
+        let json = serde_json::to_value(&voltage).unwrap();
+        assert_eq!(json["Reading"], 1.35);
+        assert_eq!(json["DataSourceUri"], "/test/uri");
+    }
+
+    #[test]
+    fn test_core_voltage_skip_serializing_if_none() {
+        let voltage = CoreVoltage {
+            reading: 1.0,
+            data_source_uri: None,
+        };
+
+        let json = serde_json::to_value(&voltage).unwrap();
+        assert_eq!(json["Reading"], 1.0);
+        assert!(!json.as_object().unwrap().contains_key("DataSourceUri"));
+    }
+
+    #[test]
+    fn test_core_metric_serialization() {
+        let metric = CoreMetric {
+            core_id: "core0".to_string(),
+            instructions_per_cycle: Some(2.5),
+            unhalted_cycles: 1000000,
+            correctable_core_error_count: 0,
+            uncorrectable_core_error_count: 0,
+            correctable_other_error_count: 1,
+            uncorrectable_other_error_count: 0,
+            memory_stall_count: 500,
+            io_stall_count: 100,
+        };
+
+        let json = serde_json::to_value(&metric).unwrap();
+        assert_eq!(json["CoreId"], "core0");
+        assert_eq!(json["InstructionsPerCycle"], 2.5);
+        assert_eq!(json["UnhaltedCycles"], 1000000);
+        assert_eq!(json["CorrectableCoreErrorCount"], 0);
+        assert_eq!(json["UncorrectableCoreErrorCount"], 0);
+        assert_eq!(json["CorrectableOtherErrorCount"], 1);
+        assert_eq!(json["UncorrectableOtherErrorCount"], 0);
+        assert_eq!(json["MemoryStallCount"], 500);
+        assert_eq!(json["IOStallCount"], 100);
+    }
+
+    #[test]
+    fn test_core_metric_skip_serializing_if_none() {
+        let metric = CoreMetric {
+            core_id: "core1".to_string(),
+            instructions_per_cycle: None,
+            unhalted_cycles: 0,
+            correctable_core_error_count: 0,
+            uncorrectable_core_error_count: 0,
+            correctable_other_error_count: 0,
+            uncorrectable_other_error_count: 0,
+            memory_stall_count: 0,
+            io_stall_count: 0,
+        };
+
+        let json = serde_json::to_value(&metric).unwrap();
+        assert_eq!(json["CoreId"], "core1");
+        assert!(
+            !json
+                .as_object()
+                .unwrap()
+                .contains_key("InstructionsPerCycle")
+        );
+        assert_eq!(json["UnhaltedCycles"], 0);
+    }
+
+    #[test]
+    fn test_core_metrics_ipc_calculation() {
+        let metrics = [
+            CoreMetric {
+                core_id: "core0".to_string(),
+                instructions_per_cycle: Some(2.0),
+                unhalted_cycles: 1000,
+                correctable_core_error_count: 0,
+                uncorrectable_core_error_count: 0,
+                correctable_other_error_count: 0,
+                uncorrectable_other_error_count: 0,
+                memory_stall_count: 0,
+                io_stall_count: 0,
+            },
+            CoreMetric {
+                core_id: "core1".to_string(),
+                instructions_per_cycle: None,
+                unhalted_cycles: 0,
+                correctable_core_error_count: 0,
+                uncorrectable_core_error_count: 0,
+                correctable_other_error_count: 0,
+                uncorrectable_other_error_count: 0,
+                memory_stall_count: 0,
+                io_stall_count: 0,
+            },
+        ];
+
+        assert_eq!(metrics[0].instructions_per_cycle, Some(2.0));
+        assert_eq!(metrics[1].instructions_per_cycle, None);
+    }
+}

@@ -201,3 +201,254 @@ pub async fn get_manager(
         },
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_manager_serialization() {
+        let manager = Manager {
+            odata_id: "/redfish/v1/Managers/vbmc".to_string(),
+            odata_type: "#Manager.v1_19_0.Manager",
+            id: "vbmc",
+            name: "vbmc-rs Virtual BMC",
+            description: "vbmc-rs Virtual Baseboard Management Controller",
+            manager_type: "BMC",
+            firmware_version: "1.0.0",
+            status: Status::enabled_ok(),
+            date_time: "2026-09-17T12:00:00Z".to_string(),
+            date_time_local_offset: "+00:00",
+            uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+            power_state: "On",
+            model: "Virtual BMC",
+            manufacturer: "vbmc-rs",
+            serial_number: "VBMC-0000".to_string(),
+            part_number: "VBMC-MGR",
+            spare_part_number: "VBMC-MGR-SPARE",
+            version: "1.0.0",
+            service_entry_point_uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+            graphical_console: ManagerConsole {
+                service_enabled: false,
+                max_concurrent_sessions: 0,
+                connect_types_supported: Vec::new(),
+            },
+            command_shell: ManagerConsole {
+                service_enabled: true,
+                max_concurrent_sessions: 2,
+                connect_types_supported: vec!["SSH"],
+            },
+            last_reset_time: "2026-09-17T12:00:00Z".to_string(),
+            location_indicator_active: false,
+            time_zone_name: "UTC",
+            service_identification: "vbmc-rs-0000".to_string(),
+            auto_dst_enabled: false,
+            location: super::super::types::RedfishLocation::new("BMC", "Embedded", 0),
+            network_protocol: ODataId::new("/redfish/v1/Managers/vbmc/NetworkProtocol"),
+            ethernet_interfaces: ODataId::new("/redfish/v1/Managers/vbmc/EthernetInterfaces"),
+            log_services: Some(ODataId::new("/redfish/v1/Managers/vbmc/LogServices")),
+            links: ManagerLinks {
+                manager_for_servers: vec![ODataId::new("/redfish/v1/Systems/vm1")],
+                manager_for_chassis: vec![ODataId::new("/redfish/v1/Chassis/ch1")],
+                manager_in_chassis: ODataId::new("/redfish/v1/Chassis/ch1"),
+                managed_by: Vec::new(),
+                manager_for_managers: Vec::new(),
+                manager_for_switches: Vec::new(),
+                active_software_image: ODataId::new(
+                    "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
+                ),
+                software_images: vec![ODataId::new(
+                    "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
+                )],
+            },
+        };
+
+        let json = serde_json::to_value(&manager).unwrap();
+
+        assert_eq!(json["@odata.id"], "/redfish/v1/Managers/vbmc");
+        assert_eq!(json["@odata.type"], "#Manager.v1_19_0.Manager");
+        assert_eq!(json["Id"], "vbmc");
+        assert_eq!(json["ManagerType"], "BMC");
+        assert_eq!(json["CommandShell"]["ServiceEnabled"], true);
+        assert_eq!(json["CommandShell"]["MaxConcurrentSessions"], 2);
+        assert_eq!(
+            json["Links"]["ManagerForServers"][0]["@odata.id"],
+            "/redfish/v1/Systems/vm1"
+        );
+    }
+
+    #[test]
+    fn test_manager_console_serialization() {
+        let console = ManagerConsole {
+            service_enabled: true,
+            max_concurrent_sessions: 4,
+            connect_types_supported: vec!["SSH", "IPMI"],
+        };
+
+        let json = serde_json::to_value(&console).unwrap();
+
+        assert_eq!(json["ServiceEnabled"], true);
+        assert_eq!(json["MaxConcurrentSessions"], 4);
+        assert_eq!(json["ConnectTypesSupported"][0], "SSH");
+        assert_eq!(json["ConnectTypesSupported"][1], "IPMI");
+    }
+
+    #[test]
+    fn test_manager_links_serialization() {
+        let links = ManagerLinks {
+            manager_for_servers: vec![ODataId::new("/redfish/v1/Systems/vm1")],
+            manager_for_chassis: vec![ODataId::new("/redfish/v1/Chassis/ch1")],
+            manager_in_chassis: ODataId::new("/redfish/v1/Chassis/ch1"),
+            managed_by: Vec::new(),
+            manager_for_managers: Vec::new(),
+            manager_for_switches: Vec::new(),
+            active_software_image: ODataId::new(
+                "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
+            ),
+            software_images: vec![ODataId::new(
+                "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
+            )],
+        };
+
+        let json = serde_json::to_value(&links).unwrap();
+
+        assert_eq!(
+            json["ManagerForServers"][0]["@odata.id"],
+            "/redfish/v1/Systems/vm1"
+        );
+        assert_eq!(
+            json["ManagerForChassis"][0]["@odata.id"],
+            "/redfish/v1/Chassis/ch1"
+        );
+        assert_eq!(
+            json["ManagerInChassis"]["@odata.id"],
+            "/redfish/v1/Chassis/ch1"
+        );
+        assert_eq!(json["ManagedBy"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            json["ActiveSoftwareImage"]["@odata.id"],
+            "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs"
+        );
+    }
+
+    #[test]
+    fn test_manager_log_services_present() {
+        let manager = Manager {
+            odata_id: "/redfish/v1/Managers/vbmc".to_string(),
+            odata_type: "#Manager.v1_19_0.Manager",
+            id: "vbmc",
+            name: "vbmc-rs Virtual BMC",
+            description: "vbmc-rs Virtual Baseboard Management Controller",
+            manager_type: "BMC",
+            firmware_version: "1.0.0",
+            status: Status::enabled_ok(),
+            date_time: "2026-09-17T12:00:00Z".to_string(),
+            date_time_local_offset: "+00:00",
+            uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+            power_state: "On",
+            model: "Virtual BMC",
+            manufacturer: "vbmc-rs",
+            serial_number: "VBMC-0000".to_string(),
+            part_number: "VBMC-MGR",
+            spare_part_number: "VBMC-MGR-SPARE",
+            version: "1.0.0",
+            service_entry_point_uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+            graphical_console: ManagerConsole {
+                service_enabled: false,
+                max_concurrent_sessions: 0,
+                connect_types_supported: Vec::new(),
+            },
+            command_shell: ManagerConsole {
+                service_enabled: false,
+                max_concurrent_sessions: 0,
+                connect_types_supported: Vec::new(),
+            },
+            last_reset_time: "2026-09-17T12:00:00Z".to_string(),
+            location_indicator_active: false,
+            time_zone_name: "UTC",
+            service_identification: "vbmc-rs-0000".to_string(),
+            auto_dst_enabled: false,
+            location: super::super::types::RedfishLocation::new("BMC", "Embedded", 0),
+            network_protocol: ODataId::new("/redfish/v1/Managers/vbmc/NetworkProtocol"),
+            ethernet_interfaces: ODataId::new("/redfish/v1/Managers/vbmc/EthernetInterfaces"),
+            log_services: Some(ODataId::new("/redfish/v1/Managers/vbmc/LogServices")),
+            links: ManagerLinks {
+                manager_for_servers: Vec::new(),
+                manager_for_chassis: Vec::new(),
+                manager_in_chassis: ODataId::new("/redfish/v1/Chassis/ch1"),
+                managed_by: Vec::new(),
+                manager_for_managers: Vec::new(),
+                manager_for_switches: Vec::new(),
+                active_software_image: ODataId::new(
+                    "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
+                ),
+                software_images: Vec::new(),
+            },
+        };
+
+        let json = serde_json::to_value(&manager).unwrap();
+        assert_eq!(
+            json["LogServices"]["@odata.id"],
+            "/redfish/v1/Managers/vbmc/LogServices"
+        );
+    }
+
+    #[test]
+    fn test_manager_log_services_absent() {
+        let manager = Manager {
+            odata_id: "/redfish/v1/Managers/vbmc".to_string(),
+            odata_type: "#Manager.v1_19_0.Manager",
+            id: "vbmc",
+            name: "vbmc-rs Virtual BMC",
+            description: "vbmc-rs Virtual Baseboard Management Controller",
+            manager_type: "BMC",
+            firmware_version: "1.0.0",
+            status: Status::enabled_ok(),
+            date_time: "2026-09-17T12:00:00Z".to_string(),
+            date_time_local_offset: "+00:00",
+            uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+            power_state: "On",
+            model: "Virtual BMC",
+            manufacturer: "vbmc-rs",
+            serial_number: "VBMC-0000".to_string(),
+            part_number: "VBMC-MGR",
+            spare_part_number: "VBMC-MGR-SPARE",
+            version: "1.0.0",
+            service_entry_point_uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+            graphical_console: ManagerConsole {
+                service_enabled: false,
+                max_concurrent_sessions: 0,
+                connect_types_supported: Vec::new(),
+            },
+            command_shell: ManagerConsole {
+                service_enabled: false,
+                max_concurrent_sessions: 0,
+                connect_types_supported: Vec::new(),
+            },
+            last_reset_time: "2026-09-17T12:00:00Z".to_string(),
+            location_indicator_active: false,
+            time_zone_name: "UTC",
+            service_identification: "vbmc-rs-0000".to_string(),
+            auto_dst_enabled: false,
+            location: super::super::types::RedfishLocation::new("BMC", "Embedded", 0),
+            network_protocol: ODataId::new("/redfish/v1/Managers/vbmc/NetworkProtocol"),
+            ethernet_interfaces: ODataId::new("/redfish/v1/Managers/vbmc/EthernetInterfaces"),
+            log_services: None,
+            links: ManagerLinks {
+                manager_for_servers: Vec::new(),
+                manager_for_chassis: Vec::new(),
+                manager_in_chassis: ODataId::new("/redfish/v1/Chassis/ch1"),
+                managed_by: Vec::new(),
+                manager_for_managers: Vec::new(),
+                manager_for_switches: Vec::new(),
+                active_software_image: ODataId::new(
+                    "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
+                ),
+                software_images: Vec::new(),
+            },
+        };
+
+        let json = serde_json::to_value(&manager).unwrap();
+        assert!(json.get("LogServices").is_none());
+    }
+}

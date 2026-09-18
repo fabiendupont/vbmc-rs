@@ -343,3 +343,321 @@ pub async fn get_trusted_component(
         status: Status::enabled_ok(),
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chassis_resource_serialization() {
+        let chassis = ChassisResource {
+            odata_id: "/redfish/v1/Chassis/host".to_string(),
+            odata_type: "#Chassis.v1_25_0.Chassis",
+            id: "host".to_string(),
+            name: "host".to_string(),
+            description: "Virtual chassis for vbmc-rs managed VMs",
+            chassis_type: "Other",
+            status: Status {
+                state: Some("Enabled".to_string()),
+                health: Some("OK".to_string()),
+                health_rollup: Some("OK".to_string()),
+            },
+            trusted_components: ODataId::new(
+                "/redfish/v1/Chassis/host/TrustedComponents".to_string(),
+            ),
+            power_subsystem: ODataId::new("/redfish/v1/Chassis/host/PowerSubsystem".to_string()),
+            thermal_subsystem: ODataId::new(
+                "/redfish/v1/Chassis/host/ThermalSubsystem".to_string(),
+            ),
+            sensors: ODataId::new("/redfish/v1/Chassis/host/Sensors".to_string()),
+            network_adapters: ODataId::new("/redfish/v1/Chassis/host/NetworkAdapters".to_string()),
+            assembly: ODataId::new("/redfish/v1/Chassis/host/Assembly".to_string()),
+            environment_metrics: ODataId::new(
+                "/redfish/v1/Chassis/host/EnvironmentMetrics".to_string(),
+            ),
+            power_state: "On",
+            manufacturer: "vbmc-rs",
+            model: "Virtual Chassis",
+            serial_number: "VBMC-CHASSIS-001",
+            asset_tag: "",
+            version: "1.0",
+            part_number: "VBMC-CHS",
+            sku: "VBMC-VIRTUAL",
+            spare_part_number: "VBMC-CHS-SPARE",
+            uuid: "12345678-1234-1234-1234-123456789012".to_string(),
+            height_mm: 44.5,
+            width_mm: 482.6,
+            depth_mm: 800.0,
+            weight_kg: 15.5,
+            environmental_class: "A1",
+            location_indicator_active: false,
+            max_power_watts: 1000,
+            min_power_watts: 100,
+            hot_pluggable: false,
+            replaceable: false,
+            thermal_direction: "FrontToBack",
+            thermal_managed_by_parent: true,
+            powered_by_parent: true,
+            electrical_source_manager_uris: vec![],
+            electrical_source_names: vec![],
+            location: super::super::types::RedfishLocation::new("Virtual Chassis", "Embedded", 0),
+            physical_security: PhysicalSecurity {
+                intrusion_sensor: "Normal",
+                intrusion_sensor_re_arm: "Manual",
+            },
+            links: ChassisLinks {
+                computer_systems: vec![ODataId::new("/redfish/v1/Systems/vm1".to_string())],
+                managed_by: vec![ODataId::new("/redfish/v1/Managers/vbmc".to_string())],
+                managers_in_chassis: vec![ODataId::new("/redfish/v1/Managers/vbmc".to_string())],
+                drives: vec![],
+                storage: vec![],
+                fans: vec![],
+                power_supplies: vec![],
+                processors: vec![],
+                contains: vec![],
+            },
+        };
+
+        let json = serde_json::to_value(&chassis).unwrap();
+        assert_eq!(json["@odata.id"], "/redfish/v1/Chassis/host");
+        assert_eq!(json["@odata.type"], "#Chassis.v1_25_0.Chassis");
+        assert_eq!(json["Id"], "host");
+        assert_eq!(json["Name"], "host");
+        assert_eq!(json["ChassisType"], "Other");
+        assert_eq!(json["Status"]["State"], "Enabled");
+        assert_eq!(
+            json["TrustedComponents"]["@odata.id"],
+            "/redfish/v1/Chassis/host/TrustedComponents"
+        );
+        assert_eq!(
+            json["PowerSubsystem"]["@odata.id"],
+            "/redfish/v1/Chassis/host/PowerSubsystem"
+        );
+        assert_eq!(
+            json["ThermalSubsystem"]["@odata.id"],
+            "/redfish/v1/Chassis/host/ThermalSubsystem"
+        );
+        assert_eq!(
+            json["Sensors"]["@odata.id"],
+            "/redfish/v1/Chassis/host/Sensors"
+        );
+        assert_eq!(
+            json["NetworkAdapters"]["@odata.id"],
+            "/redfish/v1/Chassis/host/NetworkAdapters"
+        );
+        assert_eq!(
+            json["Assembly"]["@odata.id"],
+            "/redfish/v1/Chassis/host/Assembly"
+        );
+        assert_eq!(
+            json["EnvironmentMetrics"]["@odata.id"],
+            "/redfish/v1/Chassis/host/EnvironmentMetrics"
+        );
+        assert_eq!(json["PowerState"], "On");
+        assert_eq!(json["Manufacturer"], "vbmc-rs");
+        assert_eq!(json["Model"], "Virtual Chassis");
+        assert_eq!(json["SerialNumber"], "VBMC-CHASSIS-001");
+        assert_eq!(json["AssetTag"], "");
+        assert_eq!(json["Version"], "1.0");
+        assert_eq!(json["PartNumber"], "VBMC-CHS");
+        assert_eq!(json["SKU"], "VBMC-VIRTUAL");
+        assert_eq!(json["SparePartNumber"], "VBMC-CHS-SPARE");
+        assert_eq!(json["UUID"], "12345678-1234-1234-1234-123456789012");
+        assert_eq!(json["HeightMm"], 44.5);
+        assert_eq!(json["WidthMm"], 482.6);
+        assert_eq!(json["DepthMm"], 800.0);
+        assert_eq!(json["WeightKg"], 15.5);
+        assert_eq!(json["EnvironmentalClass"], "A1");
+        assert_eq!(json["LocationIndicatorActive"], false);
+        assert_eq!(json["MaxPowerWatts"], 1000);
+        assert_eq!(json["MinPowerWatts"], 100);
+        assert_eq!(json["HotPluggable"], false);
+        assert_eq!(json["Replaceable"], false);
+        assert_eq!(json["ThermalDirection"], "FrontToBack");
+        assert_eq!(json["ThermalManagedByParent"], true);
+        assert_eq!(json["PoweredByParent"], true);
+        assert!(json["ElectricalSourceManagerURIs"].is_array());
+        assert!(json["ElectricalSourceNames"].is_array());
+    }
+
+    #[test]
+    fn test_physical_security_serialization() {
+        let security = PhysicalSecurity {
+            intrusion_sensor: "Normal",
+            intrusion_sensor_re_arm: "Manual",
+        };
+
+        let json = serde_json::to_value(&security).unwrap();
+        assert_eq!(json["IntrusionSensor"], "Normal");
+        assert_eq!(json["IntrusionSensorReArm"], "Manual");
+    }
+
+    #[test]
+    fn test_chassis_links_serialization() {
+        let links = ChassisLinks {
+            computer_systems: vec![
+                ODataId::new("/redfish/v1/Systems/vm1".to_string()),
+                ODataId::new("/redfish/v1/Systems/vm2".to_string()),
+            ],
+            managed_by: vec![ODataId::new("/redfish/v1/Managers/vbmc".to_string())],
+            managers_in_chassis: vec![ODataId::new("/redfish/v1/Managers/vbmc".to_string())],
+            drives: vec![],
+            storage: vec![],
+            fans: vec![ODataId::new("/redfish/v1/Chassis/host/Fans/0".to_string())],
+            power_supplies: vec![ODataId::new(
+                "/redfish/v1/Chassis/host/PowerSupplies/0".to_string(),
+            )],
+            processors: vec![],
+            contains: vec![],
+        };
+
+        let json = serde_json::to_value(&links).unwrap();
+        assert_eq!(
+            json["ComputerSystems"][0]["@odata.id"],
+            "/redfish/v1/Systems/vm1"
+        );
+        assert_eq!(
+            json["ComputerSystems"][1]["@odata.id"],
+            "/redfish/v1/Systems/vm2"
+        );
+        assert_eq!(
+            json["ManagedBy"][0]["@odata.id"],
+            "/redfish/v1/Managers/vbmc"
+        );
+        assert_eq!(
+            json["ManagersInChassis"][0]["@odata.id"],
+            "/redfish/v1/Managers/vbmc"
+        );
+        assert!(json["Drives"].is_array());
+        assert_eq!(json["Drives"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            json["Fans"][0]["@odata.id"],
+            "/redfish/v1/Chassis/host/Fans/0"
+        );
+        assert_eq!(
+            json["PowerSupplies"][0]["@odata.id"],
+            "/redfish/v1/Chassis/host/PowerSupplies/0"
+        );
+    }
+
+    #[test]
+    fn test_trusted_component_resource_serialization() {
+        let component = TrustedComponentResource {
+            odata_id: "/redfish/v1/Chassis/host/TrustedComponents/vm1".to_string(),
+            odata_type: "#TrustedComponent.v1_3_0.TrustedComponent",
+            id: "vm1".to_string(),
+            name: "Trusted: vm1".to_string(),
+            description: "Trusted component: vm1".to_string(),
+            trusted_component_type: "Discrete",
+            manufacturer: "vbmc-rs",
+            model: "Virtual TPM",
+            serial_number: "VBMC-TC-vm1".to_string(),
+            firmware_version: "1.0.0",
+            uuid: "12345678-1234-1234-1234-123456789012".to_string(),
+            part_number: "VBMC-TC",
+            sku: "VBMC-VIRTUAL",
+            tc_links: TrustedComponentLinks {
+                component_integrity: vec![ODataId::new(
+                    "/redfish/v1/ComponentIntegrity/vm1".to_string(),
+                )],
+                integrated_into: ODataId::new("/redfish/v1/Chassis/host".to_string()),
+                owner: ODataId::new("/redfish/v1/Chassis/host".to_string()),
+                components_protected: vec![ODataId::new("/redfish/v1/Systems/vm1".to_string())],
+                active_software_image: ODataId::new(
+                    "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs".to_string(),
+                ),
+                software_images: vec![ODataId::new(
+                    "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs".to_string(),
+                )],
+            },
+            status: Status {
+                state: Some("Enabled".to_string()),
+                health: Some("OK".to_string()),
+                health_rollup: Some("OK".to_string()),
+            },
+        };
+
+        let json = serde_json::to_value(&component).unwrap();
+        assert_eq!(
+            json["@odata.id"],
+            "/redfish/v1/Chassis/host/TrustedComponents/vm1"
+        );
+        assert_eq!(
+            json["@odata.type"],
+            "#TrustedComponent.v1_3_0.TrustedComponent"
+        );
+        assert_eq!(json["Id"], "vm1");
+        assert_eq!(json["Name"], "Trusted: vm1");
+        assert_eq!(json["Description"], "Trusted component: vm1");
+        assert_eq!(json["TrustedComponentType"], "Discrete");
+        assert_eq!(json["Manufacturer"], "vbmc-rs");
+        assert_eq!(json["Model"], "Virtual TPM");
+        assert_eq!(json["SerialNumber"], "VBMC-TC-vm1");
+        assert_eq!(json["FirmwareVersion"], "1.0.0");
+        assert_eq!(json["UUID"], "12345678-1234-1234-1234-123456789012");
+        assert_eq!(json["PartNumber"], "VBMC-TC");
+        assert_eq!(json["SKU"], "VBMC-VIRTUAL");
+        assert_eq!(json["Status"]["State"], "Enabled");
+        assert_eq!(json["Status"]["Health"], "OK");
+    }
+
+    #[test]
+    fn test_trusted_component_links_serialization() {
+        let links = TrustedComponentLinks {
+            component_integrity: vec![
+                ODataId::new("/redfish/v1/ComponentIntegrity/vm1".to_string()),
+                ODataId::new("/redfish/v1/ComponentIntegrity/vm2".to_string()),
+            ],
+            integrated_into: ODataId::new("/redfish/v1/Chassis/host".to_string()),
+            owner: ODataId::new("/redfish/v1/Chassis/host".to_string()),
+            components_protected: vec![
+                ODataId::new("/redfish/v1/Systems/vm1".to_string()),
+                ODataId::new("/redfish/v1/Systems/vm2".to_string()),
+            ],
+            active_software_image: ODataId::new(
+                "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs".to_string(),
+            ),
+            software_images: vec![
+                ODataId::new("/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs".to_string()),
+                ODataId::new(
+                    "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs-backup".to_string(),
+                ),
+            ],
+        };
+
+        let json = serde_json::to_value(&links).unwrap();
+        assert_eq!(
+            json["ComponentIntegrity"][0]["@odata.id"],
+            "/redfish/v1/ComponentIntegrity/vm1"
+        );
+        assert_eq!(
+            json["ComponentIntegrity"][1]["@odata.id"],
+            "/redfish/v1/ComponentIntegrity/vm2"
+        );
+        assert_eq!(
+            json["IntegratedInto"]["@odata.id"],
+            "/redfish/v1/Chassis/host"
+        );
+        assert_eq!(json["Owner"]["@odata.id"], "/redfish/v1/Chassis/host");
+        assert_eq!(
+            json["ComponentsProtected"][0]["@odata.id"],
+            "/redfish/v1/Systems/vm1"
+        );
+        assert_eq!(
+            json["ComponentsProtected"][1]["@odata.id"],
+            "/redfish/v1/Systems/vm2"
+        );
+        assert_eq!(
+            json["ActiveSoftwareImage"]["@odata.id"],
+            "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs"
+        );
+        assert_eq!(
+            json["SoftwareImages"][0]["@odata.id"],
+            "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs"
+        );
+        assert_eq!(
+            json["SoftwareImages"][1]["@odata.id"],
+            "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs-backup"
+        );
+    }
+}

@@ -72,3 +72,30 @@ pub async fn reset_scenarios(State(state): State<Arc<AppState>>) -> Response {
     let cleared = store.twin_reset_scenarios();
     axum::Json(json!({ "Reset": cleared })).into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scenario_path_constant() {
+        assert_eq!(SCENARIO_PATH, "/twin/v1/scenario");
+    }
+
+    #[test]
+    fn test_scenario_arm_path_constant() {
+        assert_eq!(SCENARIO_ARM_PATH, "/twin/v1/scenario/{name}");
+    }
+
+    #[test]
+    fn test_scenario_paths_under_twin_namespace() {
+        assert!(SCENARIO_PATH.starts_with("/twin/v1/"));
+        assert!(SCENARIO_ARM_PATH.starts_with("/twin/v1/"));
+    }
+
+    #[test]
+    fn test_scenario_paths_not_under_redfish() {
+        assert!(!SCENARIO_PATH.starts_with("/redfish"));
+        assert!(!SCENARIO_ARM_PATH.starts_with("/redfish"));
+    }
+}

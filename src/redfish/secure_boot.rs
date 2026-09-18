@@ -113,3 +113,244 @@ pub async fn patch_secure_boot(
 
     Ok(Json(serde_json::json!({"message": "SecureBoot updated"})))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_secure_boot_resource_serialization() {
+        let resource = SecureBootResource {
+            odata_id: "/redfish/v1/Systems/vm1/SecureBoot".to_string(),
+            odata_type: "#SecureBoot.v1_1_0.SecureBoot",
+            id: "SecureBoot",
+            name: "UEFI Secure Boot",
+            description: "UEFI Secure Boot settings",
+            secure_boot_enable: true,
+            secure_boot_current_boot: "Enabled",
+            secure_boot_mode: "UserMode",
+        };
+
+        let value = serde_json::to_value(&resource).unwrap();
+
+        assert_eq!(value["@odata.id"], "/redfish/v1/Systems/vm1/SecureBoot");
+        assert_eq!(value["@odata.type"], "#SecureBoot.v1_1_0.SecureBoot");
+        assert_eq!(value["Id"], "SecureBoot");
+        assert_eq!(value["Name"], "UEFI Secure Boot");
+        assert_eq!(value["Description"], "UEFI Secure Boot settings");
+        assert_eq!(value["SecureBootEnable"], true);
+        assert_eq!(value["SecureBootCurrentBoot"], "Enabled");
+        assert_eq!(value["SecureBootMode"], "UserMode");
+    }
+
+    #[test]
+    fn test_secure_boot_resource_disabled() {
+        let resource = SecureBootResource {
+            odata_id: "/redfish/v1/Systems/vm1/SecureBoot".to_string(),
+            odata_type: "#SecureBoot.v1_1_0.SecureBoot",
+            id: "SecureBoot",
+            name: "UEFI Secure Boot",
+            description: "UEFI Secure Boot settings",
+            secure_boot_enable: false,
+            secure_boot_current_boot: "Disabled",
+            secure_boot_mode: "UserMode",
+        };
+
+        let value = serde_json::to_value(&resource).unwrap();
+        assert_eq!(value["SecureBootEnable"], false);
+        assert_eq!(value["SecureBootCurrentBoot"], "Disabled");
+    }
+
+    #[test]
+    fn test_patch_secure_boot_request_deserialization() {
+        let json = serde_json::json!({
+            "SecureBootEnable": true
+        });
+
+        let request: PatchSecureBootRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(request.secure_boot_enable, Some(true));
+    }
+
+    #[test]
+    fn test_patch_secure_boot_request_false() {
+        let json = serde_json::json!({
+            "SecureBootEnable": false
+        });
+
+        let request: PatchSecureBootRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(request.secure_boot_enable, Some(false));
+    }
+
+    #[test]
+    fn test_patch_secure_boot_request_none() {
+        let json = serde_json::json!({});
+        let request: PatchSecureBootRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(request.secure_boot_enable, None);
+    }
+
+    #[test]
+    fn test_secure_boot_current_boot_values() {
+        let enabled = SecureBootResource {
+            odata_id: "/redfish/v1/Systems/vm1/SecureBoot".to_string(),
+            odata_type: "#SecureBoot.v1_1_0.SecureBoot",
+            id: "SecureBoot",
+            name: "UEFI Secure Boot",
+            description: "UEFI Secure Boot settings",
+            secure_boot_enable: true,
+            secure_boot_current_boot: "Enabled",
+            secure_boot_mode: "UserMode",
+        };
+
+        let value = serde_json::to_value(&enabled).unwrap();
+        assert_eq!(value["SecureBootCurrentBoot"], "Enabled");
+
+        let disabled = SecureBootResource {
+            secure_boot_current_boot: "Disabled",
+            ..enabled
+        };
+
+        let value = serde_json::to_value(&disabled).unwrap();
+        assert_eq!(value["SecureBootCurrentBoot"], "Disabled");
+    }
+}
+
+#[cfg(test)]
+mod harness_tests {
+    use crate::backend::mock::MockBackend;
+    use crate::redfish::test_harness as h;
+    use axum::http::{Method, StatusCode};
+
+    #[tokio::test]
+    async fn test_get_secure_boot() {
+        let mock = MockBackend::new().with_vm("sys", h::running_vm());
+        let state = h::app_state(mock, h::systems_with("sys"));
+        let app = h::router(state);
+
+        let (status, json, _) = h::get(&app, "/redfish/v1/Systems/sys/SecureBoot").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["@odata.id"], "/redfish/v1/Systems/sys/SecureBoot");
+        assert_eq!(json["@odata.type"], "#SecureBoot.v1_1_0.SecureBoot");
+        assert_eq!(json["Id"], "SecureBoot");
+        assert_eq!(json["Name"], "UEFI Secure Boot");
+        assert_eq!(json["SecureBootMode"], "UserMode");
+        assert!(json["SecureBootEnable"].is_boolean());
+        assert!(json["SecureBootCurrentBoot"].is_string());
+    }
+
+    #[tokio::test]
+    async fn test_get_secure_boot_unknown_system() {
+        let state = h::app_state(MockBackend::new(), h::systems_with("sys"));
+        let app = h::router(state);
+
+        let (status, json, _) = h::get(&app, "/redfish/v1/Systems/unknown/SecureBoot").await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(json["error"]["code"], "Base.1.0.GeneralError");
+        assert!(
+            json["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("unknown")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_patch_secure_boot_enable() {
+        let mock = MockBackend::new().with_vm("sys", h::running_vm());
+        let state = h::app_state(mock, h::systems_with("sys"));
+        let app = h::router(state.clone());
+
+        let body = serde_json::json!({
+            "SecureBootEnable": true
+        });
+
+        let (status, json, _) = h::request_json(
+            &app,
+            Method::PATCH,
+            "/redfish/v1/Systems/sys/SecureBoot",
+            body,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(json["message"].as_str().is_some());
+
+        // Verify the state was updated
+        let vm_state = state.get_vm_state("sys");
+        assert!(vm_state.secure_boot_enabled);
+    }
+
+    #[tokio::test]
+    async fn test_patch_secure_boot_disable() {
+        let mock = MockBackend::new().with_vm("sys", h::running_vm());
+        let state = h::app_state(mock, h::systems_with("sys"));
+        let app = h::router(state.clone());
+
+        let body = serde_json::json!({
+            "SecureBootEnable": false
+        });
+
+        let (status, json, _) = h::request_json(
+            &app,
+            Method::PATCH,
+            "/redfish/v1/Systems/sys/SecureBoot",
+            body,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(json["message"].as_str().is_some());
+
+        // Verify the state was updated
+        let vm_state = state.get_vm_state("sys");
+        assert!(!vm_state.secure_boot_enabled);
+    }
+
+    #[tokio::test]
+    async fn test_patch_secure_boot_unknown_system() {
+        let state = h::app_state(MockBackend::new(), h::systems_with("sys"));
+        let app = h::router(state);
+
+        let body = serde_json::json!({
+            "SecureBootEnable": true
+        });
+
+        let (status, json, _) = h::request_json(
+            &app,
+            Method::PATCH,
+            "/redfish/v1/Systems/unknown/SecureBoot",
+            body,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(json["error"]["code"], "Base.1.0.GeneralError");
+        assert!(
+            json["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("unknown")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_patch_secure_boot_empty_body() {
+        let mock = MockBackend::new().with_vm("sys", h::running_vm());
+        let state = h::app_state(mock, h::systems_with("sys"));
+        let app = h::router(state);
+
+        let body = serde_json::json!({});
+
+        let (status, json, _) = h::request_json(
+            &app,
+            Method::PATCH,
+            "/redfish/v1/Systems/sys/SecureBoot",
+            body,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(json["message"].as_str().is_some());
+    }
+}

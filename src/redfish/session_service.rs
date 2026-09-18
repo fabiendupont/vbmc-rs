@@ -238,3 +238,212 @@ pub async fn delete_session(
         )))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_session_service_serialization() {
+        let service = SessionServiceResource {
+            odata_id: "/redfish/v1/SessionService",
+            odata_type: "#SessionService.v1_1_9.SessionService",
+            id: "SessionService",
+            name: "Session Service",
+            description: "Session management service",
+            service_enabled: true,
+            session_timeout: 3600,
+            sessions: ODataId::new("/redfish/v1/SessionService/Sessions"),
+            status: super::super::types::Status::enabled_ok(),
+        };
+
+        let value = serde_json::to_value(&service).unwrap();
+
+        assert_eq!(value["@odata.id"], "/redfish/v1/SessionService");
+        assert_eq!(
+            value["@odata.type"],
+            "#SessionService.v1_1_9.SessionService"
+        );
+        assert_eq!(value["Id"], "SessionService");
+        assert_eq!(value["Name"], "Session Service");
+        assert_eq!(value["ServiceEnabled"], true);
+        assert_eq!(value["SessionTimeout"], 3600);
+        assert_eq!(
+            value["Sessions"]["@odata.id"],
+            "/redfish/v1/SessionService/Sessions"
+        );
+        assert_eq!(value["Status"]["State"], "Enabled");
+    }
+
+    #[test]
+    fn test_session_resource_serialization() {
+        let session = SessionResource {
+            odata_id: "/redfish/v1/SessionService/Sessions/abc-123".to_string(),
+            odata_type: "#Session.v1_7_0.Session",
+            id: "abc-123".to_string(),
+            name: "Session for admin".to_string(),
+            description: "User session",
+            user_name: "admin".to_string(),
+        };
+
+        let value = serde_json::to_value(&session).unwrap();
+
+        assert_eq!(
+            value["@odata.id"],
+            "/redfish/v1/SessionService/Sessions/abc-123"
+        );
+        assert_eq!(value["@odata.type"], "#Session.v1_7_0.Session");
+        assert_eq!(value["Id"], "abc-123");
+        assert_eq!(value["Name"], "Session for admin");
+        assert_eq!(value["UserName"], "admin");
+    }
+
+    #[test]
+    fn test_create_session_request_deserialization() {
+        let json = serde_json::json!({
+            "UserName": "testuser",
+            "Password": "testpass123"
+        });
+
+        let request: CreateSessionRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(request.user_name, "testuser");
+        assert_eq!(request.password, "testpass123");
+    }
+
+    // Integration tests using the test harness
+    use crate::backend::mock::MockBackend;
+    use crate::redfish::test_harness::{app_state, request_json, router, systems_with};
+    use axum::http::Method;
+
+    #[tokio::test]
+    async fn test_create_session_invalid_credentials() {
+        let state = app_state(MockBackend::new(), systems_with("test-sys"));
+        let app = router(state);
+
+        let body = serde_json::json!({
+            "UserName": "nonexistent",
+            "Password": "wrongpass"
+        });
+
+        let (status, json, _headers) = request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/SessionService/Sessions",
+            body,
+        )
+        .await;
+
+        assert_eq!(status, axum::http::StatusCode::UNAUTHORIZED);
+        assert!(json["error"].is_object());
+    }
+
+    #[tokio::test]
+    async fn test_create_session_missing_password() {
+        let state = app_state(MockBackend::new(), systems_with("test-sys"));
+        let app = router(state);
+
+        let body = serde_json::json!({
+            "UserName": "testuser"
+        });
+
+        let (status, _json, _headers) = request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/SessionService/Sessions",
+            body,
+        )
+        .await;
+
+        assert!(status.is_client_error());
+    }
+}
+
+#[cfg(test)]
+mod harness_tests {
+    use crate::backend::mock::MockBackend;
+    use crate::redfish::test_harness as h;
+    use axum::http::{Method, StatusCode};
+    use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn test_get_session_service() {
+        let app = h::router(h::app_state(MockBackend::new(), HashMap::new()));
+        let (status, json, _) = h::get(&app, "/redfish/v1/SessionService").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["Id"], "SessionService");
+        assert_eq!(json["ServiceEnabled"], true);
+    }
+
+    #[tokio::test]
+    async fn test_get_sessions_empty() {
+        let app = h::router(h::app_state(MockBackend::new(), HashMap::new()));
+        let (status, json, _) = h::get(&app, "/redfish/v1/SessionService/Sessions").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["Members@odata.count"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_create_session_success() {
+        let state = h::app_state_with_accounts(
+            MockBackend::new(),
+            HashMap::new(),
+            &[("admin", "secret", "Administrator")],
+        );
+        let app = h::router(state);
+
+        let body = serde_json::json!({ "UserName": "admin", "Password": "secret" });
+        let (status, json, headers) = h::request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/SessionService/Sessions",
+            body,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(json["UserName"], "admin");
+        assert!(headers.contains_key("X-Auth-Token"));
+        assert!(headers.contains_key("Location"));
+    }
+
+    #[tokio::test]
+    async fn test_delete_session_success() {
+        let state = h::app_state_with_accounts(
+            MockBackend::new(),
+            HashMap::new(),
+            &[("admin", "secret", "Administrator")],
+        );
+        let app = h::router(state);
+
+        let body = serde_json::json!({ "UserName": "admin", "Password": "secret" });
+        let (status, json, _) = h::request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/SessionService/Sessions",
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let id = json["Id"].as_str().expect("session id");
+
+        let (status, _, _) = h::request(
+            &app,
+            Method::DELETE,
+            &format!("/redfish/v1/SessionService/Sessions/{id}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn test_delete_session_not_found() {
+        let app = h::router(h::app_state(MockBackend::new(), HashMap::new()));
+        let (status, _, _) = h::request(
+            &app,
+            Method::DELETE,
+            "/redfish/v1/SessionService/Sessions/does-not-exist",
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+}

@@ -225,3 +225,311 @@ pub async fn sse_stream(
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_event_service_serialization() {
+        let service = EventServiceResource {
+            odata_id: "/redfish/v1/EventService",
+            odata_type: "#EventService.v1_10_0.EventService",
+            id: "EventService",
+            name: "Event Service",
+            description: "Redfish event delivery service",
+            service_enabled: true,
+            subscriptions: ODataId::new("/redfish/v1/EventService/Subscriptions"),
+            sse_uri: "/redfish/v1/EventService/SSE",
+            delivery_retry_attempts: 3,
+            delivery_retry_interval_seconds: 30,
+            event_format_types: vec!["Event"],
+            registry_prefixes: vec!["ResourceEvent", "Security"],
+            resource_types: vec!["ComputerSystem", "Manager", "Chassis"],
+            include_origin_of_condition_supported: true,
+            subordinate_resources_supported: false,
+            exclude_message_id: false,
+            exclude_registry_prefix: false,
+            severities: vec!["OK", "Warning", "Critical"],
+            sse_filter_properties_supported: SseFilterProperties {
+                event_format_type: false,
+                message_id: true,
+                metric_report_definition: false,
+                origin_resource: true,
+                registry_prefix: true,
+                resource_type: true,
+                subordinate_resources: false,
+            },
+            status: Status::enabled_ok(),
+        };
+
+        let value = serde_json::to_value(&service).unwrap();
+
+        assert_eq!(value["@odata.id"], "/redfish/v1/EventService");
+        assert_eq!(value["@odata.type"], "#EventService.v1_10_0.EventService");
+        assert_eq!(value["Id"], "EventService");
+        assert_eq!(value["Name"], "Event Service");
+        assert_eq!(value["ServiceEnabled"], true);
+        assert_eq!(
+            value["Subscriptions"]["@odata.id"],
+            "/redfish/v1/EventService/Subscriptions"
+        );
+        assert_eq!(value["ServerSentEventUri"], "/redfish/v1/EventService/SSE");
+        assert_eq!(value["DeliveryRetryAttempts"], 3);
+        assert_eq!(value["DeliveryRetryIntervalSeconds"], 30);
+        assert_eq!(value["EventFormatTypes"], serde_json::json!(["Event"]));
+        assert_eq!(
+            value["RegistryPrefixes"],
+            serde_json::json!(["ResourceEvent", "Security"])
+        );
+        assert_eq!(
+            value["ResourceTypes"],
+            serde_json::json!(["ComputerSystem", "Manager", "Chassis"])
+        );
+        assert_eq!(value["IncludeOriginOfConditionSupported"], true);
+        assert_eq!(value["SubordinateResourcesSupported"], false);
+        assert_eq!(value["ExcludeMessageId"], false);
+        assert_eq!(value["ExcludeRegistryPrefix"], false);
+        assert_eq!(
+            value["Severities"],
+            serde_json::json!(["OK", "Warning", "Critical"])
+        );
+    }
+
+    #[test]
+    fn test_sse_filter_properties_serialization() {
+        let filters = SseFilterProperties {
+            event_format_type: true,
+            message_id: false,
+            metric_report_definition: true,
+            origin_resource: false,
+            registry_prefix: true,
+            resource_type: false,
+            subordinate_resources: true,
+        };
+
+        let value = serde_json::to_value(&filters).unwrap();
+
+        assert_eq!(value["EventFormatType"], true);
+        assert_eq!(value["MessageId"], false);
+        assert_eq!(value["MetricReportDefinition"], true);
+        assert_eq!(value["OriginResource"], false);
+        assert_eq!(value["RegistryPrefix"], true);
+        assert_eq!(value["ResourceType"], false);
+        assert_eq!(value["SubordinateResources"], true);
+    }
+
+    #[test]
+    fn test_create_subscription_request_deserialization() {
+        let json = serde_json::json!({
+            "Destination": "https://example.com/webhook",
+            "Protocol": "Redfish",
+            "EventTypes": ["Alert", "ResourceAdded"]
+        });
+
+        let request: CreateSubscriptionRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(request.destination, "https://example.com/webhook");
+        assert_eq!(request.protocol, Some("Redfish".to_string()));
+        assert_eq!(request.event_types, vec!["Alert", "ResourceAdded"]);
+    }
+
+    #[test]
+    fn test_create_subscription_request_minimal() {
+        let json = serde_json::json!({
+            "Destination": "https://example.com/webhook"
+        });
+
+        let request: CreateSubscriptionRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(request.destination, "https://example.com/webhook");
+        assert_eq!(request.protocol, None);
+        assert_eq!(request.event_types, Vec::<String>::new());
+    }
+
+    // Integration tests exercising async handler bodies
+    #[tokio::test]
+    async fn test_get_event_service_handler() {
+        use crate::redfish::test_harness::*;
+        let router = router_with_systems(systems_with("system1"));
+
+        let (status, json, _headers) = get(&router, "/redfish/v1/EventService").await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(json["@odata.id"], "/redfish/v1/EventService");
+        assert_eq!(json["@odata.type"], "#EventService.v1_10_0.EventService");
+        assert_eq!(json["Id"], "EventService");
+        assert_eq!(json["Name"], "Event Service");
+        assert_eq!(json["ServiceEnabled"], true);
+        assert_eq!(
+            json["Subscriptions"]["@odata.id"],
+            "/redfish/v1/EventService/Subscriptions"
+        );
+        assert_eq!(json["ServerSentEventUri"], "/redfish/v1/EventService/SSE");
+    }
+
+    #[tokio::test]
+    async fn test_get_subscriptions_empty() {
+        use crate::redfish::test_harness::*;
+        let router = router_with_systems(systems_with("system1"));
+
+        let (status, json, _headers) = get(&router, "/redfish/v1/EventService/Subscriptions").await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(json["@odata.id"], "/redfish/v1/EventService/Subscriptions");
+        assert_eq!(
+            json["@odata.type"],
+            "#EventDestinationCollection.EventDestinationCollection"
+        );
+        assert_eq!(json["Name"], "Event Subscriptions");
+        assert_eq!(json["Members@odata.count"], 0);
+        assert_eq!(json["Members"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn test_create_subscription_valid() {
+        use crate::redfish::test_harness::*;
+        use axum::http::Method;
+
+        let router = router_with_systems(systems_with("system1"));
+
+        let body = serde_json::json!({
+            "Destination": "https://example.com/webhook",
+            "Protocol": "Redfish",
+            "EventTypes": ["Alert", "ResourceAdded"]
+        });
+
+        let (status, json, _headers) = request_json(
+            &router,
+            Method::POST,
+            "/redfish/v1/EventService/Subscriptions",
+            body,
+        )
+        .await;
+
+        assert!(
+            status == axum::http::StatusCode::CREATED || status.is_success(),
+            "Expected 2xx, got {status}"
+        );
+        assert!(
+            json["@odata.id"]
+                .as_str()
+                .unwrap()
+                .starts_with("/redfish/v1/EventService/Subscriptions/")
+        );
+        assert_eq!(json["Destination"], "https://example.com/webhook");
+        assert_eq!(json["Protocol"], "Redfish");
+    }
+
+    #[tokio::test]
+    async fn test_get_subscription_after_create() {
+        use crate::redfish::test_harness::*;
+        use axum::http::Method;
+
+        let router = router_with_systems(systems_with("system1"));
+
+        // Create a subscription
+        let body = serde_json::json!({
+            "Destination": "https://example.com/webhook",
+            "Protocol": "Redfish",
+            "EventTypes": ["Alert"]
+        });
+
+        let (_status, create_response, _headers) = request_json(
+            &router,
+            Method::POST,
+            "/redfish/v1/EventService/Subscriptions",
+            body,
+        )
+        .await;
+
+        let sub_uri = create_response["@odata.id"].as_str().unwrap();
+
+        // GET the created subscription
+        let (status, json, _headers) = get(&router, sub_uri).await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(json["@odata.id"], sub_uri);
+        assert_eq!(
+            json["@odata.type"],
+            "#EventDestination.v1_14_0.EventDestination"
+        );
+        assert_eq!(json["Destination"], "https://example.com/webhook");
+        assert_eq!(json["Protocol"], "Redfish");
+        assert_eq!(json["EventTypes"], serde_json::json!(["Alert"]));
+    }
+
+    #[tokio::test]
+    async fn test_delete_subscription() {
+        use crate::redfish::test_harness::*;
+        use axum::http::Method;
+
+        let router = router_with_systems(systems_with("system1"));
+
+        // Create a subscription
+        let body = serde_json::json!({
+            "Destination": "https://example.com/webhook"
+        });
+
+        let (_status, create_response, _headers) = request_json(
+            &router,
+            Method::POST,
+            "/redfish/v1/EventService/Subscriptions",
+            body,
+        )
+        .await;
+
+        let sub_uri = create_response["@odata.id"].as_str().unwrap();
+
+        // DELETE the subscription
+        let (status, _json, _headers) = request(&router, Method::DELETE, sub_uri).await;
+
+        assert_eq!(status, axum::http::StatusCode::NO_CONTENT);
+
+        // Verify it's gone (GET should fail)
+        let (status, _json, _headers) = get(&router, sub_uri).await;
+        assert!(
+            status.is_client_error(),
+            "Expected 4xx after deletion, got {status}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_subscription_bad_body() {
+        use crate::redfish::test_harness::*;
+        use axum::http::Method;
+
+        let router = router_with_systems(systems_with("system1"));
+
+        // Missing required "Destination" field
+        let bad_body = serde_json::json!({
+            "Protocol": "Redfish"
+        });
+
+        let (status, _json, _headers) = request_json(
+            &router,
+            Method::POST,
+            "/redfish/v1/EventService/Subscriptions",
+            bad_body,
+        )
+        .await;
+
+        assert!(
+            status.is_client_error(),
+            "Expected 4xx for bad body, got {status}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_subscription_not_found() {
+        use crate::redfish::test_harness::*;
+
+        let router = router_with_systems(systems_with("system1"));
+
+        let (status, _json, _headers) = get(
+            &router,
+            "/redfish/v1/EventService/Subscriptions/nonexistent",
+        )
+        .await;
+
+        assert_eq!(status, axum::http::StatusCode::NOT_FOUND);
+    }
+}

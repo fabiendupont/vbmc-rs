@@ -787,3 +787,359 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_domain_with_target_dev() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>2</vcpu>
+          <memory unit='MiB'>1024</memory>
+          <devices>
+            <interface type='network'>
+              <mac address='52:54:00:aa:bb:cc'/>
+              <target dev='vnet0'/>
+            </interface>
+          </devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.nics.len(), 1);
+        assert_eq!(info.nics[0].tap.as_deref(), Some("vnet0"));
+    }
+
+    #[test]
+    fn test_parse_domain_with_nic_model() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>1</vcpu>
+          <memory unit='MiB'>512</memory>
+          <devices>
+            <interface type='bridge'>
+              <mac address='52:54:00:11:22:33'/>
+              <model type='e1000'/>
+            </interface>
+          </devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.nics.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_domain_unknown_disk_bus() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>1</vcpu>
+          <memory unit='MiB'>512</memory>
+          <devices>
+            <disk type='file' device='disk'>
+              <source file='/tmp/disk.img'/>
+              <target dev='hda' bus='scsi'/>
+            </disk>
+          </devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.disks.len(), 1);
+        assert_eq!(info.disks[0].protocol, bt::DiskProtocol::Unknown);
+    }
+
+    #[test]
+    fn test_parse_domain_disk_no_target_dev() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>1</vcpu>
+          <memory unit='MiB'>512</memory>
+          <devices>
+            <disk type='file' device='disk'>
+              <source file='/tmp/disk.img'/>
+              <target bus='virtio'/>
+            </disk>
+            <disk type='file' device='disk'>
+              <source file='/tmp/disk2.img'/>
+              <target bus='virtio'/>
+            </disk>
+          </devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.disks.len(), 2);
+        assert_eq!(info.disks[0].id, "disk0");
+        assert_eq!(info.disks[1].id, "disk1");
+    }
+
+    #[test]
+    fn test_parse_domain_memory_bytes_unit() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>1</vcpu>
+          <memory unit='bytes'>1073741824</memory>
+          <devices></devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.memory_bytes, 1073741824);
+    }
+
+    #[test]
+    fn test_parse_domain_memory_unknown_unit() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>1</vcpu>
+          <memory unit='unknown'>1024</memory>
+          <devices></devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        // Falls back to KiB
+        assert_eq!(info.memory_bytes, 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_domain_secure_boot_enabled() {
+        let xml = r#"
+        <domain type='kvm'>
+          <os>
+            <loader secure='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.secboot.fd</loader>
+          </os>
+          <vcpu>1</vcpu>
+          <memory unit='MiB'>512</memory>
+          <devices></devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.secure_boot, Some(true));
+    }
+
+    #[test]
+    fn test_parse_domain_secure_boot_disabled() {
+        let xml = r#"
+        <domain type='kvm'>
+          <os>
+            <loader secure='no' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+          </os>
+          <vcpu>1</vcpu>
+          <memory unit='MiB'>512</memory>
+          <devices></devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.secure_boot, Some(false));
+    }
+
+    #[test]
+    fn test_parse_hex_without_prefix() {
+        assert_eq!(parse_hex("ff"), 255);
+        assert_eq!(parse_hex("1a"), 26);
+        assert_eq!(parse_hex("0"), 0);
+    }
+
+    #[test]
+    fn test_parse_hex_invalid() {
+        assert_eq!(parse_hex("xyz"), 0);
+        assert_eq!(parse_hex("0xgg"), 0);
+    }
+
+    #[test]
+    fn test_parse_pci_hostdev_multi_function() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>1</vcpu>
+          <memory unit='MiB'>512</memory>
+          <devices>
+            <hostdev mode='subsystem' type='pci'>
+              <source>
+                <address domain='0x0001' bus='0x82' slot='0x00' function='0x1'/>
+              </source>
+            </hostdev>
+          </devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.pci_devices.len(), 1);
+        assert_eq!(info.pci_devices[0].bdf, "0001:82:00.1");
+        assert_eq!(info.pci_devices[0].functions[0].function_id, 1);
+    }
+
+    #[test]
+    fn test_parse_hostdev_non_pci_ignored() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>1</vcpu>
+          <memory unit='MiB'>512</memory>
+          <devices>
+            <hostdev mode='subsystem' type='usb'>
+              <source>
+                <vendor id='0x1234'/>
+                <product id='0x5678'/>
+              </source>
+            </hostdev>
+          </devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.pci_devices.len(), 0);
+    }
+
+    #[test]
+    fn test_set_secure_boot_with_empty_features() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <type machine='q35'>hvm</type>
+    <loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+  </os>
+  <features/>
+  <devices></devices>
+</domain>"#;
+        let result = set_secure_boot_xml(xml, true, None).unwrap();
+        assert!(result.contains("secure='yes'"));
+        assert!(result.contains("<smm state='on'/>"));
+    }
+
+    #[test]
+    fn test_set_secure_boot_no_features_block() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <type machine='q35'>hvm</type>
+    <loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+  </os>
+  <devices></devices>
+</domain>"#;
+        let result = set_secure_boot_xml(xml, true, None).unwrap();
+        assert!(result.contains("secure='yes'"));
+        assert!(result.contains("<smm state='on'/>"));
+    }
+
+    #[test]
+    fn test_set_secure_boot_already_has_smm_off() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <type machine='q35'>hvm</type>
+    <loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+  </os>
+  <features>
+    <acpi/>
+    <smm state='off'/>
+  </features>
+</domain>"#;
+        let result = set_secure_boot_xml(xml, true, None).unwrap();
+        assert!(result.contains("<smm state='on'/>"));
+        assert!(!result.contains("<smm state='off'/>"));
+    }
+
+    #[test]
+    fn test_set_secure_boot_pc_q35_variant() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <type machine="pc-q35-8.2">hvm</type>
+    <loader readonly='yes' type="pflash">/usr/share/OVMF/OVMF_CODE.fd</loader>
+  </os>
+</domain>"#;
+        let result = set_secure_boot_xml(xml, true, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_set_nvram_template_existing_nvram_with_template() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <loader type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+    <nvram template='/usr/share/OVMF/OVMF_VARS.fd'>/var/lib/libvirt/qemu/nvram/vm_VARS.fd</nvram>
+  </os>
+</domain>"#;
+        // set_nvram_template should not override existing template
+        let result = set_nvram_template(xml, "/new/template.fd");
+        assert!(result.contains("template='/usr/share/OVMF/OVMF_VARS.fd'"));
+        assert!(!result.contains("template='/new/template.fd'"));
+    }
+
+    #[test]
+    fn test_set_nvram_template_existing_nvram_no_template() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <loader type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+    <nvram>/var/lib/libvirt/qemu/nvram/vm_VARS.fd</nvram>
+  </os>
+</domain>"#;
+        let result = set_nvram_template(xml, "/new/template.fd");
+        assert!(result.contains("template='/new/template.fd'"));
+    }
+
+    #[test]
+    fn test_set_nvram_template_no_nvram_no_os_end() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <loader type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+  </os>
+</domain>"#;
+        let result = set_nvram_template(xml, "/new/template.fd");
+        assert!(result.contains("<nvram template='/new/template.fd'/>"));
+    }
+
+    #[test]
+    fn test_replace_loader_path() {
+        let xml = r#"<domain><os><loader type='pflash'>/old/path.fd</loader></os></domain>"#;
+        let result = replace_loader_path(xml, "/new/path.fd");
+        assert!(result.contains("/new/path.fd"));
+        assert!(!result.contains("/old/path.fd"));
+    }
+
+    #[test]
+    fn test_replace_loader_path_no_loader() {
+        let xml = r#"<domain><os></os></domain>"#;
+        let result = replace_loader_path(xml, "/new/path.fd");
+        assert_eq!(result, xml); // unchanged
+    }
+
+    #[test]
+    fn test_parse_console_pty_non_pty_type() {
+        let xml = r#"
+        <domain type='kvm'>
+          <devices>
+            <console type='file'>
+              <source path='/var/log/console.log'/>
+            </console>
+          </devices>
+        </domain>
+        "#;
+        assert_eq!(parse_console_pty(xml), None);
+    }
+
+    #[test]
+    fn test_parse_console_pty_malformed_xml() {
+        let xml = r#"<domain type='kvm'><devices><console type='pty'><source"#;
+        // Should handle malformed XML gracefully
+        assert_eq!(parse_console_pty(xml), None);
+    }
+
+    #[test]
+    fn test_parse_domain_malformed_xml() {
+        let xml = r#"<domain><vcpu>broken"#;
+        let info = parse_domain_xml(xml);
+        // Should return default/partial info without crashing
+        assert_eq!(info.vcpu_count, 0);
+    }
+
+    #[test]
+    fn test_parse_domain_nested_empty_elements() {
+        let xml = r#"
+        <domain type='kvm'>
+          <vcpu>4</vcpu>
+          <memory unit='MiB'>2048</memory>
+          <devices>
+            <disk type='file' device='disk'>
+              <source/>
+              <target dev='vda' bus='virtio'/>
+            </disk>
+          </devices>
+        </domain>
+        "#;
+        let info = parse_domain_xml(xml);
+        assert_eq!(info.disks.len(), 1);
+        assert_eq!(info.disks[0].path, None);
+    }
+}

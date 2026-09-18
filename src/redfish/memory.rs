@@ -343,3 +343,211 @@ pub async fn get_memory(
         status: Status::enabled_ok(),
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_memory_resource_serialization() {
+        let memory = MemoryResource {
+            odata_id: "/redfish/v1/Systems/vm1/Memory/DIMM0".to_string(),
+            odata_type: "#Memory.v1_19_0.Memory",
+            id: "DIMM0".to_string(),
+            name: "Virtual DIMM 0".to_string(),
+            description: "Virtual memory module",
+            capacity_mib: 4096,
+            memory_device_type: "DDR4",
+            memory_type: "DRAM",
+            data_width_bits: 64,
+            bus_width_bits: 72,
+            error_correction: "NoECC",
+            operating_speed_mhz: 3200,
+            manufacturer: "Virtual",
+            serial_number: "VBMC-MEM-vm1-0".to_string(),
+            part_number: "VBMC-DIMM",
+            model: "Virtual DIMM",
+            rank_count: 1,
+            operating_memory_modes: vec!["Volatile"],
+            memory_media: vec!["DRAM"],
+            security_state: "Enabled",
+            enabled: true,
+            volatile_size_mib: 4096,
+            non_volatile_size_mib: 0,
+            base_module_type: "RDIMM",
+            logical_size_mib: 4096,
+            configuration_locked: false,
+            max_tdp_milliwatts: vec![12000],
+            location_indicator_active: false,
+            firmware_revision: "1.0",
+            allowed_speeds_mhz: vec![2133, 2400, 2666, 3200],
+            memory_location: MemoryLocation {
+                socket: 0,
+                memory_controller: 0,
+                channel: 0,
+                slot: 0,
+            },
+            is_rank_spare_enabled: false,
+            is_spare_device_enabled: false,
+            spare_device_count: 0,
+            firmware_api_version: "1.0",
+            module_manufacturer_id: "0x0000",
+            module_product_id: "0x0000",
+            memory_subsystem_controller_manufacturer_id: "0x0000",
+            memory_subsystem_controller_product_id: "0x0000",
+            cache_size_mib: 0,
+            spare_part_number: "VBMC-DIMM-SPARE",
+            volatile_size_limit_mib: 4096,
+            non_volatile_size_limit_mib: 0,
+            volatile_region_number_limit: 0,
+            persistent_region_number_limit: 0,
+            volatile_region_size_max_mib: 4096,
+            persistent_region_size_max_mib: 0,
+            volatile_region_size_limit_mib: 4096,
+            persistent_region_size_limit_mib: 0,
+            allocation_increment_mib: 0,
+            allocation_alignment_mib: 0,
+            poison_list_max_media_error_records: 0,
+            security_capabilities: MemSecurityCapabilities {
+                max_passphrase_count: 0,
+                passphrase_capable: false,
+            },
+            power_management_policy: MemPowerPolicy {
+                policy_enabled: false,
+                max_tdp_milliwatts: 12000,
+                average_power_budget_milliwatts: 10000,
+                peak_power_budget_milliwatts: 12000,
+            },
+            regions: vec![],
+            operating_speed_range_mhz: MemSpeedRange {
+                allowable_min: 2133,
+                allowable_max: 3200,
+            },
+            metrics: ODataId::new("/redfish/v1/Systems/vm1/Memory/DIMM0/MemoryMetrics".to_string()),
+            links: MemoryLinks {
+                chassis: ODataId::new("/redfish/v1/Chassis/1".to_string()),
+                processors: vec![],
+                batteries: vec![],
+                memory_media_sources: vec![],
+                memory_region_media_sources: vec![],
+                endpoints: vec![],
+            },
+            location: super::super::types::RedfishLocation::new("DIMM0", "Slot", 0),
+            assembly: ODataId::new("/redfish/v1/Systems/vm1/Memory/DIMM0/Assembly".to_string()),
+            status: Status::enabled_ok(),
+        };
+
+        let json = serde_json::to_value(&memory).unwrap();
+        assert_eq!(json["@odata.id"], "/redfish/v1/Systems/vm1/Memory/DIMM0");
+        assert_eq!(json["@odata.type"], "#Memory.v1_19_0.Memory");
+        assert_eq!(json["Id"], "DIMM0");
+        assert_eq!(json["CapacityMiB"], 4096);
+        assert_eq!(json["MemoryDeviceType"], "DDR4");
+        assert_eq!(json["MemoryType"], "DRAM");
+        assert_eq!(json["DataWidthBits"], 64);
+        assert_eq!(json["BusWidthBits"], 72);
+        assert_eq!(json["ErrorCorrection"], "NoECC");
+        assert_eq!(json["OperatingSpeedMhz"], 3200);
+        assert_eq!(json["VolatileSizeMiB"], 4096);
+        assert_eq!(json["NonVolatileSizeMiB"], 0);
+    }
+
+    #[test]
+    fn test_memory_location_serialization() {
+        let location = MemoryLocation {
+            socket: 1,
+            memory_controller: 2,
+            channel: 3,
+            slot: 4,
+        };
+
+        let json = serde_json::to_value(&location).unwrap();
+        assert_eq!(json["Socket"], 1);
+        assert_eq!(json["MemoryController"], 2);
+        assert_eq!(json["Channel"], 3);
+        assert_eq!(json["Slot"], 4);
+    }
+
+    #[test]
+    fn test_mem_security_capabilities_serialization() {
+        let sec = MemSecurityCapabilities {
+            max_passphrase_count: 5,
+            passphrase_capable: true,
+        };
+
+        let json = serde_json::to_value(&sec).unwrap();
+        assert_eq!(json["MaxPassphraseCount"], 5);
+        assert_eq!(json["PassphraseCapable"], true);
+    }
+
+    #[test]
+    fn test_mem_power_policy_serialization() {
+        let policy = MemPowerPolicy {
+            policy_enabled: true,
+            max_tdp_milliwatts: 15000,
+            average_power_budget_milliwatts: 12000,
+            peak_power_budget_milliwatts: 15000,
+        };
+
+        let json = serde_json::to_value(&policy).unwrap();
+        assert_eq!(json["PolicyEnabled"], true);
+        assert_eq!(json["MaxTDPMilliWatts"], 15000);
+        assert_eq!(json["AveragePowerBudgetMilliWatts"], 12000);
+        assert_eq!(json["PeakPowerBudgetMilliWatts"], 15000);
+    }
+
+    #[test]
+    fn test_mem_region_serialization() {
+        let region = MemRegion {
+            region_id: "0",
+            memory_classification: "Volatile",
+            size_mib: 8192,
+        };
+
+        let json = serde_json::to_value(&region).unwrap();
+        assert_eq!(json["RegionId"], "0");
+        assert_eq!(json["MemoryClassification"], "Volatile");
+        assert_eq!(json["SizeMiB"], 8192);
+    }
+
+    #[test]
+    fn test_mem_speed_range_serialization() {
+        let range = MemSpeedRange {
+            allowable_min: 2133,
+            allowable_max: 3200,
+        };
+
+        let json = serde_json::to_value(&range).unwrap();
+        assert_eq!(json["AllowableMin"], 2133);
+        assert_eq!(json["AllowableMax"], 3200);
+    }
+
+    #[test]
+    fn test_memory_links_serialization() {
+        let links = MemoryLinks {
+            chassis: ODataId::new("/redfish/v1/Chassis/1".to_string()),
+            processors: vec![ODataId::new(
+                "/redfish/v1/Systems/vm1/Processors/CPU0".to_string(),
+            )],
+            batteries: vec![],
+            memory_media_sources: vec![],
+            memory_region_media_sources: vec![],
+            endpoints: vec![],
+        };
+
+        let json = serde_json::to_value(&links).unwrap();
+        assert_eq!(json["Chassis"]["@odata.id"], "/redfish/v1/Chassis/1");
+        assert_eq!(
+            json["Processors"][0]["@odata.id"],
+            "/redfish/v1/Systems/vm1/Processors/CPU0"
+        );
+        assert!(json["Batteries"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_memory_capacity_bytes_to_mib() {
+        let bytes: u64 = 4 * 1024 * 1024 * 1024;
+        let mib = bytes / (1024 * 1024);
+        assert_eq!(mib, 4096);
+    }
+}

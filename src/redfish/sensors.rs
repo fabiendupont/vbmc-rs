@@ -433,3 +433,315 @@ pub async fn get_sensor(
         status: Status::enabled_ok(),
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_make_threshold() {
+        let threshold = make_threshold(85.0, "Increasing");
+        assert_eq!(threshold.reading, 85.0);
+        assert_eq!(threshold.activation, "Increasing");
+        assert_eq!(threshold.hysteresis_reading, 0.0);
+        assert_eq!(threshold.hysteresis_duration, "PT0S");
+        assert_eq!(threshold.dwell_time, "PT0S");
+    }
+
+    #[test]
+    fn test_make_threshold_decreasing() {
+        let threshold = make_threshold(10.0, "Decreasing");
+        assert_eq!(threshold.reading, 10.0);
+        assert_eq!(threshold.activation, "Decreasing");
+    }
+
+    #[test]
+    fn test_sensor_resource_serialization() {
+        let sensor = SensorResource {
+            odata_id: "/redfish/v1/Chassis/test/Sensors/CpuTemp".to_string(),
+            odata_type: "#Sensor.v1_9_0.Sensor",
+            id: "CpuTemp".to_string(),
+            name: "CPU Temperature".to_string(),
+            description: "CPU sensor".to_string(),
+            reading: 35.5,
+            reading_type: "Temperature",
+            reading_units: "Cel",
+            physical_context: "CPU",
+            physical_sub_context: "Input",
+            implementation: "PhysicalSensor",
+            reading_basis: "Zero",
+            reading_range_min: 0.0,
+            reading_range_max: 100.0,
+            precision: 0.1,
+            reading_accuracy: 1.0,
+            sensing_interval: Some("PT1S"),
+            reading_time: "2026-01-01T00:00:00Z".to_string(),
+            peak_reading: 40.0,
+            peak_reading_time: "2026-01-01T00:00:00Z".to_string(),
+            lowest_reading: 30.0,
+            lowest_reading_time: "2026-01-01T00:00:00Z".to_string(),
+            average_reading: 35.0,
+            averaging_interval: Some("PT60S"),
+            averaging_interval_achieved: true,
+            sensor_reset_time: "2026-01-01T00:00:00Z".to_string(),
+            thresholds: SensorThresholds {
+                upper_critical: make_threshold(90.0, "Increasing"),
+                upper_caution: make_threshold(80.0, "Increasing"),
+                lower_caution: make_threshold(10.0, "Decreasing"),
+                lower_critical: make_threshold(5.0, "Decreasing"),
+                upper_caution_user: make_threshold(80.0, "Increasing"),
+                upper_critical_user: make_threshold(90.0, "Increasing"),
+                lower_caution_user: make_threshold(10.0, "Decreasing"),
+                lower_critical_user: make_threshold(5.0, "Decreasing"),
+                upper_fatal: make_threshold(95.0, "Increasing"),
+                lower_fatal: make_threshold(0.0, "Decreasing"),
+            },
+            max_allowable_operating_value: 100.0,
+            min_allowable_operating_value: 0.0,
+            adjusted_max_allowable_operating_value: 100.0,
+            adjusted_min_allowable_operating_value: 0.0,
+            lifetime_reading: 0.0,
+            electrical_context: None,
+            voltage_type: None,
+            speed_rpm: None,
+            crest_factor: None,
+            thd_percent: None,
+            apparent_kvah: None,
+            reactive_kvarh: None,
+            phase_angle_degrees: None,
+            apparent_va: None,
+            reactive_var: None,
+            power_factor: None,
+            manufacturer: "vbmc-rs",
+            model: "Virtual Sensor",
+            serial_number: "VBMC-SENS-001".to_string(),
+            part_number: "VBMC-SENS",
+            sku: "VBMC-VIRTUAL",
+            spare_part_number: "VBMC-SENS-SPARE",
+            user_label: "CPU Temperature".to_string(),
+            calibration: 0.0,
+            calibration_time: "2026-01-01T00:00:00Z",
+            lifetime_start_date_time: "2026-01-01T00:00:00Z",
+            related_item: Vec::new(),
+            location: crate::redfish::types::RedfishLocation::new("CPU", "Embedded", 0),
+            status: Status::enabled_ok(),
+        };
+
+        let json = serde_json::to_value(&sensor).unwrap();
+        assert_eq!(
+            json["@odata.id"],
+            "/redfish/v1/Chassis/test/Sensors/CpuTemp"
+        );
+        assert_eq!(json["@odata.type"], "#Sensor.v1_9_0.Sensor");
+        assert_eq!(json["Reading"], 35.5);
+        assert_eq!(json["ReadingType"], "Temperature");
+        assert_eq!(json["ReadingUnits"], "Cel");
+        assert_eq!(json["PhysicalContext"], "CPU");
+        assert_eq!(json["PhysicalSubContext"], "Input");
+    }
+
+    #[test]
+    fn test_sensor_optional_fields_absent() {
+        let sensor = SensorResource {
+            odata_id: "/redfish/v1/Chassis/test/Sensors/Test".to_string(),
+            odata_type: "#Sensor.v1_9_0.Sensor",
+            id: "Test".to_string(),
+            name: "Test".to_string(),
+            description: "Test".to_string(),
+            reading: 0.0,
+            reading_type: "Temperature",
+            reading_units: "Cel",
+            physical_context: "Room",
+            physical_sub_context: "Input",
+            implementation: "PhysicalSensor",
+            reading_basis: "Zero",
+            reading_range_min: 0.0,
+            reading_range_max: 100.0,
+            precision: 0.1,
+            reading_accuracy: 1.0,
+            sensing_interval: None,
+            reading_time: "2026-01-01T00:00:00Z".to_string(),
+            peak_reading: 0.0,
+            peak_reading_time: "2026-01-01T00:00:00Z".to_string(),
+            lowest_reading: 0.0,
+            lowest_reading_time: "2026-01-01T00:00:00Z".to_string(),
+            average_reading: 0.0,
+            averaging_interval: None,
+            averaging_interval_achieved: false,
+            sensor_reset_time: "2026-01-01T00:00:00Z".to_string(),
+            thresholds: SensorThresholds {
+                upper_critical: make_threshold(90.0, "Increasing"),
+                upper_caution: make_threshold(80.0, "Increasing"),
+                lower_caution: make_threshold(10.0, "Decreasing"),
+                lower_critical: make_threshold(5.0, "Decreasing"),
+                upper_caution_user: make_threshold(80.0, "Increasing"),
+                upper_critical_user: make_threshold(90.0, "Increasing"),
+                lower_caution_user: make_threshold(10.0, "Decreasing"),
+                lower_critical_user: make_threshold(5.0, "Decreasing"),
+                upper_fatal: make_threshold(95.0, "Increasing"),
+                lower_fatal: make_threshold(0.0, "Decreasing"),
+            },
+            max_allowable_operating_value: 100.0,
+            min_allowable_operating_value: 0.0,
+            adjusted_max_allowable_operating_value: 100.0,
+            adjusted_min_allowable_operating_value: 0.0,
+            lifetime_reading: 0.0,
+            electrical_context: None,
+            voltage_type: None,
+            speed_rpm: None,
+            crest_factor: None,
+            thd_percent: None,
+            apparent_kvah: None,
+            reactive_kvarh: None,
+            phase_angle_degrees: None,
+            apparent_va: None,
+            reactive_var: None,
+            power_factor: None,
+            manufacturer: "vbmc-rs",
+            model: "Virtual Sensor",
+            serial_number: "VBMC-SENS-001".to_string(),
+            part_number: "VBMC-SENS",
+            sku: "VBMC-VIRTUAL",
+            spare_part_number: "VBMC-SENS-SPARE",
+            user_label: "Test".to_string(),
+            calibration: 0.0,
+            calibration_time: "2026-01-01T00:00:00Z",
+            lifetime_start_date_time: "2026-01-01T00:00:00Z",
+            related_item: Vec::new(),
+            location: crate::redfish::types::RedfishLocation::new("Test", "Embedded", 0),
+            status: Status::enabled_ok(),
+        };
+
+        let json = serde_json::to_value(&sensor).unwrap();
+        assert!(json.get("SensingInterval").is_none());
+        assert!(json.get("AveragingInterval").is_none());
+        assert!(json.get("ElectricalContext").is_none());
+        assert!(json.get("VoltageType").is_none());
+        assert!(json.get("SpeedRPM").is_none());
+        assert!(json.get("CrestFactor").is_none());
+        assert!(json.get("THDPercent").is_none());
+    }
+
+    #[test]
+    fn test_sensor_electrical_fields_present() {
+        let sensor = SensorResource {
+            odata_id: "/redfish/v1/Chassis/test/Sensors/Power".to_string(),
+            odata_type: "#Sensor.v1_9_0.Sensor",
+            id: "Power".to_string(),
+            name: "Power".to_string(),
+            description: "Power sensor".to_string(),
+            reading: 50.0,
+            reading_type: "Power",
+            reading_units: "W",
+            physical_context: "Chassis",
+            physical_sub_context: "Input",
+            implementation: "PhysicalSensor",
+            reading_basis: "Zero",
+            reading_range_min: 0.0,
+            reading_range_max: 1000.0,
+            precision: 0.1,
+            reading_accuracy: 1.0,
+            sensing_interval: Some("PT1S"),
+            reading_time: "2026-01-01T00:00:00Z".to_string(),
+            peak_reading: 50.0,
+            peak_reading_time: "2026-01-01T00:00:00Z".to_string(),
+            lowest_reading: 50.0,
+            lowest_reading_time: "2026-01-01T00:00:00Z".to_string(),
+            average_reading: 50.0,
+            averaging_interval: Some("PT60S"),
+            averaging_interval_achieved: true,
+            sensor_reset_time: "2026-01-01T00:00:00Z".to_string(),
+            thresholds: SensorThresholds {
+                upper_critical: make_threshold(900.0, "Increasing"),
+                upper_caution: make_threshold(800.0, "Increasing"),
+                lower_caution: make_threshold(0.0, "Decreasing"),
+                lower_critical: make_threshold(0.0, "Decreasing"),
+                upper_caution_user: make_threshold(800.0, "Increasing"),
+                upper_critical_user: make_threshold(900.0, "Increasing"),
+                lower_caution_user: make_threshold(0.0, "Decreasing"),
+                lower_critical_user: make_threshold(0.0, "Decreasing"),
+                upper_fatal: make_threshold(950.0, "Increasing"),
+                lower_fatal: make_threshold(0.0, "Decreasing"),
+            },
+            max_allowable_operating_value: 1000.0,
+            min_allowable_operating_value: 0.0,
+            adjusted_max_allowable_operating_value: 1000.0,
+            adjusted_min_allowable_operating_value: 0.0,
+            lifetime_reading: 0.0,
+            electrical_context: Some("Line1"),
+            voltage_type: None,
+            speed_rpm: None,
+            crest_factor: Some(1.414),
+            thd_percent: Some(2.5),
+            apparent_kvah: Some(0.0),
+            reactive_kvarh: Some(0.0),
+            phase_angle_degrees: Some(0.0),
+            apparent_va: Some(55.0),
+            reactive_var: Some(5.0),
+            power_factor: Some(0.95),
+            manufacturer: "vbmc-rs",
+            model: "Virtual Sensor",
+            serial_number: "VBMC-SENS-PWR".to_string(),
+            part_number: "VBMC-SENS",
+            sku: "VBMC-VIRTUAL",
+            spare_part_number: "VBMC-SENS-SPARE",
+            user_label: "Power".to_string(),
+            calibration: 0.0,
+            calibration_time: "2026-01-01T00:00:00Z",
+            lifetime_start_date_time: "2026-01-01T00:00:00Z",
+            related_item: Vec::new(),
+            location: crate::redfish::types::RedfishLocation::new("Power", "Embedded", 0),
+            status: Status::enabled_ok(),
+        };
+
+        let json = serde_json::to_value(&sensor).unwrap();
+        assert_eq!(json["ElectricalContext"], "Line1");
+        assert_eq!(json["CrestFactor"], 1.414);
+        assert_eq!(json["THDPercent"], 2.5);
+        assert_eq!(json["ApparentVA"], 55.0);
+        assert_eq!(json["PowerFactor"], 0.95);
+    }
+
+    #[test]
+    fn test_threshold_value_serialization() {
+        let threshold = ThresholdValue {
+            reading: 85.5,
+            activation: "Increasing",
+            hysteresis_reading: 2.0,
+            hysteresis_duration: "PT5S",
+            dwell_time: "PT10S",
+        };
+
+        let json = serde_json::to_value(&threshold).unwrap();
+        assert_eq!(json["Reading"], 85.5);
+        assert_eq!(json["Activation"], "Increasing");
+        assert_eq!(json["HysteresisReading"], 2.0);
+        assert_eq!(json["HysteresisDuration"], "PT5S");
+        assert_eq!(json["DwellTime"], "PT10S");
+    }
+
+    #[test]
+    fn test_sensor_thresholds_serialization() {
+        let thresholds = SensorThresholds {
+            upper_critical: make_threshold(90.0, "Increasing"),
+            upper_caution: make_threshold(80.0, "Increasing"),
+            lower_caution: make_threshold(10.0, "Decreasing"),
+            lower_critical: make_threshold(5.0, "Decreasing"),
+            upper_caution_user: make_threshold(75.0, "Increasing"),
+            upper_critical_user: make_threshold(85.0, "Increasing"),
+            lower_caution_user: make_threshold(15.0, "Decreasing"),
+            lower_critical_user: make_threshold(8.0, "Decreasing"),
+            upper_fatal: make_threshold(95.0, "Increasing"),
+            lower_fatal: make_threshold(0.0, "Decreasing"),
+        };
+
+        let json = serde_json::to_value(&thresholds).unwrap();
+        assert_eq!(json["UpperCritical"]["Reading"], 90.0);
+        assert_eq!(json["UpperCaution"]["Reading"], 80.0);
+        assert_eq!(json["LowerCaution"]["Reading"], 10.0);
+        assert_eq!(json["LowerCritical"]["Reading"], 5.0);
+        assert_eq!(json["UpperCautionUser"]["Reading"], 75.0);
+        assert_eq!(json["UpperFatal"]["Reading"], 95.0);
+        assert_eq!(json["LowerFatal"]["Reading"], 0.0);
+    }
+}

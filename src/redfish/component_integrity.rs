@@ -292,3 +292,305 @@ pub async fn get_component_integrity(
         spdm: Some(spdm),
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::attestation::trust_chain::{MeasurementEntry, VerificationStatus};
+
+    #[test]
+    fn test_component_integrity_resource_serialization() {
+        let resource = ComponentIntegrityResource {
+            odata_id: "/redfish/v1/ComponentIntegrity/vm1".to_string(),
+            odata_type: "#ComponentIntegrity.v1_2_0.ComponentIntegrity",
+            id: "vm1".to_string(),
+            name: "Integrity: vm1".to_string(),
+            description: "SPDM integrity status for vm1".to_string(),
+            component_integrity_type: "SPDM",
+            component_integrity_type_version: "1.0",
+            component_integrity_enabled: true,
+            target_component_uri: "/redfish/v1/Chassis/host/TrustedComponents/vm1".to_string(),
+            last_updated: "2024-01-01T00:00:00Z".to_string(),
+            status: Status {
+                state: Some("Enabled".to_string()),
+                health: Some("OK".to_string()),
+                health_rollup: Some("OK".to_string()),
+            },
+            links: ComponentIntegrityLinks {
+                components_protected: vec![ODataId::new("/redfish/v1/Systems/vm1".to_string())],
+            },
+            spdm: None,
+        };
+
+        let json = serde_json::to_value(&resource).unwrap();
+        assert_eq!(json["@odata.id"], "/redfish/v1/ComponentIntegrity/vm1");
+        assert_eq!(
+            json["@odata.type"],
+            "#ComponentIntegrity.v1_2_0.ComponentIntegrity"
+        );
+        assert_eq!(json["Id"], "vm1");
+        assert_eq!(json["Name"], "Integrity: vm1");
+        assert_eq!(json["Description"], "SPDM integrity status for vm1");
+        assert_eq!(json["ComponentIntegrityType"], "SPDM");
+        assert_eq!(json["ComponentIntegrityTypeVersion"], "1.0");
+        assert_eq!(json["ComponentIntegrityEnabled"], true);
+        assert_eq!(
+            json["TargetComponentURI"],
+            "/redfish/v1/Chassis/host/TrustedComponents/vm1"
+        );
+        assert_eq!(json["LastUpdated"], "2024-01-01T00:00:00Z");
+        assert_eq!(json["Status"]["State"], "Enabled");
+        assert_eq!(json["Status"]["Health"], "OK");
+        assert_eq!(json["Status"]["HealthRollup"], "OK");
+        assert!(json["Links"]["ComponentsProtected"].is_array());
+        // SPDM should be absent when None
+        assert!(!json.as_object().unwrap().contains_key("SPDM"));
+    }
+
+    #[test]
+    fn test_spdm_info_serialization_with_all_fields() {
+        let spdm = SpdmInfo {
+            requester: ODataId::new("/redfish/v1/ComponentIntegrity/vm1".to_string()),
+            measurement_set: Some(SpdmMeasurementSet {
+                measurement_specification: Some("DMTF".to_string()),
+                measurements: Some(vec![SpdmSingleMeasurement {
+                    measurement_index: 1,
+                    measurement_type: Some("ImmutableROM".to_string()),
+                    measurement: Some("aabbccdd".to_string()),
+                    measurement_hash_algorithm: Some("TPM_ALG_SHA_384".to_string()),
+                    part_of_summary_hash: Some(true),
+                    last_updated: Some("2024-01-01T00:00:00Z".to_string()),
+                }]),
+                measurement_summary: Some("summary_hash".to_string()),
+                measurement_summary_hash_algorithm: Some("TPM_ALG_SHA_384".to_string()),
+                measurement_summary_type: Some("All".to_string()),
+            }),
+            identity_authentication: Some(SpdmIdentity {
+                responder_authentication: SpdmResponderAuth {
+                    verification_status: "Success".to_string(),
+                    component_certificate: None,
+                },
+                requester_authentication: Some(SpdmRequesterAuth {
+                    verification_status: "Success".to_string(),
+                }),
+            }),
+            component_communication: Some(SpdmCommunication {
+                sessions: Some(vec![SpdmSession {
+                    session_id: 1,
+                    session_type: "Encrypted".to_string(),
+                }]),
+            }),
+        };
+
+        let json = serde_json::to_value(&spdm).unwrap();
+        assert_eq!(
+            json["Requester"]["@odata.id"],
+            "/redfish/v1/ComponentIntegrity/vm1"
+        );
+        assert_eq!(json["MeasurementSet"]["MeasurementSpecification"], "DMTF");
+        assert_eq!(
+            json["MeasurementSet"]["Measurements"][0]["MeasurementIndex"],
+            1
+        );
+        assert_eq!(
+            json["MeasurementSet"]["Measurements"][0]["MeasurementType"],
+            "ImmutableROM"
+        );
+        assert_eq!(
+            json["MeasurementSet"]["Measurements"][0]["Measurement"],
+            "aabbccdd"
+        );
+        assert_eq!(json["MeasurementSet"]["MeasurementSummary"], "summary_hash");
+        assert_eq!(
+            json["IdentityAuthentication"]["ResponderAuthentication"]["VerificationStatus"],
+            "Success"
+        );
+        assert_eq!(
+            json["IdentityAuthentication"]["RequesterAuthentication"]["VerificationStatus"],
+            "Success"
+        );
+        assert_eq!(
+            json["ComponentCommunication"]["Sessions"][0]["SessionId"],
+            1
+        );
+    }
+
+    #[test]
+    fn test_spdm_info_serialization_minimal_fields() {
+        let spdm = SpdmInfo {
+            requester: ODataId::new("/redfish/v1/ComponentIntegrity/vm1".to_string()),
+            measurement_set: None,
+            identity_authentication: None,
+            component_communication: None,
+        };
+
+        let json = serde_json::to_value(&spdm).unwrap();
+        assert_eq!(
+            json["Requester"]["@odata.id"],
+            "/redfish/v1/ComponentIntegrity/vm1"
+        );
+        // Optional fields should be absent
+        assert!(!json.as_object().unwrap().contains_key("MeasurementSet"));
+        assert!(
+            !json
+                .as_object()
+                .unwrap()
+                .contains_key("IdentityAuthentication")
+        );
+        assert!(
+            !json
+                .as_object()
+                .unwrap()
+                .contains_key("ComponentCommunication")
+        );
+    }
+
+    #[test]
+    fn test_spdm_measurement_set_empty_measurements() {
+        let measurement_set = SpdmMeasurementSet {
+            measurement_specification: Some("DMTF".to_string()),
+            measurements: None,
+            measurement_summary: Some("summary".to_string()),
+            measurement_summary_hash_algorithm: Some("TPM_ALG_SHA_384".to_string()),
+            measurement_summary_type: Some("All".to_string()),
+        };
+
+        let json = serde_json::to_value(&measurement_set).unwrap();
+        assert_eq!(json["MeasurementSpecification"], "DMTF");
+        assert!(!json.as_object().unwrap().contains_key("Measurements"));
+        assert_eq!(json["MeasurementSummary"], "summary");
+    }
+
+    #[test]
+    fn test_build_spdm_from_evidence_with_measurements() {
+        let evidence = AttestationEvidence {
+            measurements: vec![
+                MeasurementEntry {
+                    index: 0,
+                    measurement_type: "ImmutableROM".to_string(),
+                    measurement: "aabbccdd".to_string(),
+                    hash_algorithm: "TPM_ALG_SHA_384".to_string(),
+                    part_of_summary: true,
+                    last_updated: Some("2024-01-01T00:00:00Z".to_string()),
+                },
+                MeasurementEntry {
+                    index: 1,
+                    measurement_type: "MutableFirmware".to_string(),
+                    measurement: "eeff0011".to_string(),
+                    hash_algorithm: "TPM_ALG_SHA_384".to_string(),
+                    part_of_summary: true,
+                    last_updated: Some("2024-01-01T00:00:00Z".to_string()),
+                },
+            ],
+            measurement_summary: Some("summary_hash".to_string()),
+            measurement_summary_algorithm: Some("TPM_ALG_SHA_384".to_string()),
+            measurement_summary_type: Some("All".to_string()),
+            responder_verification: Some(VerificationStatus::Success),
+            provider: Some("test".to_string()),
+        };
+
+        let spdm = build_spdm_from_evidence("vm1", &evidence);
+
+        assert_eq!(
+            spdm.requester.odata_id,
+            "/redfish/v1/ComponentIntegrity/vm1"
+        );
+        assert!(spdm.measurement_set.is_some());
+
+        let ms = spdm.measurement_set.unwrap();
+        assert_eq!(ms.measurement_specification, Some("DMTF".to_string()));
+        assert_eq!(ms.measurements.as_ref().unwrap().len(), 2);
+        assert_eq!(ms.measurements.as_ref().unwrap()[0].measurement_index, 0);
+        assert_eq!(ms.measurements.as_ref().unwrap()[1].measurement_index, 1);
+        assert_eq!(ms.measurement_summary, Some("summary_hash".to_string()));
+
+        assert!(spdm.identity_authentication.is_some());
+        let ia = spdm.identity_authentication.unwrap();
+        assert_eq!(ia.responder_authentication.verification_status, "Success");
+    }
+
+    #[test]
+    fn test_build_spdm_from_evidence_empty_measurements() {
+        let evidence = AttestationEvidence {
+            measurements: vec![],
+            measurement_summary: Some("summary_hash".to_string()),
+            measurement_summary_algorithm: Some("TPM_ALG_SHA_384".to_string()),
+            measurement_summary_type: Some("All".to_string()),
+            responder_verification: None,
+            provider: None,
+        };
+
+        let spdm = build_spdm_from_evidence("vm1", &evidence);
+
+        assert!(spdm.measurement_set.is_some());
+        let ms = spdm.measurement_set.unwrap();
+        assert!(ms.measurements.is_none());
+        assert_eq!(ms.measurement_summary, Some("summary_hash".to_string()));
+        assert!(spdm.identity_authentication.is_none());
+    }
+
+    #[test]
+    fn test_build_spdm_from_evidence_no_summary_no_measurements() {
+        let evidence = AttestationEvidence {
+            measurements: vec![],
+            measurement_summary: None,
+            measurement_summary_algorithm: None,
+            measurement_summary_type: None,
+            responder_verification: Some(VerificationStatus::Failed),
+            provider: None,
+        };
+
+        let spdm = build_spdm_from_evidence("vm1", &evidence);
+
+        assert!(spdm.measurement_set.is_none());
+        assert!(spdm.identity_authentication.is_some());
+        let ia = spdm.identity_authentication.unwrap();
+        assert_eq!(ia.responder_authentication.verification_status, "Failed");
+    }
+
+    #[test]
+    fn test_spdm_single_measurement_optional_fields() {
+        let measurement = SpdmSingleMeasurement {
+            measurement_index: 5,
+            measurement_type: None,
+            measurement: None,
+            measurement_hash_algorithm: None,
+            part_of_summary_hash: None,
+            last_updated: None,
+        };
+
+        let json = serde_json::to_value(&measurement).unwrap();
+        assert_eq!(json["MeasurementIndex"], 5);
+        assert!(!json.as_object().unwrap().contains_key("MeasurementType"));
+        assert!(!json.as_object().unwrap().contains_key("Measurement"));
+        assert!(
+            !json
+                .as_object()
+                .unwrap()
+                .contains_key("MeasurementHashAlgorithm")
+        );
+        assert!(!json.as_object().unwrap().contains_key("PartofSummaryHash"));
+        assert!(!json.as_object().unwrap().contains_key("LastUpdated"));
+    }
+
+    #[test]
+    fn test_component_integrity_links_serialization() {
+        let links = ComponentIntegrityLinks {
+            components_protected: vec![
+                ODataId::new("/redfish/v1/Systems/vm1".to_string()),
+                ODataId::new("/redfish/v1/Systems/vm2".to_string()),
+            ],
+        };
+
+        let json = serde_json::to_value(&links).unwrap();
+        assert!(json["ComponentsProtected"].is_array());
+        assert_eq!(
+            json["ComponentsProtected"][0]["@odata.id"],
+            "/redfish/v1/Systems/vm1"
+        );
+        assert_eq!(
+            json["ComponentsProtected"][1]["@odata.id"],
+            "/redfish/v1/Systems/vm2"
+        );
+    }
+}

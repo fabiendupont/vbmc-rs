@@ -290,3 +290,127 @@ mod tests {
         assert_eq!(hex_to_bytes("abc"), b"abc".to_vec());
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_keylime_client_new() {
+        let _client = KeylimeClient::new("http://keylime.example.com:8080");
+        // Constructor succeeds; base_url is private so cannot assert on it
+    }
+
+    #[test]
+    fn test_parse_pcr_quote_with_non_object() {
+        // Test that non-object quote values are handled gracefully
+        let quote = serde_json::json!("base64-encoded-string");
+        let mut measurements = Vec::new();
+        parse_pcr_quote(&quote, "2026-01-01T00:00:00Z", &mut measurements);
+        // Should not panic, should produce no measurements
+        assert!(measurements.is_empty());
+    }
+
+    #[test]
+    fn test_parse_pcr_quote_with_invalid_index() {
+        let quote = serde_json::json!({
+            "sha256": {
+                "not-a-number": "abc123"
+            }
+        });
+        let mut measurements = Vec::new();
+        parse_pcr_quote(&quote, "2026-01-01T00:00:00Z", &mut measurements);
+        // Should skip invalid indices
+        assert!(measurements.is_empty());
+    }
+
+    #[test]
+    fn test_parse_pcr_quote_with_non_string_value() {
+        let quote = serde_json::json!({
+            "sha256": {
+                "0": 12345
+            }
+        });
+        let mut measurements = Vec::new();
+        parse_pcr_quote(&quote, "2026-01-01T00:00:00Z", &mut measurements);
+        // Should skip non-string values
+        assert!(measurements.is_empty());
+    }
+
+    #[test]
+    fn test_apply_tpm_policy_with_non_object() {
+        let policy = serde_json::json!("not-an-object");
+        let mut measurements = vec![MeasurementEntry {
+            index: 0,
+            measurement_type: "ImmutableROM".to_string(),
+            measurement: "test".to_string(),
+            hash_algorithm: "SHA-256".to_string(),
+            part_of_summary: false,
+            last_updated: None,
+        }];
+        // Should not panic
+        apply_tpm_policy(&policy, &mut measurements);
+        assert!(!measurements[0].part_of_summary);
+    }
+
+    #[test]
+    fn test_apply_tpm_policy_with_invalid_index() {
+        let policy = serde_json::json!({ "not-a-number": ["abc"] });
+        let mut measurements = vec![MeasurementEntry {
+            index: 0,
+            measurement_type: "ImmutableROM".to_string(),
+            measurement: "test".to_string(),
+            hash_algorithm: "SHA-256".to_string(),
+            part_of_summary: false,
+            last_updated: None,
+        }];
+        apply_tpm_policy(&policy, &mut measurements);
+        // Should skip invalid index
+        assert!(!measurements[0].part_of_summary);
+    }
+
+    #[test]
+    fn test_parse_ima_measurements_empty_string() {
+        let mut measurements = Vec::new();
+        parse_ima_measurements("", "2026-01-01T00:00:00Z", &mut measurements);
+        assert!(measurements.is_empty());
+    }
+
+    #[test]
+    fn test_parse_ima_measurements_malformed_lines() {
+        let ima = "malformed line\n\
+                   only two parts\n\
+                   10 hash template";
+        let mut measurements = Vec::new();
+        parse_ima_measurements(ima, "2026-01-01T00:00:00Z", &mut measurements);
+        // Should skip malformed lines
+        assert!(measurements.is_empty());
+    }
+
+    #[test]
+    fn test_hex_to_bytes_empty_string() {
+        assert_eq!(hex_to_bytes(""), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn test_hex_to_bytes_whitespace() {
+        assert_eq!(hex_to_bytes("  abcd  "), vec![0xab, 0xcd]);
+    }
+
+    #[test]
+    fn test_hex_to_bytes_invalid_hex_char() {
+        // Contains non-hex characters, should fall back to raw bytes
+        let result = hex_to_bytes("abzz");
+        assert_eq!(result, b"abzz".to_vec());
+    }
+
+    #[test]
+    fn test_hex_to_bytes_uppercase() {
+        assert_eq!(hex_to_bytes("ABCD"), vec![0xab, 0xcd]);
+    }
+
+    #[test]
+    fn test_hex_to_bytes_mixed_case() {
+        assert_eq!(hex_to_bytes("AbCd"), vec![0xab, 0xcd]);
+    }
+}
