@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
@@ -262,7 +264,7 @@ pub async fn insert_media(
     user: AuthenticatedUser,
     Path((system_id, media_id)): Path<(String, String)>,
     Json(body): Json<InsertMediaRequest>,
-) -> Result<Json<serde_json::Value>, RedfishApiError> {
+) -> Result<Response, RedfishApiError> {
     if !has_privilege(&user.role, Privilege::ConfigureComponents) {
         return Err(RedfishApiError::Forbidden(
             "Insufficient privileges".to_string(),
@@ -280,15 +282,52 @@ pub async fn insert_media(
         )));
     }
 
-    let task_id = state.task_manager.create_task("InsertMedia");
-    let _lock = state.system_lock(&system_id).await;
-
-    let result = do_insert_media(&state, &system_id, &body).await;
-    match &result {
-        Ok(_) => state.task_manager.complete_task(&task_id, None),
-        Err(e) => state.task_manager.fail_task(&task_id, e.message()),
+    // Idempotency / conflict check.
+    let vm_state = state.get_vm_state(&system_id);
+    if vm_state.virtual_media.inserted {
+        if vm_state.virtual_media.image_url.as_deref() == Some(body.image.as_str()) {
+            // Same image already inserted — idempotent success.
+            return Ok(StatusCode::NO_CONTENT.into_response());
+        } else {
+            // Different image — conflict.
+            return Ok((
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({
+                    "error": "Another virtual media image is already inserted. Eject it before inserting new media."
+                })),
+            )
+                .into_response());
+        }
     }
-    result
+
+    let task_id = state.task_manager.create_task("InsertMedia");
+    let task_location = format!("/redfish/v1/TaskService/Tasks/{task_id}");
+
+    // Spawn the actual work in the background so the HTTP response is immediate.
+    let state_clone = state.clone();
+    let system_id_clone = system_id.clone();
+    let task_id_clone = task_id.clone();
+    tokio::spawn(async move {
+        let _lock = state_clone.system_lock(&system_id_clone).await;
+        match do_insert_media(&state_clone, &system_id_clone, &body).await {
+            Ok(_) => state_clone.task_manager.complete_task(&task_id_clone, None),
+            Err(e) => state_clone
+                .task_manager
+                .fail_task(&task_id_clone, e.message()),
+        }
+    });
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({
+            "@odata.id": task_location,
+            "@odata.type": "#Task.v1_7_0.Task",
+            "Id": task_id,
+            "TaskState": "Running",
+            "Name": "InsertMedia"
+        })),
+    )
+        .into_response())
 }
 
 pub async fn eject_media(
@@ -487,15 +526,10 @@ mod tests {
         )
         .await;
 
-        // Download fails for non-existent URL
-        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert!(
-            body["error"]["message"]
-                .as_str()
-                .unwrap()
-                .to_lowercase()
-                .contains("download")
-        );
+        // Handler returns 202 Accepted immediately; the download failure surfaces
+        // asynchronously in the task state (not in the HTTP response).
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert!(body["Id"].as_str().is_some());
     }
 
     #[tokio::test]
