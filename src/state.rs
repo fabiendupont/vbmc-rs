@@ -57,6 +57,12 @@ pub struct VirtualMediaState {
     pub media_type: Option<String>,
     pub write_protected: bool,
     pub device_id: Option<String>,
+    /// Task ID of an in-progress ISO import (set by InsertMedia, cleared on completion).
+    #[serde(default)]
+    pub import_task_id: Option<String>,
+    /// A Reset On arrived while import was in progress; execute vm_boot when import completes.
+    #[serde(default)]
+    pub pending_power_on: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

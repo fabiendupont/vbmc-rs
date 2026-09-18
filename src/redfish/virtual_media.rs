@@ -303,6 +303,13 @@ pub async fn insert_media(
     let task_id = state.task_manager.create_task("InsertMedia");
     let task_location = format!("/redfish/v1/TaskService/Tasks/{task_id}");
 
+    // Record the task ID so Reset On can detect an in-progress import.
+    {
+        let mut vm_state = state.get_vm_state(&system_id);
+        vm_state.virtual_media.import_task_id = Some(task_id.clone());
+        state.save_vm_state(&system_id, &vm_state);
+    }
+
     // Spawn the actual work in the background so the HTTP response is immediate.
     let state_clone = state.clone();
     let system_id_clone = system_id.clone();
@@ -310,10 +317,27 @@ pub async fn insert_media(
     tokio::spawn(async move {
         let _lock = state_clone.system_lock(&system_id_clone).await;
         match do_insert_media(&state_clone, &system_id_clone, &body).await {
-            Ok(_) => state_clone.task_manager.complete_task(&task_id_clone, None),
-            Err(e) => state_clone
-                .task_manager
-                .fail_task(&task_id_clone, e.message()),
+            Ok(_) => {
+                state_clone.task_manager.complete_task(&task_id_clone, None);
+                // Execute any deferred power-on that arrived during the import.
+                let mut vm_state = state_clone.get_vm_state(&system_id_clone);
+                let deferred = vm_state.virtual_media.pending_power_on;
+                vm_state.virtual_media.import_task_id = None;
+                vm_state.virtual_media.pending_power_on = false;
+                state_clone.save_vm_state(&system_id_clone, &vm_state);
+                if deferred {
+                    let _ = state_clone.backend.vm_boot(&system_id_clone).await;
+                }
+            }
+            Err(e) => {
+                state_clone
+                    .task_manager
+                    .fail_task(&task_id_clone, e.message());
+                let mut vm_state = state_clone.get_vm_state(&system_id_clone);
+                vm_state.virtual_media.import_task_id = None;
+                vm_state.virtual_media.pending_power_on = false;
+                state_clone.save_vm_state(&system_id_clone, &vm_state);
+            }
         }
     });
 

@@ -137,6 +137,25 @@ pub async fn reset_system(
 
     match body.reset_type.as_str() {
         "On" | "ForceOn" => {
+            // If an ISO import is still in progress, defer the power-on until it completes.
+            let vm_state = state.get_vm_state(&system_id);
+            let import_running = vm_state
+                .virtual_media
+                .import_task_id
+                .as_deref()
+                .and_then(|tid| state.task_manager.get_task(tid))
+                .map(|t| t.task_state == crate::tasks::TaskState::Running)
+                .unwrap_or(false);
+
+            if import_running {
+                let mut vm_state = state.get_vm_state(&system_id);
+                vm_state.virtual_media.pending_power_on = true;
+                state.save_vm_state(&system_id, &vm_state);
+                return Ok(Json(serde_json::json!({
+                    "message": "Power-on deferred: ISO import in progress. The system will boot automatically when the import completes."
+                })));
+            }
+
             // Power on: manage-only backends just boot the existing VM; ephemeral
             // backends create the transient VM first, then boot it.
             if !managed {
