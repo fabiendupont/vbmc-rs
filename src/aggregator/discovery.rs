@@ -201,6 +201,263 @@ fn is_pod_ready(pod: &k8s_openapi::api::core::v1::Pod) -> bool {
         .unwrap_or(false)
 }
 
+#[derive(Debug, Clone)]
+pub struct KubeVirtVmEntry {
+    pub system_id: String,
+    pub namespace: String,
+    pub vm_name: String,
+}
+
+pub struct KubeVirtVmRegistry {
+    vms: DashMap<String, KubeVirtVmEntry>,
+}
+
+impl KubeVirtVmRegistry {
+    pub fn new() -> Self {
+        Self {
+            vms: DashMap::new(),
+        }
+    }
+
+    pub fn register(&self, entry: KubeVirtVmEntry) {
+        self.vms.insert(entry.system_id.clone(), entry);
+    }
+
+    pub fn deregister(&self, system_id: &str) {
+        self.vms.remove(system_id);
+    }
+
+    pub fn get(&self, system_id: &str) -> Option<KubeVirtVmEntry> {
+        self.vms.get(system_id).map(|e| e.clone())
+    }
+
+    pub fn list(&self) -> Vec<KubeVirtVmEntry> {
+        self.vms.iter().map(|e| e.value().clone()).collect()
+    }
+}
+
+#[cfg(feature = "aggregator")]
+pub async fn start_kubevirt_vm_watcher(
+    registry: Arc<KubeVirtVmRegistry>,
+    namespace: Option<String>,
+    cancel: tokio_util::sync::CancellationToken,
+) {
+    use kube::api::{ApiResource, DynamicObject};
+    use kube::Api;
+    use kube::runtime::watcher;
+    use kube::runtime::watcher::Event;
+    use tokio_stream::StreamExt;
+    use tracing::{debug, warn};
+
+    let client = match kube::Client::try_default().await {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("Failed to create Kubernetes client for VM watcher: {e}");
+            return;
+        }
+    };
+
+    let vm_ar = ApiResource {
+        group: "kubevirt.io".to_string(),
+        version: "v1".to_string(),
+        api_version: "kubevirt.io/v1".to_string(),
+        kind: "VirtualMachine".to_string(),
+        plural: "virtualmachines".to_string(),
+    };
+
+    let api: Api<DynamicObject> = match &namespace {
+        Some(ns) => Api::namespaced_with(client, ns, &vm_ar),
+        None => Api::all_with(client, &vm_ar),
+    };
+
+    let mut stream = std::pin::pin!(watcher(api, watcher::Config::default()));
+
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                info!("KubeVirt VM watcher cancelled");
+                break;
+            }
+            item = stream.next() => {
+                match item {
+                    Some(Ok(Event::Apply(obj) | Event::InitApply(obj))) => {
+                        if let Some(entry) = extract_vm_entry(&obj) {
+                            info!(system_id = %entry.system_id, "Discovered KubeVirt VM");
+                            registry.register(entry);
+                        }
+                    }
+                    Some(Ok(Event::Delete(obj))) => {
+                        if let Some(entry) = extract_vm_entry(&obj) {
+                            info!(system_id = %entry.system_id, "KubeVirt VM removed");
+                            registry.deregister(&entry.system_id);
+                        }
+                    }
+                    Some(Ok(Event::Init | Event::InitDone)) => {
+                        debug!("KubeVirt VM watcher init event");
+                    }
+                    Some(Err(e)) => {
+                        warn!("KubeVirt VM watcher error: {e}");
+                    }
+                    None => break,
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "aggregator")]
+fn extract_vm_entry(obj: &kube::api::DynamicObject) -> Option<KubeVirtVmEntry> {
+    let labels = obj.metadata.labels.as_ref();
+    let system_id = labels
+        .and_then(|l| l.get("vbmc-rs/system-id"))
+        .cloned()
+        .or_else(|| obj.metadata.name.clone())?;
+    let namespace = obj.metadata.namespace.clone().unwrap_or_default();
+    let vm_name = obj.metadata.name.clone().unwrap_or_default();
+    Some(KubeVirtVmEntry {
+        system_id,
+        namespace,
+        vm_name,
+    })
+}
+
+#[cfg(test)]
+mod vm_registry_tests {
+    use super::*;
+
+    fn make_entry(system_id: &str, namespace: &str, vm_name: &str) -> KubeVirtVmEntry {
+        KubeVirtVmEntry {
+            system_id: system_id.to_string(),
+            namespace: namespace.to_string(),
+            vm_name: vm_name.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_register_and_get() {
+        let reg = KubeVirtVmRegistry::new();
+        reg.register(make_entry("vm1", "default", "my-vm"));
+
+        let entry = reg.get("vm1").unwrap();
+        assert_eq!(entry.system_id, "vm1");
+        assert_eq!(entry.namespace, "default");
+        assert_eq!(entry.vm_name, "my-vm");
+    }
+
+    #[test]
+    fn test_get_nonexistent() {
+        let reg = KubeVirtVmRegistry::new();
+        assert!(reg.get("missing").is_none());
+    }
+
+    #[test]
+    fn test_deregister() {
+        let reg = KubeVirtVmRegistry::new();
+        reg.register(make_entry("vm1", "default", "my-vm"));
+        reg.deregister("vm1");
+        assert!(reg.get("vm1").is_none());
+    }
+
+    #[test]
+    fn test_deregister_nonexistent() {
+        let reg = KubeVirtVmRegistry::new();
+        reg.deregister("missing");
+    }
+
+    #[test]
+    fn test_list_empty() {
+        let reg = KubeVirtVmRegistry::new();
+        assert!(reg.list().is_empty());
+    }
+
+    #[test]
+    fn test_list_multiple() {
+        let reg = KubeVirtVmRegistry::new();
+        reg.register(make_entry("vm1", "ns1", "my-vm-1"));
+        reg.register(make_entry("vm2", "ns2", "my-vm-2"));
+
+        let list = reg.list();
+        assert_eq!(list.len(), 2);
+        let ids: Vec<&str> = list.iter().map(|e| e.system_id.as_str()).collect();
+        assert!(ids.contains(&"vm1"));
+        assert!(ids.contains(&"vm2"));
+    }
+
+    #[test]
+    fn test_register_overwrites() {
+        let reg = KubeVirtVmRegistry::new();
+        reg.register(make_entry("vm1", "ns1", "original"));
+        reg.register(make_entry("vm1", "ns2", "updated"));
+
+        let entry = reg.get("vm1").unwrap();
+        assert_eq!(entry.vm_name, "updated");
+        assert_eq!(reg.list().len(), 1);
+    }
+}
+
+#[cfg(all(test, feature = "aggregator"))]
+mod vm_watcher_extract_tests {
+    use super::*;
+
+    fn dynamic_obj_from_json(v: serde_json::Value) -> kube::api::DynamicObject {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn test_extract_vm_entry_with_system_id_label() {
+        let obj = dynamic_obj_from_json(serde_json::json!({
+            "apiVersion": "kubevirt.io/v1",
+            "kind": "VirtualMachine",
+            "metadata": {
+                "name": "my-vm",
+                "namespace": "default",
+                "labels": { "vbmc-rs/system-id": "sys-1" }
+            }
+        }));
+        let entry = extract_vm_entry(&obj).unwrap();
+        assert_eq!(entry.system_id, "sys-1");
+        assert_eq!(entry.namespace, "default");
+        assert_eq!(entry.vm_name, "my-vm");
+    }
+
+    #[test]
+    fn test_extract_vm_entry_falls_back_to_name() {
+        let obj = dynamic_obj_from_json(serde_json::json!({
+            "apiVersion": "kubevirt.io/v1",
+            "kind": "VirtualMachine",
+            "metadata": {
+                "name": "my-vm",
+                "namespace": "ns1"
+            }
+        }));
+        let entry = extract_vm_entry(&obj).unwrap();
+        assert_eq!(entry.system_id, "my-vm");
+        assert_eq!(entry.namespace, "ns1");
+        assert_eq!(entry.vm_name, "my-vm");
+    }
+
+    #[test]
+    fn test_extract_vm_entry_no_name_returns_none() {
+        let obj = dynamic_obj_from_json(serde_json::json!({
+            "apiVersion": "kubevirt.io/v1",
+            "kind": "VirtualMachine",
+            "metadata": {}
+        }));
+        assert!(extract_vm_entry(&obj).is_none());
+    }
+
+    #[test]
+    fn test_extract_vm_entry_no_namespace_defaults_empty() {
+        let obj = dynamic_obj_from_json(serde_json::json!({
+            "apiVersion": "kubevirt.io/v1",
+            "kind": "VirtualMachine",
+            "metadata": { "name": "my-vm" }
+        }));
+        let entry = extract_vm_entry(&obj).unwrap();
+        assert_eq!(entry.namespace, "");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

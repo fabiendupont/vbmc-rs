@@ -49,6 +49,12 @@ async fn main() -> anyhow::Result<()> {
     let addr = SocketAddr::new(config.server.bind_address.parse()?, config.server.port);
 
     let registry = Arc::new(discovery::SidecarRegistry::new());
+    let vm_registry: Option<Arc<discovery::KubeVirtVmRegistry>> =
+        if config.discovery.mode == "kubevirt-hybrid" {
+            Some(Arc::new(discovery::KubeVirtVmRegistry::new()))
+        } else {
+            None
+        };
 
     let cancel = CancellationToken::new();
 
@@ -68,6 +74,31 @@ async fn main() -> anyhow::Result<()> {
             tokio::spawn(async move {
                 discovery::start_kubernetes_watcher(reg, ns, selector, port, tls, bmc_net, token)
                     .await;
+            });
+        }
+        #[cfg(feature = "aggregator")]
+        "kubevirt-hybrid" => {
+            // Pod watcher: discover running sidecar endpoints (hot telemetry).
+            let reg = registry.clone();
+            let ns = config.discovery.namespace.clone();
+            let selector = config.discovery.label_selector.clone();
+            let port = config.sidecar.port;
+            let tls = config.sidecar.tls_enabled();
+            let bmc_net = config.discovery.bmc_network.clone();
+            let token_pods = cancel.clone();
+            tokio::spawn(async move {
+                discovery::start_kubernetes_watcher(
+                    reg, ns, selector, port, tls, bmc_net, token_pods,
+                )
+                .await;
+            });
+
+            // VM watcher: discover all VMs including stopped ones.
+            let vm_reg = vm_registry.clone().expect("vm_registry always Some in kubevirt-hybrid");
+            let ns_vms = config.discovery.namespace.clone();
+            let token_vms = cancel.clone();
+            tokio::spawn(async move {
+                discovery::start_kubevirt_vm_watcher(vm_reg, ns_vms, token_vms).await;
             });
         }
         other => {
@@ -91,23 +122,25 @@ async fn main() -> anyhow::Result<()> {
     );
     session_store.start_sweeper(cancel.clone());
 
-    let kube_client = if config.auth_mode == "kubernetes" {
-        match kube::Client::try_default().await {
-            Ok(c) => {
-                info!("Kubernetes auth mode: created kube client");
-                Some(c)
+    let kube_client =
+        if config.auth_mode == "kubernetes" || config.discovery.mode == "kubevirt-hybrid" {
+            match kube::Client::try_default().await {
+                Ok(c) => {
+                    info!("Kubernetes client created (auth_mode={}, discovery={})", config.auth_mode, config.discovery.mode);
+                    Some(c)
+                }
+                Err(e) => {
+                    anyhow::bail!("Failed to create Kubernetes client: {e}");
+                }
             }
-            Err(e) => {
-                anyhow::bail!("Failed to create Kubernetes client for auth: {e}");
-            }
-        }
-    } else {
-        None
-    };
+        } else {
+            None
+        };
 
     let app_state = Arc::new(state::AggregatorState {
         config: config.clone(),
         registry,
+        vm_registry,
         proxy: proxy_client,
         session_store,
         account_store: std::sync::Mutex::new(account_store),

@@ -354,6 +354,7 @@ endpoints = []
         Arc::new(AggregatorState {
             config,
             registry: Arc::new(SidecarRegistry::new()),
+            vm_registry: None,
             proxy,
             session_store: SessionStore::new(3600, 16),
             account_store: std::sync::Mutex::new(accounts),
