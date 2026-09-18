@@ -242,8 +242,8 @@ pub async fn start_kubevirt_vm_watcher(
     namespace: Option<String>,
     cancel: tokio_util::sync::CancellationToken,
 ) {
-    use kube::api::{ApiResource, DynamicObject};
     use kube::Api;
+    use kube::api::{ApiResource, DynamicObject};
     use kube::runtime::watcher;
     use kube::runtime::watcher::Event;
     use tokio_stream::StreamExt;

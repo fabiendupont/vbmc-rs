@@ -78,7 +78,11 @@ pub struct DomainSpec {
     pub devices: Option<Devices>,
     #[serde(default)]
     pub firmware: Option<Firmware>,
-    #[serde(default, rename = "rebootPolicy", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "rebootPolicy",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reboot_policy: Option<String>,
 }
 
