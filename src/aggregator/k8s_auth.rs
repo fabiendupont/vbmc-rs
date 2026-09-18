@@ -351,7 +351,11 @@ endpoints = []
 
     fn make_state(config: AggregatorConfig, accounts: AccountStore) -> Arc<AggregatorState> {
         let proxy = ProxyClient::new(&config.sidecar).unwrap();
+        let chassis_config = Arc::new(std::sync::RwLock::new(config.effective_chassis()));
         Arc::new(AggregatorState {
+            chassis_config,
+            watcher_handles: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            config_path: std::path::PathBuf::from("/tmp/test-aggregator.toml"),
             config,
             registry: Arc::new(SidecarRegistry::new()),
             vm_registry: None,

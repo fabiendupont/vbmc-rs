@@ -58,6 +58,11 @@ async fn main() -> anyhow::Result<()> {
 
     let cancel = CancellationToken::new();
 
+    // Per-chassis watcher handles: chassis_name → child CancellationToken.
+    let watcher_handles: Arc<
+        std::sync::Mutex<std::collections::HashMap<String, CancellationToken>>,
+    > = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+
     match config.discovery.mode.as_str() {
         "static" => {
             discovery::register_static_endpoints(&registry, &config.discovery.endpoints);
@@ -86,12 +91,18 @@ async fn main() -> anyhow::Result<()> {
             let bmc_net = config.discovery.bmc_network.clone();
 
             for chassis in config.effective_chassis() {
-                // Pod watcher per chassis: discover running sidecar endpoints (hot telemetry).
+                let chassis_token = cancel.child_token();
+                watcher_handles
+                    .lock()
+                    .unwrap()
+                    .insert(chassis.name.clone(), chassis_token.clone());
+
+                // Pod watcher per chassis.
                 let reg = registry.clone();
                 let ns = Some(chassis.namespace.clone());
                 let selector = config.discovery.label_selector.clone();
                 let bmc_net_c = bmc_net.clone();
-                let token_pods = cancel.clone();
+                let token_pods = chassis_token.clone();
                 tokio::spawn(async move {
                     discovery::start_kubernetes_watcher(
                         reg, ns, selector, port, tls, bmc_net_c, token_pods,
@@ -99,12 +110,12 @@ async fn main() -> anyhow::Result<()> {
                     .await;
                 });
 
-                // VM watcher per chassis: discover all VMs including stopped ones.
+                // VM watcher per chassis.
                 let vm_reg_c = vm_reg.clone();
                 let ns_vms = Some(chassis.namespace.clone());
                 let chassis_name = chassis.name.clone();
                 let label_sel = chassis.vm_selector.label_selector_string();
-                let token_vms = cancel.clone();
+                let token_vms = chassis_token;
                 tokio::spawn(async move {
                     discovery::start_kubevirt_vm_watcher(
                         vm_reg_c,
@@ -156,7 +167,11 @@ async fn main() -> anyhow::Result<()> {
             None
         };
 
+    let initial_chassis = config.effective_chassis();
     let app_state = Arc::new(state::AggregatorState {
+        chassis_config: Arc::new(std::sync::RwLock::new(initial_chassis)),
+        watcher_handles,
+        config_path: cli.config.clone(),
         config: config.clone(),
         registry,
         vm_registry,
@@ -169,7 +184,28 @@ async fn main() -> anyhow::Result<()> {
         authz_cache: dashmap::DashMap::new(),
     });
 
-    let app = router::aggregator_router(app_state);
+    let app = router::aggregator_router(app_state.clone());
+
+    // SIGHUP triggers a config reload on Unix.
+    #[cfg(unix)]
+    {
+        let state_for_sighup = app_state.clone();
+        tokio::spawn(async move {
+            use tokio::signal::unix::{SignalKind, signal};
+            let mut sighup = match signal(SignalKind::hangup()) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("Failed to register SIGHUP handler: {e}");
+                    return;
+                }
+            };
+            loop {
+                sighup.recv().await;
+                info!("SIGHUP received — reloading config");
+                router::reload_chassis_config(&state_for_sighup).await;
+            }
+        });
+    }
 
     let tls_server_config = vbmc_rs::tls::build_tls_config(&config.server, None)?;
     let rustls_config =

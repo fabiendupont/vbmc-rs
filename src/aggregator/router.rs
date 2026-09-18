@@ -68,6 +68,7 @@ pub fn aggregator_router(state: Arc<AggregatorState>) -> Router {
                 .delete(proxy_chassis_sub_mutate),
         )
         .route("/api/v1/revocation", post(handle_keylime_revocation))
+        .route("/api/v1/config/reload", post(handle_config_reload))
         .with_state(state)
 }
 
@@ -561,7 +562,8 @@ async fn get_aggregated_chassis(
 
     if state.vm_registry.is_some() {
         // Hybrid mode: list chassis from config.
-        for chassis in state.config.effective_chassis() {
+        let chassis_list = state.chassis_config.read().unwrap().clone();
+        for chassis in chassis_list {
             // Access check: does the user have access to any VM in this chassis?
             let fake_ep = SidecarEndpoint {
                 system_id: chassis.name.clone(),
@@ -618,10 +620,12 @@ async fn proxy_chassis_get(
     // Hybrid mode: serve chassis from the VM registry filtered by chassis_name.
     if let Some(vm_reg) = &state.vm_registry {
         let chassis_cfg = state
-            .config
-            .effective_chassis()
-            .into_iter()
-            .find(|c| c.name == chassis_id);
+            .chassis_config
+            .read()
+            .unwrap()
+            .iter()
+            .find(|c| c.name == chassis_id)
+            .cloned();
 
         if let Some(chassis) = chassis_cfg {
             let fake_ep = SidecarEndpoint {
@@ -961,6 +965,92 @@ async fn proxy_websocket(
     }
 }
 
+/// Reload the chassis list from disk and reconcile running watchers.
+/// Called on SIGHUP or `POST /api/v1/config/reload`.
+pub async fn reload_chassis_config(state: &Arc<AggregatorState>) {
+    use super::discovery;
+    use tokio_util::sync::CancellationToken;
+
+    let new_config = match super::config::AggregatorConfig::load(&state.config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("Config reload failed — keeping current config: {e}");
+            return;
+        }
+    };
+
+    let new_chassis = new_config.effective_chassis();
+    let new_names: std::collections::HashSet<String> =
+        new_chassis.iter().map(|c| c.name.clone()).collect();
+
+    let mut handles = state.watcher_handles.lock().unwrap();
+    let old_names: std::collections::HashSet<String> = handles.keys().cloned().collect();
+
+    // Cancel watchers for removed chassis.
+    for removed in old_names.difference(&new_names) {
+        if let Some(token) = handles.remove(removed) {
+            info!(chassis = %removed, "Hot-reload: stopping watcher for removed chassis");
+            token.cancel();
+        }
+    }
+
+    // Start watchers for added chassis (only in kubevirt-hybrid mode).
+    if state.config.discovery.mode == "kubevirt-hybrid"
+        && let Some(vm_reg) = &state.vm_registry
+    {
+        {
+            let port = state.config.sidecar.port;
+            let tls = state.config.sidecar.tls_enabled();
+            let bmc_net = state.config.discovery.bmc_network.clone();
+            let selector = state.config.discovery.label_selector.clone();
+
+            for chassis in new_chassis.iter().filter(|c| !old_names.contains(&c.name)) {
+                info!(chassis = %chassis.name, "Hot-reload: starting watcher for new chassis");
+                let chassis_token = CancellationToken::new();
+                handles.insert(chassis.name.clone(), chassis_token.clone());
+
+                let reg = state.registry.clone();
+                let ns = Some(chassis.namespace.clone());
+                let bmc_net_c = bmc_net.clone();
+                let selector_c = selector.clone();
+                let token_pods = chassis_token.clone();
+                tokio::spawn(async move {
+                    discovery::start_kubernetes_watcher(
+                        reg, ns, selector_c, port, tls, bmc_net_c, token_pods,
+                    )
+                    .await;
+                });
+
+                let vm_reg_c = vm_reg.clone();
+                let ns_vms = Some(chassis.namespace.clone());
+                let chassis_name = chassis.name.clone();
+                let label_sel = chassis.vm_selector.label_selector_string();
+                let token_vms = chassis_token;
+                tokio::spawn(async move {
+                    discovery::start_kubevirt_vm_watcher(
+                        vm_reg_c,
+                        ns_vms,
+                        chassis_name,
+                        label_sel,
+                        token_vms,
+                    )
+                    .await;
+                });
+            }
+        }
+    }
+
+    // Swap the chassis list atomically.
+    *state.chassis_config.write().unwrap() = new_chassis;
+
+    info!("Config reloaded successfully");
+}
+
+async fn handle_config_reload(State(state): State<Arc<AggregatorState>>) -> StatusCode {
+    reload_chassis_config(&state).await;
+    StatusCode::NO_CONTENT
+}
+
 #[cfg(test)]
 mod coverage_tests {
     use super::*;
@@ -1006,7 +1096,11 @@ mod coverage_tests {
         let registry = Arc::new(super::super::discovery::SidecarRegistry::new());
         let proxy = ProxyClient::new(&config.sidecar).unwrap();
 
+        let chassis_config = Arc::new(std::sync::RwLock::new(config.effective_chassis()));
         Arc::new(AggregatorState {
+            chassis_config,
+            watcher_handles: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            config_path: std::path::PathBuf::from("/tmp/test-aggregator.toml"),
             config,
             registry,
             vm_registry: None,
@@ -1396,7 +1490,11 @@ mod coverage_tests {
         });
 
         let proxy = ProxyClient::new(&config.sidecar).unwrap();
+        let chassis_config = Arc::new(std::sync::RwLock::new(config.effective_chassis()));
         Arc::new(AggregatorState {
+            chassis_config,
+            watcher_handles: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            config_path: std::path::PathBuf::from("/tmp/test-aggregator.toml"),
             config,
             registry,
             vm_registry: Some(vm_reg),
@@ -1541,7 +1639,11 @@ mod coverage_tests {
         });
 
         let proxy = ProxyClient::new(&config.sidecar).unwrap();
+        let chassis_config = Arc::new(std::sync::RwLock::new(config.effective_chassis()));
         Arc::new(AggregatorState {
+            chassis_config,
+            watcher_handles: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            config_path: std::path::PathBuf::from("/tmp/test-aggregator.toml"),
             config,
             registry,
             vm_registry: Some(vm_reg),
@@ -1627,5 +1729,403 @@ mod coverage_tests {
         assert_eq!(status, StatusCode::OK);
         // No endpoints registered → empty
         assert_eq!(json["Members@odata.count"], 0);
+    }
+
+    // ---- config hot-reload endpoint ----
+
+    #[tokio::test]
+    async fn test_config_reload_endpoint_returns_204_when_file_missing() {
+        // config_path points to /tmp/test-aggregator.toml which doesn't exist;
+        // reload should fail gracefully and return 204 (best-effort, no crash).
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/config/reload")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        // File missing → reload_chassis_config logs a warning and returns early;
+        // handle_config_reload always returns 204.
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn test_reload_chassis_config_updates_chassis_list() {
+        use super::reload_chassis_config;
+        use std::io::Write;
+
+        // Write a valid aggregator config to a temp file.
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        write!(
+            tmp,
+            r#"
+[server]
+bind_address = "127.0.0.1"
+port = 8080
+
+[discovery]
+mode = "kubevirt-hybrid"
+endpoints = []
+
+[sidecar]
+
+[[chassis]]
+name = "reloaded-chassis"
+namespace = "reloaded-ns"
+"#
+        )
+        .unwrap();
+
+        let state = {
+            use super::super::k8s_auth::TokenCache;
+            use super::super::k8s_authz::AuthzCache;
+            use super::super::proxy::ProxyClient;
+            use vbmc_rs::auth::accounts::AccountStore;
+            use vbmc_rs::auth::sessions::SessionStore;
+            use vbmc_rs::config::{AuthConfig, ServerConfig};
+
+            let config = super::super::config::AggregatorConfig {
+                server: ServerConfig {
+                    bind_address: "127.0.0.1".to_string(),
+                    port: 8080,
+                    tls_cert: None,
+                    tls_key: None,
+                    tls_client_ca: None,
+                },
+                auth: AuthConfig::default(),
+                auth_mode: "local".to_string(),
+                discovery: super::super::config::DiscoveryConfig {
+                    mode: "kubevirt-hybrid".to_string(),
+                    namespace: None,
+                    label_selector: "app=vbmc".to_string(),
+                    bmc_network: None,
+                    endpoints: vec![],
+                },
+                sidecar: super::super::config::SidecarConnectionConfig {
+                    port: 8000,
+                    tls_ca: None,
+                    tls_cert: None,
+                    tls_key: None,
+                },
+                chassis: vec![],
+            };
+
+            let proxy = ProxyClient::new(&config.sidecar).unwrap();
+            let chassis_config = Arc::new(std::sync::RwLock::new(config.effective_chassis()));
+            Arc::new(AggregatorState {
+                chassis_config,
+                watcher_handles: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                config_path: tmp.path().to_path_buf(),
+                config,
+                registry: Arc::new(super::super::discovery::SidecarRegistry::new()),
+                vm_registry: None,
+                proxy,
+                session_store: SessionStore::new(3600, 16),
+                account_store: std::sync::Mutex::new(AccountStore::default()),
+                instance_uuid: "reload-uuid".to_string(),
+                kube_client: None,
+                token_cache: TokenCache::default(),
+                authz_cache: AuthzCache::default(),
+            })
+        };
+
+        // Initially empty chassis list.
+        assert!(state.chassis_config.read().unwrap().is_empty());
+
+        // Reload from the temp file.
+        reload_chassis_config(&state).await;
+
+        // Should now have the reloaded chassis.
+        let chassis = state.chassis_config.read().unwrap().clone();
+        assert_eq!(chassis.len(), 1);
+        assert_eq!(chassis[0].name, "reloaded-chassis");
+        assert_eq!(chassis[0].namespace, "reloaded-ns");
+    }
+
+    #[tokio::test]
+    async fn test_reload_removes_chassis_and_cancels_token() {
+        use super::reload_chassis_config;
+        use std::io::Write;
+        use tokio_util::sync::CancellationToken;
+
+        // Config file with no [[chassis]] sections (and no namespace).
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        write!(
+            tmp,
+            r#"
+[server]
+bind_address = "127.0.0.1"
+port = 8080
+
+[discovery]
+mode = "static"
+endpoints = []
+
+[sidecar]
+"#
+        )
+        .unwrap();
+
+        let state = {
+            use super::super::k8s_auth::TokenCache;
+            use super::super::k8s_authz::AuthzCache;
+            use super::super::proxy::ProxyClient;
+            use vbmc_rs::auth::accounts::AccountStore;
+            use vbmc_rs::auth::sessions::SessionStore;
+            use vbmc_rs::config::{AuthConfig, ServerConfig};
+
+            let config = super::super::config::AggregatorConfig {
+                server: ServerConfig {
+                    bind_address: "127.0.0.1".to_string(),
+                    port: 8080,
+                    tls_cert: None,
+                    tls_key: None,
+                    tls_client_ca: None,
+                },
+                auth: AuthConfig::default(),
+                auth_mode: "local".to_string(),
+                discovery: super::super::config::DiscoveryConfig {
+                    mode: "static".to_string(),
+                    namespace: None,
+                    label_selector: String::new(),
+                    bmc_network: None,
+                    endpoints: vec![],
+                },
+                sidecar: super::super::config::SidecarConnectionConfig {
+                    port: 8000,
+                    tls_ca: None,
+                    tls_cert: None,
+                    tls_key: None,
+                },
+                chassis: vec![],
+            };
+
+            let proxy = ProxyClient::new(&config.sidecar).unwrap();
+            // Pre-populate watcher_handles with a token for "old-chassis".
+            let old_token = CancellationToken::new();
+            let mut handles = std::collections::HashMap::new();
+            handles.insert("old-chassis".to_string(), old_token.clone());
+
+            let state = Arc::new(AggregatorState {
+                chassis_config: Arc::new(std::sync::RwLock::new(vec![
+                    super::super::config::ChassisConfig {
+                        name: "old-chassis".to_string(),
+                        namespace: "old-ns".to_string(),
+                        vm_selector: Default::default(),
+                    },
+                ])),
+                watcher_handles: Arc::new(std::sync::Mutex::new(handles)),
+                config_path: tmp.path().to_path_buf(),
+                config,
+                registry: Arc::new(super::super::discovery::SidecarRegistry::new()),
+                vm_registry: None,
+                proxy,
+                session_store: SessionStore::new(3600, 16),
+                account_store: std::sync::Mutex::new(AccountStore::default()),
+                instance_uuid: "remove-uuid".to_string(),
+                kube_client: None,
+                token_cache: TokenCache::default(),
+                authz_cache: AuthzCache::default(),
+            });
+            (state, old_token)
+        };
+
+        let (state, old_token) = state;
+        assert!(!old_token.is_cancelled());
+
+        // Reload: config has no chassis → old-chassis should be cancelled.
+        reload_chassis_config(&state).await;
+
+        assert!(
+            old_token.is_cancelled(),
+            "removed chassis token should be cancelled"
+        );
+        assert!(state.chassis_config.read().unwrap().is_empty());
+        assert!(state.watcher_handles.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_reload_with_hybrid_mode_and_vm_registry_spawns_watchers() {
+        use super::reload_chassis_config;
+        use std::io::Write;
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        write!(
+            tmp,
+            r#"
+[server]
+bind_address = "127.0.0.1"
+port = 8080
+
+[discovery]
+mode = "kubevirt-hybrid"
+endpoints = []
+
+[sidecar]
+
+[[chassis]]
+name = "new-chassis"
+namespace = "new-ns"
+"#
+        )
+        .unwrap();
+
+        let state = {
+            use super::super::discovery::KubeVirtVmRegistry;
+            use super::super::k8s_auth::TokenCache;
+            use super::super::k8s_authz::AuthzCache;
+            use super::super::proxy::ProxyClient;
+            use vbmc_rs::auth::accounts::AccountStore;
+            use vbmc_rs::auth::sessions::SessionStore;
+            use vbmc_rs::config::{AuthConfig, ServerConfig};
+
+            let config = super::super::config::AggregatorConfig {
+                server: ServerConfig {
+                    bind_address: "127.0.0.1".to_string(),
+                    port: 8080,
+                    tls_cert: None,
+                    tls_key: None,
+                    tls_client_ca: None,
+                },
+                auth: AuthConfig::default(),
+                auth_mode: "local".to_string(),
+                discovery: super::super::config::DiscoveryConfig {
+                    mode: "kubevirt-hybrid".to_string(),
+                    namespace: None,
+                    label_selector: "app=vbmc".to_string(),
+                    bmc_network: None,
+                    endpoints: vec![],
+                },
+                sidecar: super::super::config::SidecarConnectionConfig {
+                    port: 8000,
+                    tls_ca: None,
+                    tls_cert: None,
+                    tls_key: None,
+                },
+                chassis: vec![],
+            };
+
+            let proxy = ProxyClient::new(&config.sidecar).unwrap();
+            Arc::new(AggregatorState {
+                chassis_config: Arc::new(std::sync::RwLock::new(vec![])),
+                watcher_handles: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                config_path: tmp.path().to_path_buf(),
+                config,
+                registry: Arc::new(super::super::discovery::SidecarRegistry::new()),
+                vm_registry: Some(Arc::new(KubeVirtVmRegistry::new())),
+                proxy,
+                session_store: SessionStore::new(3600, 16),
+                account_store: std::sync::Mutex::new(AccountStore::default()),
+                instance_uuid: "hybrid-reload-uuid".to_string(),
+                kube_client: None,
+                token_cache: TokenCache::default(),
+                authz_cache: AuthzCache::default(),
+            })
+        };
+
+        reload_chassis_config(&state).await;
+
+        // chassis_config updated
+        let chassis = state.chassis_config.read().unwrap().clone();
+        assert_eq!(chassis.len(), 1);
+        assert_eq!(chassis[0].name, "new-chassis");
+
+        // watcher_handles has an entry for the new chassis
+        let handles = state.watcher_handles.lock().unwrap();
+        assert!(handles.contains_key("new-chassis"));
+    }
+
+    #[tokio::test]
+    async fn test_config_reload_endpoint_with_valid_file() {
+        use std::io::Write;
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        write!(
+            tmp,
+            r#"
+[server]
+bind_address = "127.0.0.1"
+port = 8080
+
+[discovery]
+endpoints = []
+
+[sidecar]
+
+[[chassis]]
+name = "live-chassis"
+namespace = "live-ns"
+"#
+        )
+        .unwrap();
+
+        let state = {
+            use super::super::k8s_auth::TokenCache;
+            use super::super::k8s_authz::AuthzCache;
+            use super::super::proxy::ProxyClient;
+            use vbmc_rs::auth::accounts::AccountStore;
+            use vbmc_rs::auth::sessions::SessionStore;
+            use vbmc_rs::config::{AuthConfig, ServerConfig};
+
+            let config = super::super::config::AggregatorConfig {
+                server: ServerConfig {
+                    bind_address: "127.0.0.1".to_string(),
+                    port: 8080,
+                    tls_cert: None,
+                    tls_key: None,
+                    tls_client_ca: None,
+                },
+                auth: AuthConfig::default(),
+                auth_mode: "local".to_string(),
+                discovery: super::super::config::DiscoveryConfig {
+                    mode: "static".to_string(),
+                    namespace: None,
+                    label_selector: String::new(),
+                    bmc_network: None,
+                    endpoints: vec![],
+                },
+                sidecar: super::super::config::SidecarConnectionConfig {
+                    port: 8000,
+                    tls_ca: None,
+                    tls_cert: None,
+                    tls_key: None,
+                },
+                chassis: vec![],
+            };
+
+            let proxy = ProxyClient::new(&config.sidecar).unwrap();
+            Arc::new(AggregatorState {
+                chassis_config: Arc::new(std::sync::RwLock::new(vec![])),
+                watcher_handles: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                config_path: tmp.path().to_path_buf(),
+                config,
+                registry: Arc::new(super::super::discovery::SidecarRegistry::new()),
+                vm_registry: None,
+                proxy,
+                session_store: SessionStore::new(3600, 16),
+                account_store: std::sync::Mutex::new(AccountStore::default()),
+                instance_uuid: "reload-valid-uuid".to_string(),
+                kube_client: None,
+                token_cache: TokenCache::default(),
+                authz_cache: AuthzCache::default(),
+            })
+        };
+
+        let app = aggregator_router(state.clone());
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/config/reload")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        // Chassis list updated from file
+        let chassis = state.chassis_config.read().unwrap().clone();
+        assert_eq!(chassis.len(), 1);
+        assert_eq!(chassis[0].name, "live-chassis");
     }
 }
