@@ -206,6 +206,7 @@ pub struct KubeVirtVmEntry {
     pub system_id: String,
     pub namespace: String,
     pub vm_name: String,
+    pub chassis_name: String,
 }
 
 pub struct KubeVirtVmRegistry {
@@ -240,6 +241,8 @@ impl KubeVirtVmRegistry {
 pub async fn start_kubevirt_vm_watcher(
     registry: Arc<KubeVirtVmRegistry>,
     namespace: Option<String>,
+    chassis_name: String,
+    label_selector: Option<String>,
     cancel: tokio_util::sync::CancellationToken,
 ) {
     use kube::Api;
@@ -270,7 +273,12 @@ pub async fn start_kubevirt_vm_watcher(
         None => Api::all_with(client, &vm_ar),
     };
 
-    let mut stream = std::pin::pin!(watcher(api, watcher::Config::default()));
+    let watcher_config = if let Some(sel) = &label_selector {
+        watcher::Config::default().labels(sel)
+    } else {
+        watcher::Config::default()
+    };
+    let mut stream = std::pin::pin!(watcher(api, watcher_config));
 
     loop {
         tokio::select! {
@@ -281,13 +289,13 @@ pub async fn start_kubevirt_vm_watcher(
             item = stream.next() => {
                 match item {
                     Some(Ok(Event::Apply(obj) | Event::InitApply(obj))) => {
-                        if let Some(entry) = extract_vm_entry(&obj) {
-                            info!(system_id = %entry.system_id, "Discovered KubeVirt VM");
+                        if let Some(entry) = extract_vm_entry(&obj, &chassis_name) {
+                            info!(system_id = %entry.system_id, chassis = %entry.chassis_name, "Discovered KubeVirt VM");
                             registry.register(entry);
                         }
                     }
                     Some(Ok(Event::Delete(obj))) => {
-                        if let Some(entry) = extract_vm_entry(&obj) {
+                        if let Some(entry) = extract_vm_entry(&obj, &chassis_name) {
                             info!(system_id = %entry.system_id, "KubeVirt VM removed");
                             registry.deregister(&entry.system_id);
                         }
@@ -306,7 +314,7 @@ pub async fn start_kubevirt_vm_watcher(
 }
 
 #[cfg(feature = "aggregator")]
-fn extract_vm_entry(obj: &kube::api::DynamicObject) -> Option<KubeVirtVmEntry> {
+fn extract_vm_entry(obj: &kube::api::DynamicObject, chassis_name: &str) -> Option<KubeVirtVmEntry> {
     let labels = obj.metadata.labels.as_ref();
     let system_id = labels
         .and_then(|l| l.get("vbmc-rs/system-id"))
@@ -318,6 +326,7 @@ fn extract_vm_entry(obj: &kube::api::DynamicObject) -> Option<KubeVirtVmEntry> {
         system_id,
         namespace,
         vm_name,
+        chassis_name: chassis_name.to_string(),
     })
 }
 
@@ -330,6 +339,7 @@ mod vm_registry_tests {
             system_id: system_id.to_string(),
             namespace: namespace.to_string(),
             vm_name: vm_name.to_string(),
+            chassis_name: namespace.to_string(),
         }
     }
 
@@ -414,7 +424,7 @@ mod vm_watcher_extract_tests {
                 "labels": { "vbmc-rs/system-id": "sys-1" }
             }
         }));
-        let entry = extract_vm_entry(&obj).unwrap();
+        let entry = extract_vm_entry(&obj, "test-chassis").unwrap();
         assert_eq!(entry.system_id, "sys-1");
         assert_eq!(entry.namespace, "default");
         assert_eq!(entry.vm_name, "my-vm");
@@ -430,7 +440,7 @@ mod vm_watcher_extract_tests {
                 "namespace": "ns1"
             }
         }));
-        let entry = extract_vm_entry(&obj).unwrap();
+        let entry = extract_vm_entry(&obj, "test-chassis").unwrap();
         assert_eq!(entry.system_id, "my-vm");
         assert_eq!(entry.namespace, "ns1");
         assert_eq!(entry.vm_name, "my-vm");
@@ -443,7 +453,7 @@ mod vm_watcher_extract_tests {
             "kind": "VirtualMachine",
             "metadata": {}
         }));
-        assert!(extract_vm_entry(&obj).is_none());
+        assert!(extract_vm_entry(&obj, "test-chassis").is_none());
     }
 
     #[test]
@@ -453,7 +463,7 @@ mod vm_watcher_extract_tests {
             "kind": "VirtualMachine",
             "metadata": { "name": "my-vm" }
         }));
-        let entry = extract_vm_entry(&obj).unwrap();
+        let entry = extract_vm_entry(&obj, "test-chassis").unwrap();
         assert_eq!(entry.namespace, "");
     }
 }

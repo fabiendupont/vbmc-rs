@@ -78,30 +78,44 @@ async fn main() -> anyhow::Result<()> {
         }
         #[cfg(feature = "aggregator")]
         "kubevirt-hybrid" => {
-            // Pod watcher: discover running sidecar endpoints (hot telemetry).
-            let reg = registry.clone();
-            let ns = config.discovery.namespace.clone();
-            let selector = config.discovery.label_selector.clone();
-            let port = config.sidecar.port;
-            let tls = config.sidecar.tls_enabled();
-            let bmc_net = config.discovery.bmc_network.clone();
-            let token_pods = cancel.clone();
-            tokio::spawn(async move {
-                discovery::start_kubernetes_watcher(
-                    reg, ns, selector, port, tls, bmc_net, token_pods,
-                )
-                .await;
-            });
-
-            // VM watcher: discover all VMs including stopped ones.
             let vm_reg = vm_registry
                 .clone()
                 .expect("vm_registry always Some in kubevirt-hybrid");
-            let ns_vms = config.discovery.namespace.clone();
-            let token_vms = cancel.clone();
-            tokio::spawn(async move {
-                discovery::start_kubevirt_vm_watcher(vm_reg, ns_vms, token_vms).await;
-            });
+            let port = config.sidecar.port;
+            let tls = config.sidecar.tls_enabled();
+            let bmc_net = config.discovery.bmc_network.clone();
+
+            for chassis in config.effective_chassis() {
+                // Pod watcher per chassis: discover running sidecar endpoints (hot telemetry).
+                let reg = registry.clone();
+                let ns = Some(chassis.namespace.clone());
+                let selector = config.discovery.label_selector.clone();
+                let bmc_net_c = bmc_net.clone();
+                let token_pods = cancel.clone();
+                tokio::spawn(async move {
+                    discovery::start_kubernetes_watcher(
+                        reg, ns, selector, port, tls, bmc_net_c, token_pods,
+                    )
+                    .await;
+                });
+
+                // VM watcher per chassis: discover all VMs including stopped ones.
+                let vm_reg_c = vm_reg.clone();
+                let ns_vms = Some(chassis.namespace.clone());
+                let chassis_name = chassis.name.clone();
+                let label_sel = chassis.vm_selector.label_selector_string();
+                let token_vms = cancel.clone();
+                tokio::spawn(async move {
+                    discovery::start_kubevirt_vm_watcher(
+                        vm_reg_c,
+                        ns_vms,
+                        chassis_name,
+                        label_sel,
+                        token_vms,
+                    )
+                    .await;
+                });
+            }
         }
         other => {
             anyhow::bail!("Unknown discovery mode: {other}");

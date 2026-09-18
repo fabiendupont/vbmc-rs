@@ -557,28 +557,47 @@ async fn get_aggregated_chassis(
     State(state): State<Arc<AggregatorState>>,
     user: KubernetesUser,
 ) -> Json<serde_json::Value> {
-    let endpoints = state.registry.list();
-    let mut seen = std::collections::BTreeSet::new();
     let mut members = Vec::new();
 
-    for ep in &endpoints {
-        // Use chassis_id (namespace) when present, otherwise fall back to system_id.
-        let chassis_id = if ep.namespace.is_empty() {
-            ep.system_id.clone()
-        } else {
-            ep.namespace.clone()
-        };
+    if state.vm_registry.is_some() {
+        // Hybrid mode: list chassis from config.
+        for chassis in state.config.effective_chassis() {
+            // Access check: does the user have access to any VM in this chassis?
+            let fake_ep = SidecarEndpoint {
+                system_id: chassis.name.clone(),
+                namespace: chassis.namespace.clone(),
+                vm_name: String::new(),
+                url: String::new(),
+            };
+            if check_endpoint_access(&state, &user, &fake_ep).await {
+                members.push(serde_json::json!({
+                    "@odata.id": format!("/redfish/v1/Chassis/{}", chassis.name)
+                }));
+            }
+        }
+    } else {
+        // Sidecar-only mode: derive chassis from registered sidecar endpoints.
+        let endpoints = state.registry.list();
+        let mut seen = std::collections::BTreeSet::new();
 
-        if seen.contains(&chassis_id) {
-            continue;
+        for ep in &endpoints {
+            let chassis_id = if ep.namespace.is_empty() {
+                ep.system_id.clone()
+            } else {
+                ep.namespace.clone()
+            };
+
+            if seen.contains(&chassis_id) {
+                continue;
+            }
+            if !check_endpoint_access(&state, &user, ep).await {
+                continue;
+            }
+            seen.insert(chassis_id.clone());
+            members.push(serde_json::json!({
+                "@odata.id": format!("/redfish/v1/Chassis/{chassis_id}")
+            }));
         }
-        if !check_endpoint_access(&state, &user, ep).await {
-            continue;
-        }
-        seen.insert(chassis_id.clone());
-        members.push(serde_json::json!({
-            "@odata.id": format!("/redfish/v1/Chassis/{chassis_id}")
-        }));
     }
 
     Json(serde_json::json!({
@@ -596,8 +615,54 @@ async fn proxy_chassis_get(
     Path(chassis_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    // If chassis_id matches a known namespace, synthesize a chassis resource
-    // listing all accessible VMs in that namespace.
+    // Hybrid mode: serve chassis from the VM registry filtered by chassis_name.
+    if let Some(vm_reg) = &state.vm_registry {
+        let chassis_cfg = state
+            .config
+            .effective_chassis()
+            .into_iter()
+            .find(|c| c.name == chassis_id);
+
+        if let Some(chassis) = chassis_cfg {
+            let fake_ep = SidecarEndpoint {
+                system_id: chassis.name.clone(),
+                namespace: chassis.namespace.clone(),
+                vm_name: String::new(),
+                url: String::new(),
+            };
+            if !check_endpoint_access(&state, &user, &fake_ep).await {
+                return Err(StatusCode::FORBIDDEN);
+            }
+
+            let mut vm_members = Vec::new();
+            for entry in vm_reg.list() {
+                if entry.chassis_name == chassis_id {
+                    let ep = vm_entry_to_endpoint(&entry);
+                    if check_endpoint_access(&state, &user, &ep).await {
+                        vm_members.push(serde_json::json!({
+                            "@odata.id": format!("/redfish/v1/Systems/{}", entry.system_id)
+                        }));
+                    }
+                }
+            }
+
+            let body = serde_json::json!({
+                "@odata.id": format!("/redfish/v1/Chassis/{chassis_id}"),
+                "@odata.type": "#Chassis.v1_22_0.Chassis",
+                "Id": chassis_id,
+                "Name": chassis.name,
+                "Description": format!("Kubernetes namespace: {}", chassis.namespace),
+                "ChassisType": "Virtual",
+                "Status": { "State": "Enabled", "Health": "OK" },
+                "Links": { "ComputerSystems": vm_members }
+            });
+            return Ok(Json(body).into_response());
+        }
+
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // Sidecar-only mode: synthesize chassis from endpoints sharing a namespace.
     let endpoints = state.registry.list();
     let ns_members: Vec<_> = {
         let mut v = Vec::new();
@@ -935,6 +1000,7 @@ mod coverage_tests {
                 tls_cert: None,
                 tls_key: None,
             },
+            chassis: vec![],
         };
 
         let registry = Arc::new(super::super::discovery::SidecarRegistry::new());
@@ -1268,6 +1334,7 @@ mod coverage_tests {
             system_id: "sys-1".to_string(),
             namespace: "ns1".to_string(),
             vm_name: "my-vm".to_string(),
+            chassis_name: "ns1".to_string(),
         };
         let ep = vm_entry_to_endpoint(&entry);
         assert_eq!(ep.system_id, "sys-1");
@@ -1310,6 +1377,7 @@ mod coverage_tests {
                 tls_cert: None,
                 tls_key: None,
             },
+            chassis: vec![],
         };
 
         let registry = Arc::new(super::super::discovery::SidecarRegistry::new());
@@ -1318,11 +1386,13 @@ mod coverage_tests {
             system_id: "vm-a".to_string(),
             namespace: "default".to_string(),
             vm_name: "my-vm-a".to_string(),
+            chassis_name: "default".to_string(),
         });
         vm_reg.register(KubeVirtVmEntry {
             system_id: "vm-b".to_string(),
             namespace: "default".to_string(),
             vm_name: "my-vm-b".to_string(),
+            chassis_name: "default".to_string(),
         });
 
         let proxy = ProxyClient::new(&config.sidecar).unwrap();
@@ -1404,5 +1474,158 @@ mod coverage_tests {
             .unwrap();
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    // ---- hybrid chassis endpoints ----
+
+    fn hybrid_state_with_chassis() -> Arc<AggregatorState> {
+        use super::super::config::ChassisConfig;
+        use super::super::discovery::{KubeVirtVmEntry, KubeVirtVmRegistry};
+        use super::super::k8s_auth::TokenCache;
+        use super::super::k8s_authz::AuthzCache;
+        use super::super::proxy::ProxyClient;
+        use vbmc_rs::auth::accounts::AccountStore;
+        use vbmc_rs::auth::sessions::SessionStore;
+        use vbmc_rs::config::{AuthConfig, ServerConfig};
+
+        let config = super::super::config::AggregatorConfig {
+            server: ServerConfig {
+                bind_address: "127.0.0.1".to_string(),
+                port: 8080,
+                tls_cert: None,
+                tls_key: None,
+                tls_client_ca: None,
+            },
+            auth: AuthConfig::default(),
+            auth_mode: "local".to_string(),
+            discovery: super::super::config::DiscoveryConfig {
+                mode: "kubevirt-hybrid".to_string(),
+                namespace: None,
+                label_selector: "app=vbmc".to_string(),
+                bmc_network: None,
+                endpoints: vec![],
+            },
+            sidecar: super::super::config::SidecarConnectionConfig {
+                port: 8000,
+                tls_ca: None,
+                tls_cert: None,
+                tls_key: None,
+            },
+            chassis: vec![
+                ChassisConfig {
+                    name: "ns-a".to_string(),
+                    namespace: "ns-a".to_string(),
+                    vm_selector: Default::default(),
+                },
+                ChassisConfig {
+                    name: "ns-b".to_string(),
+                    namespace: "ns-b".to_string(),
+                    vm_selector: Default::default(),
+                },
+            ],
+        };
+
+        let registry = Arc::new(super::super::discovery::SidecarRegistry::new());
+        let vm_reg = Arc::new(KubeVirtVmRegistry::new());
+        vm_reg.register(KubeVirtVmEntry {
+            system_id: "vm-1".to_string(),
+            namespace: "ns-a".to_string(),
+            vm_name: "vm-1".to_string(),
+            chassis_name: "ns-a".to_string(),
+        });
+        vm_reg.register(KubeVirtVmEntry {
+            system_id: "vm-2".to_string(),
+            namespace: "ns-b".to_string(),
+            vm_name: "vm-2".to_string(),
+            chassis_name: "ns-b".to_string(),
+        });
+
+        let proxy = ProxyClient::new(&config.sidecar).unwrap();
+        Arc::new(AggregatorState {
+            config,
+            registry,
+            vm_registry: Some(vm_reg),
+            proxy,
+            session_store: SessionStore::new(3600, 16),
+            account_store: std::sync::Mutex::new(AccountStore::default()),
+            instance_uuid: "chassis-uuid".to_string(),
+            kube_client: None,
+            token_cache: TokenCache::default(),
+            authz_cache: AuthzCache::default(),
+        })
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_chassis_list_uses_config() {
+        let state = hybrid_state_with_chassis();
+        let app = aggregator_router(state);
+
+        let (status, json) = get_json(&app, "/redfish/v1/Chassis").await;
+        assert_eq!(status, StatusCode::OK);
+        let members = json["Members"].as_array().unwrap();
+        assert_eq!(members.len(), 2);
+        let ids: Vec<&str> = members
+            .iter()
+            .filter_map(|m| m["@odata.id"].as_str())
+            .collect();
+        assert!(ids.iter().any(|id| id.contains("ns-a")));
+        assert!(ids.iter().any(|id| id.contains("ns-b")));
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_chassis_get_lists_vms_in_chassis() {
+        let state = hybrid_state_with_chassis();
+        let app = aggregator_router(state);
+
+        let (status, json) = get_json(&app, "/redfish/v1/Chassis/ns-a").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["Id"], "ns-a");
+        let systems = json["Links"]["ComputerSystems"].as_array().unwrap();
+        assert_eq!(systems.len(), 1);
+        assert!(systems[0]["@odata.id"].as_str().unwrap().contains("vm-1"));
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_chassis_get_unknown_returns_404() {
+        let state = hybrid_state_with_chassis();
+        let app = aggregator_router(state);
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/redfish/v1/Chassis/nonexistent")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_chassis_list_from_discovery_namespace_fallback() {
+        // hybrid_state() uses chassis:[] + namespace:"default" → effective_chassis synthesises one
+        let state = hybrid_state();
+        let app = aggregator_router(state);
+
+        let (status, json) = get_json(&app, "/redfish/v1/Chassis").await;
+        assert_eq!(status, StatusCode::OK);
+        let members = json["Members"].as_array().unwrap();
+        assert_eq!(members.len(), 1);
+        assert!(
+            members[0]["@odata.id"]
+                .as_str()
+                .unwrap()
+                .contains("default")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_non_hybrid_chassis_list_from_sidecar_endpoints() {
+        // test_state() has no vm_registry → uses sidecar endpoint namespace grouping
+        let state = test_state();
+        let app = aggregator_router(state);
+
+        let (status, json) = get_json(&app, "/redfish/v1/Chassis").await;
+        assert_eq!(status, StatusCode::OK);
+        // No endpoints registered → empty
+        assert_eq!(json["Members@odata.count"], 0);
     }
 }
