@@ -443,14 +443,14 @@ async fn proxy_system_get(
     }
 
     // Hybrid mode: stopped VM — synthesize cold inventory from VM spec.
-    if let Some(vm_reg) = &state.vm_registry {
-        if let Some(vm_entry) = vm_reg.get(&system_id) {
-            let ep = vm_entry_to_endpoint(&vm_entry);
-            if !check_endpoint_access(&state, &user, &ep).await {
-                return Err(StatusCode::FORBIDDEN);
-            }
-            return hybrid_system_get(&state, &vm_entry, &system_id).await;
+    if let Some(vm_reg) = &state.vm_registry
+        && let Some(vm_entry) = vm_reg.get(&system_id)
+    {
+        let ep = vm_entry_to_endpoint(&vm_entry);
+        if !check_endpoint_access(&state, &user, &ep).await {
+            return Err(StatusCode::FORBIDDEN);
         }
+        return hybrid_system_get(&state, &vm_entry, &system_id).await;
     }
 
     Err(StatusCode::NOT_FOUND)
@@ -521,16 +521,15 @@ async fn proxy_system_sub_mutate(
 ) -> Result<Response, StatusCode> {
     // Hybrid mode: Reset action always goes to KubeVirt subresource API,
     // even for stopped VMs (which have no sidecar endpoint).
-    if rest == "Actions/ComputerSystem.Reset" {
-        if let Some(vm_reg) = &state.vm_registry {
-            if let Some(vm_entry) = vm_reg.get(&system_id) {
-                let ep = vm_entry_to_endpoint(&vm_entry);
-                if !check_endpoint_access(&state, &user, &ep).await {
-                    return Err(StatusCode::FORBIDDEN);
-                }
-                return hybrid_reset(&state, &vm_entry, &body).await;
-            }
+    if rest == "Actions/ComputerSystem.Reset"
+        && let Some(vm_reg) = &state.vm_registry
+        && let Some(vm_entry) = vm_reg.get(&system_id)
+    {
+        let ep = vm_entry_to_endpoint(&vm_entry);
+        if !check_endpoint_access(&state, &user, &ep).await {
+            return Err(StatusCode::FORBIDDEN);
         }
+        return hybrid_reset(&state, &vm_entry, &body).await;
     }
 
     let endpoint = state
