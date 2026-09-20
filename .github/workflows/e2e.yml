@@ -34,5 +34,6 @@ jobs:
       - name: Run E2E tests
         env:
           SIDECAR_IMAGE: localhost/vbmc-rs-kubevirt-sidecar:test
+          E2E_PROVIDER: kind
         run: |
           ./tests/e2e/run.sh
