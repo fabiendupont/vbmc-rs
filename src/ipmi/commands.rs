@@ -81,15 +81,22 @@ pub fn parse_request(raw: &[u8]) -> Option<IpmiRequest<'_>> {
 }
 
 #[derive(Debug)]
+pub struct BootOverrideCmd {
+    pub device_byte: u8,
+    pub enabled: String,
+}
+
+#[derive(Debug)]
 pub enum HandleResult {
     Response(IpmiResponse),
     ChassisAction(ChassisAction, IpmiResponse),
+    BootOverride(BootOverrideCmd, IpmiResponse),
 }
 
 pub fn handle_request(
     req: &IpmiRequest<'_>,
     power_state: VmPowerState,
-    boot_device: u8,
+    boot_device: &mut u8,
 ) -> HandleResult {
     let resp = match (req.netfn, req.cmd) {
         (NETFN_APP, CMD_GET_DEVICE_ID) => handle_get_device_id(),
@@ -101,8 +108,10 @@ pub fn handle_request(
         (NETFN_CHASSIS, CMD_CHASSIS_CONTROL) => {
             return handle_chassis_control(req);
         }
-        (NETFN_CHASSIS, CMD_GET_SYSTEM_BOOT_OPTIONS) => handle_get_boot_options(req, boot_device),
-        (NETFN_CHASSIS, CMD_SET_SYSTEM_BOOT_OPTIONS) => handle_set_boot_options(req),
+        (NETFN_CHASSIS, CMD_GET_SYSTEM_BOOT_OPTIONS) => handle_get_boot_options(req, *boot_device),
+        (NETFN_CHASSIS, CMD_SET_SYSTEM_BOOT_OPTIONS) => {
+            return handle_set_boot_options(req);
+        }
         _ => IpmiResponse::error(req.netfn, req.cmd, CC_INVALID_CMD),
     };
     HandleResult::Response(resp)
@@ -207,8 +216,27 @@ fn handle_get_boot_options(req: &IpmiRequest<'_>, boot_device: u8) -> IpmiRespon
     }
 }
 
-fn handle_set_boot_options(_req: &IpmiRequest<'_>) -> IpmiResponse {
-    IpmiResponse::ok(NETFN_CHASSIS, CMD_SET_SYSTEM_BOOT_OPTIONS, vec![])
+fn handle_set_boot_options(req: &IpmiRequest<'_>) -> HandleResult {
+    if req.data.len() < 3 {
+        return HandleResult::Response(IpmiResponse::error(req.netfn, req.cmd, CC_INVALID_DATA));
+    }
+
+    let param = req.data[0] & 0x7F;
+    if param != 5 {
+        return HandleResult::Response(IpmiResponse::ok(req.netfn, req.cmd, vec![]));
+    }
+
+    let persistent = (req.data[1] & 0x20) != 0;
+    let device_byte = req.data[2] & 0x3C;
+    let enabled = if persistent { "Continuous" } else { "Once" };
+
+    HandleResult::BootOverride(
+        BootOverrideCmd {
+            device_byte,
+            enabled: enabled.to_string(),
+        },
+        IpmiResponse::ok(req.netfn, req.cmd, vec![]),
+    )
 }
 
 #[cfg(test)]
@@ -230,7 +258,7 @@ mod tests {
             cmd: CMD_GET_DEVICE_ID,
             data: &[],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.completion_code, CC_OK);
                 assert!(!resp.data.is_empty());
@@ -246,7 +274,7 @@ mod tests {
             cmd: CMD_GET_CHASSIS_STATUS,
             data: &[],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.completion_code, CC_OK);
                 assert_eq!(resp.data[0] & 0x01, 0x01);
@@ -262,7 +290,7 @@ mod tests {
             cmd: CMD_GET_CHASSIS_STATUS,
             data: &[],
         };
-        match handle_request(&req, VmPowerState::Off, 0x00) {
+        match handle_request(&req, VmPowerState::Off, &mut 0x00u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.data[0] & 0x01, 0x00);
             }
@@ -277,7 +305,7 @@ mod tests {
             cmd: CMD_CHASSIS_CONTROL,
             data: &[0x00],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::ChassisAction(action, resp) => {
                 assert_eq!(action, ChassisAction::PowerOff);
                 assert_eq!(resp.completion_code, CC_OK);
@@ -293,7 +321,7 @@ mod tests {
             cmd: CMD_CHASSIS_CONTROL,
             data: &[0x01],
         };
-        match handle_request(&req, VmPowerState::Off, 0x00) {
+        match handle_request(&req, VmPowerState::Off, &mut 0x00u8) {
             HandleResult::ChassisAction(action, _) => {
                 assert_eq!(action, ChassisAction::PowerOn);
             }
@@ -308,7 +336,7 @@ mod tests {
             cmd: 0xFF,
             data: &[],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.completion_code, CC_INVALID_CMD);
             }
@@ -366,7 +394,7 @@ mod coverage_tests {
             cmd: CMD_GET_CHANNEL_AUTH_CAP,
             data: &[],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.completion_code, CC_OK);
                 assert_eq!(resp.data.len(), 8);
@@ -384,7 +412,7 @@ mod coverage_tests {
             cmd: CMD_GET_SESSION_INFO,
             data: &[],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.completion_code, CC_OK);
                 assert_eq!(resp.data, vec![0x00, 0x00, 0x00]);
@@ -400,7 +428,7 @@ mod coverage_tests {
             cmd: CMD_SET_GLOBAL_ENABLES,
             data: &[0x01],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.completion_code, CC_OK);
                 assert!(resp.data.is_empty());
@@ -416,7 +444,7 @@ mod coverage_tests {
             cmd: CMD_GET_GLOBAL_ENABLES,
             data: &[],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.completion_code, CC_OK);
                 assert_eq!(resp.data, vec![0x00]);
@@ -432,7 +460,7 @@ mod coverage_tests {
             cmd: CMD_GET_CHASSIS_STATUS,
             data: &[],
         };
-        match handle_request(&req, VmPowerState::Unknown, 0x00) {
+        match handle_request(&req, VmPowerState::Unknown, &mut 0x00u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.completion_code, CC_OK);
                 assert_eq!(resp.data[0] & 0x01, 0x00);
@@ -448,7 +476,7 @@ mod coverage_tests {
             cmd: CMD_CHASSIS_CONTROL,
             data: &[0x02],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::ChassisAction(action, resp) => {
                 assert_eq!(action, ChassisAction::PowerCycle);
                 assert_eq!(resp.completion_code, CC_OK);
@@ -464,7 +492,7 @@ mod coverage_tests {
             cmd: CMD_CHASSIS_CONTROL,
             data: &[0x03],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::ChassisAction(action, resp) => {
                 assert_eq!(action, ChassisAction::HardReset);
                 assert_eq!(resp.completion_code, CC_OK);
@@ -480,7 +508,7 @@ mod coverage_tests {
             cmd: CMD_CHASSIS_CONTROL,
             data: &[0x04],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::ChassisAction(action, resp) => {
                 assert_eq!(action, ChassisAction::Pulse);
                 assert_eq!(resp.completion_code, CC_OK);
@@ -496,7 +524,7 @@ mod coverage_tests {
             cmd: CMD_CHASSIS_CONTROL,
             data: &[0x05],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::ChassisAction(action, resp) => {
                 assert_eq!(action, ChassisAction::SoftShutdown);
                 assert_eq!(resp.completion_code, CC_OK);
@@ -512,7 +540,7 @@ mod coverage_tests {
             cmd: CMD_CHASSIS_CONTROL,
             data: &[],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.completion_code, CC_INVALID_DATA);
             }
@@ -527,7 +555,7 @@ mod coverage_tests {
             cmd: CMD_CHASSIS_CONTROL,
             data: &[0xFF],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.completion_code, CC_INVALID_DATA);
             }
@@ -542,7 +570,7 @@ mod coverage_tests {
             cmd: CMD_GET_SYSTEM_BOOT_OPTIONS,
             data: &[0x05],
         };
-        match handle_request(&req, VmPowerState::On, 0x24) {
+        match handle_request(&req, VmPowerState::On, &mut 0x24u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.completion_code, CC_OK);
                 assert_eq!(resp.data[0], 0x01);
@@ -561,7 +589,7 @@ mod coverage_tests {
             cmd: CMD_GET_SYSTEM_BOOT_OPTIONS,
             data: &[0x03],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.completion_code, CC_OK);
                 assert_eq!(resp.data[0], 0x01);
@@ -579,7 +607,7 @@ mod coverage_tests {
             cmd: CMD_GET_SYSTEM_BOOT_OPTIONS,
             data: &[],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
             HandleResult::Response(resp) => {
                 assert_eq!(resp.completion_code, CC_OK);
                 assert_eq!(resp.data[0], 0x01);
@@ -590,16 +618,65 @@ mod coverage_tests {
     }
 
     #[test]
-    fn test_set_boot_options() {
+    fn test_set_boot_options_param5_once() {
         let req = IpmiRequest {
             netfn: NETFN_CHASSIS,
             cmd: CMD_SET_SYSTEM_BOOT_OPTIONS,
-            data: &[0x05, 0x80, 0x24],
+            data: &[0x05, 0x00, 0x04],
         };
-        match handle_request(&req, VmPowerState::On, 0x00) {
-            HandleResult::Response(resp) => {
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
+            HandleResult::BootOverride(cmd, resp) => {
+                assert_eq!(cmd.device_byte, 0x04);
+                assert_eq!(cmd.enabled, "Once");
                 assert_eq!(resp.completion_code, CC_OK);
                 assert!(resp.data.is_empty());
+            }
+            _ => panic!("expected BootOverride"),
+        }
+    }
+
+    #[test]
+    fn test_set_boot_options_param5_continuous() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_SET_SYSTEM_BOOT_OPTIONS,
+            data: &[0x05, 0x20, 0x08],
+        };
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
+            HandleResult::BootOverride(cmd, resp) => {
+                assert_eq!(cmd.device_byte, 0x08);
+                assert_eq!(cmd.enabled, "Continuous");
+                assert_eq!(resp.completion_code, CC_OK);
+            }
+            _ => panic!("expected BootOverride"),
+        }
+    }
+
+    #[test]
+    fn test_set_boot_options_non5_param() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_SET_SYSTEM_BOOT_OPTIONS,
+            data: &[0x03, 0x00, 0x00],
+        };
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
+            HandleResult::Response(resp) => {
+                assert_eq!(resp.completion_code, CC_OK);
+            }
+            _ => panic!("expected Response"),
+        }
+    }
+
+    #[test]
+    fn test_set_boot_options_short_data() {
+        let req = IpmiRequest {
+            netfn: NETFN_CHASSIS,
+            cmd: CMD_SET_SYSTEM_BOOT_OPTIONS,
+            data: &[0x05, 0x00],
+        };
+        match handle_request(&req, VmPowerState::On, &mut 0x00u8) {
+            HandleResult::Response(resp) => {
+                assert_eq!(resp.completion_code, CC_INVALID_DATA);
             }
             _ => panic!("expected Response"),
         }

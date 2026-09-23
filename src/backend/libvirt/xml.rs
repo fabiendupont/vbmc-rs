@@ -433,6 +433,121 @@ fn set_nvram_template(xml: &str, template: &str) -> String {
     }
 }
 
+// IPMI SetSystemBootOptions boot device byte → libvirt <boot dev='...'> mapping:
+//   0x04 → "network"  (PXE)
+//   0x08 → "hd"       (Hard Drive)
+//   0x14 → "cdrom"    (CD/DVD)
+//   0x3C → "fd"       (Floppy)
+
+/// Return the `dev` attribute of the first `<boot dev='...'>` element inside
+/// the `<os>` block, or `None` if no such element exists.
+pub fn get_first_boot_device(xml: &str) -> Option<String> {
+    let os_start = xml.find("<os")?;
+    let os_end = xml.find("</os>")?;
+    let os_block = &xml[os_start..os_end];
+    let boot_pos = os_block.find("<boot")?;
+    boot_dev_attr(&os_block[boot_pos..])
+}
+
+/// Rewrite the `<os>` boot order so that `first_dev` is the first entry.
+/// Existing `<boot dev='...'>` elements are preserved after it, with
+/// duplicates of `first_dev` removed. When there are no existing boot
+/// entries at all the single entry is inserted just before `</os>`.
+pub fn set_boot_order_xml(xml: &str, first_dev: &str) -> String {
+    let os_start = match xml.find("<os") {
+        Some(i) => i,
+        None => return xml.to_string(),
+    };
+    let os_end = match xml.find("</os>") {
+        Some(i) => i,
+        None => return xml.to_string(),
+    };
+
+    let os_block = &xml[os_start..os_end + 5];
+
+    // Collect existing boot dev values in document order.
+    let mut existing: Vec<String> = Vec::new();
+    let mut scan = os_block;
+    while let Some(p) = scan.find("<boot") {
+        if let Some(close) = scan[p..].find("/>") {
+            if let Some(dev) = boot_dev_attr(&scan[p..]) {
+                existing.push(dev);
+            }
+            scan = &scan[p + close + 2..];
+        } else {
+            break;
+        }
+    }
+
+    // first_dev leads; remaining entries follow without repeating first_dev.
+    let mut ordered: Vec<String> = vec![first_dev.to_string()];
+    for dev in &existing {
+        if dev != first_dev {
+            ordered.push(dev.clone());
+        }
+    }
+
+    // Detect child indentation from the whitespace that precedes </os>.
+    let child_indent = {
+        let pre = &xml[..os_end];
+        let sol = pre.rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let close_indent = &xml[sol..os_end];
+        if close_indent.is_empty() {
+            "    ".to_string()
+        } else {
+            format!("{}  ", close_indent)
+        }
+    };
+
+    let boot_block: String = ordered
+        .iter()
+        .map(|d| format!("{}<boot dev='{}'/>\n", child_indent, d))
+        .collect();
+
+    let cleaned = strip_boot_tags(os_block);
+    let new_os_block = cleaned.replacen("</os>", &format!("{}</os>", boot_block), 1);
+
+    format!("{}{}{}", &xml[..os_start], new_os_block, &xml[os_end + 5..])
+}
+
+/// Extract the `dev` attribute value from a `<boot dev='...'/>` tag fragment.
+fn boot_dev_attr(tag_start: &str) -> Option<String> {
+    let close = tag_start.find("/>")?;
+    let tag = &tag_start[..close + 2];
+    if let Some(pos) = tag.find("dev='") {
+        let after = &tag[pos + 5..];
+        return Some(after[..after.find('\'')?].to_string());
+    }
+    if let Some(pos) = tag.find("dev=\"") {
+        let after = &tag[pos + 5..];
+        return Some(after[..after.find('"')?].to_string());
+    }
+    None
+}
+
+/// Remove all `<boot .../>` self-closing tags from `s`, trimming the inline
+/// indentation whitespace that preceded each one and the newline that
+/// followed it.
+fn strip_boot_tags(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut rem = s;
+    while let Some(pos) = rem.find("<boot") {
+        let before = &rem[..pos];
+        let trim_end = before.trim_end_matches([' ', '\t']).len();
+        result.push_str(&before[..trim_end]);
+        if let Some(close) = rem[pos..].find("/>") {
+            rem = &rem[pos + close + 2..];
+            if rem.starts_with('\n') {
+                rem = &rem[1..];
+            }
+        } else {
+            break;
+        }
+    }
+    result.push_str(rem);
+    result
+}
+
 pub fn parse_console_pty(xml: &str) -> Option<String> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
@@ -1122,6 +1237,132 @@ mod coverage_tests {
         let info = parse_domain_xml(xml);
         // Should return default/partial info without crashing
         assert_eq!(info.vcpu_count, 0);
+    }
+
+    // ── boot order helpers ────────────────────────────────────────────────
+
+    const FULL_DOMAIN_XML: &str = r#"<domain type='kvm'>
+  <os>
+    <type machine='q35'>hvm</type>
+    <boot dev='hd'/>
+    <boot dev='network'/>
+  </os>
+  <devices>
+    <disk type='file' device='disk'>
+      <source file='/var/lib/libvirt/images/test.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+  </devices>
+</domain>"#;
+
+    #[test]
+    fn test_get_first_boot_device_single() {
+        let xml = r#"<domain><os><boot dev='hd'/></os></domain>"#;
+        assert_eq!(get_first_boot_device(xml), Some("hd".to_string()));
+    }
+
+    #[test]
+    fn test_get_first_boot_device_returns_first_of_multiple() {
+        assert_eq!(
+            get_first_boot_device(FULL_DOMAIN_XML),
+            Some("hd".to_string())
+        );
+    }
+
+    #[test]
+    fn test_get_first_boot_device_none_when_missing() {
+        let xml = r#"<domain><os><type>hvm</type></os></domain>"#;
+        assert_eq!(get_first_boot_device(xml), None);
+    }
+
+    #[test]
+    fn test_get_first_boot_device_none_when_no_os() {
+        let xml = r#"<domain><devices/></domain>"#;
+        assert_eq!(get_first_boot_device(xml), None);
+    }
+
+    #[test]
+    fn test_get_first_boot_device_double_quoted_attr() {
+        let xml = r#"<domain><os><boot dev="network"/></os></domain>"#;
+        assert_eq!(get_first_boot_device(xml), Some("network".to_string()));
+    }
+
+    #[test]
+    fn test_set_boot_order_roundtrip() {
+        let result = set_boot_order_xml(FULL_DOMAIN_XML, "network");
+        assert_eq!(get_first_boot_device(&result), Some("network".to_string()));
+    }
+
+    #[test]
+    fn test_set_boot_order_deduplication() {
+        // first_dev already present in the list — must not appear twice
+        let result = set_boot_order_xml(FULL_DOMAIN_XML, "hd");
+        let mut devs = Vec::new();
+        let mut scan = result.as_str();
+        while let Some(p) = scan.find("<boot") {
+            if let Some(close) = scan[p..].find("/>") {
+                if let Some(dev) = boot_dev_attr(&scan[p..]) {
+                    devs.push(dev);
+                }
+                scan = &scan[p + close + 2..];
+            } else {
+                break;
+            }
+        }
+        assert_eq!(devs.iter().filter(|d| d.as_str() == "hd").count(), 1);
+        assert_eq!(devs[0], "hd");
+    }
+
+    #[test]
+    fn test_set_boot_order_no_existing_entries() {
+        let xml = r#"<domain type='kvm'>
+  <os>
+    <type machine='q35'>hvm</type>
+  </os>
+  <devices/>
+</domain>"#;
+        let result = set_boot_order_xml(&xml, "network");
+        assert!(result.contains("<boot dev='network'/>"));
+        assert_eq!(get_first_boot_device(&result), Some("network".to_string()));
+    }
+
+    #[test]
+    fn test_set_boot_order_unknown_dev_accepted() {
+        // Unknown dev values (e.g. "usb") should pass through unchanged.
+        let result = set_boot_order_xml(FULL_DOMAIN_XML, "usb");
+        assert_eq!(get_first_boot_device(&result), Some("usb".to_string()));
+    }
+
+    #[test]
+    fn test_set_boot_order_devices_section_unchanged() {
+        let result = set_boot_order_xml(FULL_DOMAIN_XML, "cdrom");
+        assert!(result.contains("<source file='/var/lib/libvirt/images/test.qcow2'/>"));
+        assert!(result.contains("<target dev='vda' bus='virtio'/>"));
+    }
+
+    #[test]
+    fn test_set_boot_order_preserves_trailing_entries() {
+        // After promoting "network", "hd" should still be present.
+        let result = set_boot_order_xml(FULL_DOMAIN_XML, "network");
+        assert!(result.contains("<boot dev='hd'/>"));
+    }
+
+    #[test]
+    fn test_set_boot_order_all_four_ipmi_devs() {
+        for dev in &["network", "hd", "cdrom", "fd"] {
+            let result = set_boot_order_xml(FULL_DOMAIN_XML, dev);
+            assert_eq!(
+                get_first_boot_device(&result).as_deref(),
+                Some(*dev),
+                "first boot device should be {dev}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_set_boot_order_no_os_block_returns_unchanged() {
+        let xml = r#"<domain><devices/></domain>"#;
+        assert_eq!(set_boot_order_xml(xml, "hd"), xml);
     }
 
     #[test]

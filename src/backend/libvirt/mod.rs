@@ -1,6 +1,7 @@
 pub mod xml;
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use virt::connect::Connect;
 use virt::domain::Domain;
@@ -12,6 +13,7 @@ use crate::config::AppConfig;
 pub struct LibvirtBackend {
     conn: Connect,
     domains: HashMap<String, String>, // system_id → domain_name
+    pending_once: Mutex<HashMap<String, (String, String)>>, // system_id → (original_first_dev, override_dev)
 }
 
 // SAFETY: virt::connect::Connect and virt::domain::Domain are Send + Sync
@@ -21,7 +23,11 @@ unsafe impl Sync for LibvirtBackend {}
 
 impl LibvirtBackend {
     pub fn new(conn: Connect, domains: HashMap<String, String>) -> Self {
-        Self { conn, domains }
+        Self {
+            conn,
+            domains,
+            pending_once: Mutex::new(HashMap::new()),
+        }
     }
 
     fn domain_for(&self, system_id: &str) -> Result<Domain, BackendError> {
@@ -57,6 +63,26 @@ impl LibvirtBackend {
 
 fn map_virt_error(e: virt::error::Error) -> BackendError {
     BackendError::ApiError(e.message().to_string())
+}
+
+fn ipmi_target_to_libvirt_dev(target: &str) -> Option<&'static str> {
+    match target {
+        "Pxe" => Some("network"),
+        "Hdd" => Some("hd"),
+        "Cd" => Some("cdrom"),
+        "Floppy" => Some("fd"),
+        _ => None,
+    }
+}
+
+fn libvirt_dev_to_ipmi_target(dev: &str) -> &'static str {
+    match dev {
+        "network" => "Pxe",
+        "hd" => "Hdd",
+        "cdrom" => "Cd",
+        "fd" => "Floppy",
+        _ => "None",
+    }
 }
 
 impl VmmBackend for LibvirtBackend {
@@ -97,8 +123,91 @@ impl VmmBackend for LibvirtBackend {
     }
 
     async fn vm_boot(&self, system_id: &str) -> Result<(), BackendError> {
+        let pending = self.pending_once.lock().unwrap().get(system_id).cloned();
+
+        if let Some((original_dev, override_dev)) = pending {
+            let domain = self.domain_for(system_id)?;
+            let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
+            let override_xml = xml::set_boot_order_xml(&domain_xml, &override_dev);
+            Domain::define_xml(&self.conn, &override_xml).map_err(map_virt_error)?;
+
+            let create_result = self
+                .domain_for(system_id)
+                .and_then(|d| d.create().map_err(map_virt_error));
+
+            // Restore original boot order regardless of whether create succeeded.
+            let domain = self.domain_for(system_id)?;
+            let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
+            let restored_xml = xml::set_boot_order_xml(&domain_xml, &original_dev);
+            Domain::define_xml(&self.conn, &restored_xml).map_err(map_virt_error)?;
+            self.pending_once.lock().unwrap().remove(system_id);
+
+            create_result?;
+        } else {
+            let domain = self.domain_for(system_id)?;
+            domain.create().map_err(map_virt_error)?;
+        }
+        Ok(())
+    }
+
+    async fn vm_get_boot_override(
+        &self,
+        system_id: &str,
+    ) -> Result<Option<bt::BootOverrideInfo>, BackendError> {
         let domain = self.domain_for(system_id)?;
-        domain.create().map_err(map_virt_error)?;
+        let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
+
+        let Some(current_dev) = xml::get_first_boot_device(&domain_xml) else {
+            return Ok(None);
+        };
+
+        if let Some((_, override_dev)) = self.pending_once.lock().unwrap().get(system_id).cloned() {
+            return Ok(Some(bt::BootOverrideInfo {
+                target: libvirt_dev_to_ipmi_target(&override_dev).to_string(),
+                enabled: "Once".to_string(),
+                mode: None,
+                uefi_target: None,
+            }));
+        }
+
+        Ok(Some(bt::BootOverrideInfo {
+            target: libvirt_dev_to_ipmi_target(&current_dev).to_string(),
+            enabled: "Continuous".to_string(),
+            mode: None,
+            uefi_target: None,
+        }))
+    }
+
+    async fn vm_set_boot_override(
+        &self,
+        system_id: &str,
+        info: &bt::BootOverrideInfo,
+    ) -> Result<(), BackendError> {
+        if info.target == "None" {
+            self.pending_once.lock().unwrap().remove(system_id);
+            return Ok(());
+        }
+
+        let override_dev = ipmi_target_to_libvirt_dev(&info.target).ok_or_else(|| {
+            BackendError::NotSupported(format!("unknown boot target: {}", info.target))
+        })?;
+
+        if info.enabled == "Continuous" {
+            let domain = self.domain_for(system_id)?;
+            let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
+            let new_xml = xml::set_boot_order_xml(&domain_xml, override_dev);
+            Domain::define_xml(&self.conn, &new_xml).map_err(map_virt_error)?;
+            self.pending_once.lock().unwrap().remove(system_id);
+        } else {
+            let domain = self.domain_for(system_id)?;
+            let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
+            let original_dev =
+                xml::get_first_boot_device(&domain_xml).unwrap_or_else(|| override_dev.to_string());
+            self.pending_once.lock().unwrap().insert(
+                system_id.to_string(),
+                (original_dev, override_dev.to_string()),
+            );
+        }
         Ok(())
     }
 

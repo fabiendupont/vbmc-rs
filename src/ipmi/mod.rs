@@ -11,8 +11,9 @@ use tracing::{debug, error, info, warn};
 
 use crate::app_state::AppState;
 use crate::backend::VmmBackend;
+use crate::backend::types::BootOverrideInfo;
 use crate::backend::types::VmPowerState;
-use commands::{ChassisAction, HandleResult};
+use commands::{BootOverrideCmd, ChassisAction, HandleResult};
 
 pub async fn start_ipmi_server(
     socket_path: PathBuf,
@@ -149,7 +150,7 @@ async fn handle_ipmi_message(
         .map(|info| info.power_state)
         .unwrap_or(VmPowerState::Unknown);
 
-    let result = commands::handle_request(&req, power_state, *boot_device);
+    let result = commands::handle_request(&req, power_state, boot_device);
 
     match result {
         HandleResult::Response(resp) => {
@@ -161,6 +162,36 @@ async fn handle_ipmi_message(
             let bytes = resp.to_bytes();
             Some(protocol::encode_ipmi_response(msg_id, &bytes))
         }
+        HandleResult::BootOverride(cmd, resp) => {
+            *boot_device = cmd.device_byte;
+            let info = boot_override_info_from_cmd(&cmd);
+            if let Err(e) = app_state
+                .backend
+                .vm_set_boot_override(system_id, &info)
+                .await
+            {
+                warn!(system = %system_id, error = %e, "IPMI set boot override failed");
+            }
+            let bytes = resp.to_bytes();
+            Some(protocol::encode_ipmi_response(msg_id, &bytes))
+        }
+    }
+}
+
+fn boot_override_info_from_cmd(cmd: &BootOverrideCmd) -> BootOverrideInfo {
+    let target = match cmd.device_byte {
+        0x04 => "Pxe",
+        0x08 => "Hdd",
+        0x14 => "Cd",
+        0x3C => "Floppy",
+        _ => "None",
+    }
+    .to_string();
+    BootOverrideInfo {
+        target,
+        enabled: cmd.enabled.clone(),
+        mode: None,
+        uefi_target: None,
     }
 }
 
