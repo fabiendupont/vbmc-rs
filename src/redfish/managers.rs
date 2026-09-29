@@ -267,7 +267,9 @@ pub async fn reset_to_defaults(
 
     tracing::info!(reset_type = %body.reset_type, "Manager.ResetToDefaults applied");
 
-    Ok(Json(serde_json::json!({"message": "Manager reset to defaults"})))
+    Ok(Json(
+        serde_json::json!({"message": "Manager reset to defaults"}),
+    ))
 }
 
 #[cfg(test)]
@@ -331,9 +333,12 @@ mod tests {
             },
             actions: ManagerActions {
                 reset_to_defaults: ManagerResetToDefaultsAction {
-                    target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults"
-                        .to_string(),
-                    allowable_values: vec!["ResetAll", "PreserveNetworkAndUsers", "PreserveNetwork"],
+                    target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults".to_string(),
+                    allowable_values: vec![
+                        "ResetAll",
+                        "PreserveNetworkAndUsers",
+                        "PreserveNetwork",
+                    ],
                 },
             },
         };
@@ -461,9 +466,12 @@ mod tests {
             },
             actions: ManagerActions {
                 reset_to_defaults: ManagerResetToDefaultsAction {
-                    target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults"
-                        .to_string(),
-                    allowable_values: vec!["ResetAll", "PreserveNetworkAndUsers", "PreserveNetwork"],
+                    target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults".to_string(),
+                    allowable_values: vec![
+                        "ResetAll",
+                        "PreserveNetworkAndUsers",
+                        "PreserveNetwork",
+                    ],
                 },
             },
         };
@@ -530,9 +538,12 @@ mod tests {
             },
             actions: ManagerActions {
                 reset_to_defaults: ManagerResetToDefaultsAction {
-                    target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults"
-                        .to_string(),
-                    allowable_values: vec!["ResetAll", "PreserveNetworkAndUsers", "PreserveNetwork"],
+                    target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults".to_string(),
+                    allowable_values: vec![
+                        "ResetAll",
+                        "PreserveNetworkAndUsers",
+                        "PreserveNetwork",
+                    ],
                 },
             },
         };
@@ -562,8 +573,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_reset_to_defaults_resets_all_states() {
-        use axum::http::Method;
         use crate::redfish::test_harness::{self, systems_with};
+        use axum::http::Method;
 
         let systems = systems_with("vm1");
         let state = test_harness::app_state(crate::backend::mock::MockBackend::new(), systems);
@@ -595,8 +606,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_reset_to_defaults_invalid_type() {
-        use axum::http::Method;
         use crate::redfish::test_harness::{self, systems_with};
+        use axum::http::Method;
 
         let app = test_harness::router_with_systems(systems_with("vm1"));
         let (status, _, _) = test_harness::request_json(
@@ -612,8 +623,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_reset_to_defaults_unknown_manager() {
-        use axum::http::Method;
         use crate::redfish::test_harness::{self, systems_with};
+        use axum::http::Method;
 
         let app = test_harness::router_with_systems(systems_with("vm1"));
         let (status, _, _) = test_harness::request_json(
