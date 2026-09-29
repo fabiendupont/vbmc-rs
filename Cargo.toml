@@ -39,7 +39,7 @@ path = "src/scenario_harness/main.rs"
 required-features = ["scenario-harness"]
 
 [features]
-default = ["cloud-hypervisor", "libvirt"]
+default = ["cloud-hypervisor"]
 cloud-hypervisor = []
 pldm-gen = []
 # Cross-BMC behavioral/conformance harness (twin-facade P6 track (b)): a Redfish
