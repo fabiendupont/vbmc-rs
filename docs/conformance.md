@@ -221,15 +221,19 @@ The TLS minimum version is enforced at the rustls protocol level. Changing it ta
 | vm_info | Yes | Yes | Yes | Yes (VM/VMI spec) | Yes (from JSON) |
 | vm_create | Yes | No (manage-only) | No (use `virsh define`) | No (manage-only) | No |
 | vm_boot | Yes | Yes | Yes | Yes (start subresource) | Yes (sets PowerState) |
-| vm_shutdown | Yes | Yes | Yes | Yes (stop subresource) | Yes (sets PowerState) |
-| vm_delete | Yes | Yes (forced) | Yes | Yes (deletes VM object) | No |
-| vm_power_button | Yes | Yes (QMP `system_powerdown`) | Yes | Yes (softreboot subresource) | Yes (sets PowerState) |
-| vm_reboot | Yes | Yes (QMP `system_reset`) | Yes | Yes (restart subresource) | Yes (sets PowerState) |
+| vm_shutdown | Yes | Yes | Yes (ACPI signal) | Yes (stop subresource) | Yes (sets PowerState) |
+| vm_force_off | Yes | Yes (graceful fallback) | Yes (`virDomainDestroy`) | Yes (graceful fallback) | Yes (sets PowerState) |
+| vm_delete | Yes | Yes (forced) | No (not called; manage-only) | Yes (deletes VM object) | No |
+| vm_power_button | Yes | Yes (QMP `system_powerdown`) | Yes (ACPI signal) | Yes (softreboot subresource) | Yes (sets PowerState) |
+| vm_reboot | Yes | Yes (QMP `system_reset`) | Yes (`virDomainReboot`) | Yes (restart subresource) | Yes (sets PowerState) |
+| vm_pause | No | No | Yes (`virDomainSuspend`) | Yes (pause subresource) | No |
+| vm_resume | No | No | Yes (`virDomainResume`) | Yes (unpause subresource) | No |
 | vm_add_disk | Yes (hot-plug) | No | Yes (`attach-device`) | Yes (addvolume subresource) | No |
 | vm_remove_device | Yes (hot-unplug) | No | Yes (`detach-device`) | Yes (removevolume subresource) | No |
 | vm_counters | Yes | No | Yes (block/interface stats) | No | No |
+| vm_set_boot_override | Yes | Yes | Yes (XML rewrite + pending_once) | Yes (VM annotations) | Yes |
 | vmm_ping | Yes | Yes | Yes (libvirt version) | Yes (KubeVirt API version) | Yes (RedfishVersion) |
 | vm_set_secure_boot | Yes (firmware swap) | No (read-only) | Yes (domain XML rewrite) | Yes (VM spec patch) | Yes (patches JSON) |
 | vm_serial_console | Yes | No | Yes (libvirt PTY) | No | No |
 
-**Cloud-Hypervisor** is the only backend that supports full VM lifecycle (create through delete). QEMU, Libvirt, and KubeVirt expect VMs to be created and configured externally. The Mockup backend serves DMTF mockup directories with stateful power and PATCH mutations. KubeVirt requires the `kubevirt` feature flag.
+**Cloud-Hypervisor** is the only backend that supports full VM lifecycle (create through delete). QEMU, Libvirt, and KubeVirt expect VMs to be created and configured externally (manage-only). The Mockup backend serves DMTF mockup directories with stateful power and PATCH mutations. KubeVirt requires the `kubevirt` feature flag.

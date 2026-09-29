@@ -11,7 +11,11 @@ use crate::backend::{BackendError, VmmBackend};
 use crate::config::AppConfig;
 
 pub struct LibvirtBackend {
-    conn: Connect,
+    // Store URI rather than a persistent Connect so each operation opens a fresh
+    // connection. A long-lived Connect can go stale when virtqemud is busy (e.g.
+    // remoteDispatchDomainCreate holds the domain lock), causing all subsequent
+    // calls — including ForceOff — to block indefinitely.
+    connection_uri: String,
     domains: HashMap<String, String>, // system_id → domain_name
     pending_once: Mutex<HashMap<String, (String, String)>>, // system_id → (original_first_dev, override_dev)
 }
@@ -23,18 +27,29 @@ unsafe impl Sync for LibvirtBackend {}
 
 impl LibvirtBackend {
     pub fn new(conn: Connect, domains: HashMap<String, String>) -> Self {
+        // Extract the URI from the existing connection for re-use on reconnects.
+        let uri = conn.get_uri().unwrap_or_default();
+        // Close the seed connection — each operation will open its own.
+        let mut conn = conn;
+        let _ = conn.close();
         Self {
-            conn,
+            connection_uri: uri,
             domains,
             pending_once: Mutex::new(HashMap::new()),
         }
     }
 
-    fn domain_for(&self, system_id: &str) -> Result<Domain, BackendError> {
+    fn connect(&self) -> Result<Connect, BackendError> {
+        Connect::open(Some(&self.connection_uri)).map_err(map_virt_error)
+    }
+
+    fn domain_for(&self, system_id: &str) -> Result<(Connect, Domain), BackendError> {
+        let conn = self.connect()?;
         if let Some(name) = self.domains.get(system_id) {
-            return Domain::lookup_by_name(&self.conn, name).map_err(map_virt_error);
+            let domain = Domain::lookup_by_name(&conn, name).map_err(map_virt_error)?;
+            return Ok((conn, domain));
         }
-        let domains = self.conn.list_all_domains(0).map_err(map_virt_error)?;
+        let domains = conn.list_all_domains(0).map_err(map_virt_error)?;
         tracing::info!("Auto-discover: found {} domains", domains.len());
         for d in &domains {
             if let Ok(name) = d.get_name() {
@@ -43,7 +58,7 @@ impl LibvirtBackend {
         }
         match domains.len() {
             0 => Err(BackendError::VmNotFound),
-            1 => Ok(domains.into_iter().next().unwrap()),
+            1 => Ok((conn, domains.into_iter().next().unwrap())),
             _ => Err(BackendError::InvalidState(
                 "multiple domains found; set domain_name in config to disambiguate".to_string(),
             )),
@@ -93,7 +108,7 @@ impl VmmBackend for LibvirtBackend {
     }
 
     async fn vm_info(&self, system_id: &str) -> Result<bt::VmInfo, BackendError> {
-        let domain = self.domain_for(system_id)?;
+        let (_conn, domain) = self.domain_for(system_id)?;
 
         let info = domain.get_info().map_err(map_virt_error)?;
         let power_state = Self::map_domain_state(info.state);
@@ -132,25 +147,25 @@ impl VmmBackend for LibvirtBackend {
         let pending = self.pending_once.lock().unwrap().get(system_id).cloned();
 
         if let Some((original_dev, override_dev)) = pending {
-            let domain = self.domain_for(system_id)?;
+            let (conn1, domain) = self.domain_for(system_id)?;
             let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
             let override_xml = xml::set_boot_order_xml(&domain_xml, &override_dev);
-            Domain::define_xml(&self.conn, &override_xml).map_err(map_virt_error)?;
+            Domain::define_xml(&conn1, &override_xml).map_err(map_virt_error)?;
 
             let create_result = self
                 .domain_for(system_id)
-                .and_then(|d| d.create().map_err(map_virt_error));
+                .and_then(|(_c, d)| d.create().map_err(map_virt_error));
 
             // Restore original boot order regardless of whether create succeeded.
-            let domain = self.domain_for(system_id)?;
+            let (conn2, domain) = self.domain_for(system_id)?;
             let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
             let restored_xml = xml::set_boot_order_xml(&domain_xml, &original_dev);
-            Domain::define_xml(&self.conn, &restored_xml).map_err(map_virt_error)?;
+            Domain::define_xml(&conn2, &restored_xml).map_err(map_virt_error)?;
             self.pending_once.lock().unwrap().remove(system_id);
 
             create_result?;
         } else {
-            let domain = self.domain_for(system_id)?;
+            let (_conn, domain) = self.domain_for(system_id)?;
             domain.create().map_err(map_virt_error)?;
         }
         Ok(())
@@ -160,7 +175,7 @@ impl VmmBackend for LibvirtBackend {
         &self,
         system_id: &str,
     ) -> Result<Option<bt::BootOverrideInfo>, BackendError> {
-        let domain = self.domain_for(system_id)?;
+        let (_conn, domain) = self.domain_for(system_id)?;
         let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
 
         let Some(current_dev) = xml::get_first_boot_device(&domain_xml) else {
@@ -199,13 +214,13 @@ impl VmmBackend for LibvirtBackend {
         })?;
 
         if info.enabled == "Continuous" {
-            let domain = self.domain_for(system_id)?;
+            let (conn, domain) = self.domain_for(system_id)?;
             let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
             let new_xml = xml::set_boot_order_xml(&domain_xml, override_dev);
-            Domain::define_xml(&self.conn, &new_xml).map_err(map_virt_error)?;
+            Domain::define_xml(&conn, &new_xml).map_err(map_virt_error)?;
             self.pending_once.lock().unwrap().remove(system_id);
         } else {
-            let domain = self.domain_for(system_id)?;
+            let (_conn, domain) = self.domain_for(system_id)?;
             let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
             let original_dev =
                 xml::get_first_boot_device(&domain_xml).unwrap_or_else(|| override_dev.to_string());
@@ -217,32 +232,44 @@ impl VmmBackend for LibvirtBackend {
         Ok(())
     }
 
+    async fn vm_pause(&self, system_id: &str) -> Result<(), BackendError> {
+        let (_conn, domain) = self.domain_for(system_id)?;
+        domain.suspend().map_err(map_virt_error)?;
+        Ok(())
+    }
+
+    async fn vm_resume(&self, system_id: &str) -> Result<(), BackendError> {
+        let (_conn, domain) = self.domain_for(system_id)?;
+        domain.resume().map_err(map_virt_error)?;
+        Ok(())
+    }
+
     async fn vm_shutdown(&self, system_id: &str) -> Result<(), BackendError> {
-        let domain = self.domain_for(system_id)?;
+        let (_conn, domain) = self.domain_for(system_id)?;
         domain.shutdown().map_err(map_virt_error)?;
         Ok(())
     }
 
     async fn vm_force_off(&self, system_id: &str) -> Result<(), BackendError> {
-        let domain = self.domain_for(system_id)?;
+        let (_conn, domain) = self.domain_for(system_id)?;
         domain.destroy().map_err(map_virt_error)?;
         Ok(())
     }
 
     async fn vm_delete(&self, system_id: &str) -> Result<(), BackendError> {
-        let domain = self.domain_for(system_id)?;
+        let (_conn, domain) = self.domain_for(system_id)?;
         domain.destroy().map_err(map_virt_error)?;
         Ok(())
     }
 
     async fn vm_power_button(&self, system_id: &str) -> Result<(), BackendError> {
-        let domain = self.domain_for(system_id)?;
+        let (_conn, domain) = self.domain_for(system_id)?;
         domain.shutdown().map_err(map_virt_error)?;
         Ok(())
     }
 
     async fn vm_reboot(&self, system_id: &str) -> Result<(), BackendError> {
-        let domain = self.domain_for(system_id)?;
+        let (_conn, domain) = self.domain_for(system_id)?;
         domain.reboot(0).map_err(map_virt_error)?;
         Ok(())
     }
@@ -252,7 +279,7 @@ impl VmmBackend for LibvirtBackend {
         system_id: &str,
         disk: bt::DiskCreateConfig,
     ) -> Result<(), BackendError> {
-        let domain = self.domain_for(system_id)?;
+        let (_conn, domain) = self.domain_for(system_id)?;
 
         let source = disk.path.unwrap_or_default();
         let target = disk.id.unwrap_or_else(|| "vdz".to_string());
@@ -272,7 +299,7 @@ impl VmmBackend for LibvirtBackend {
     }
 
     async fn vm_remove_device(&self, system_id: &str, device_id: &str) -> Result<(), BackendError> {
-        let domain = self.domain_for(system_id)?;
+        let (_conn, domain) = self.domain_for(system_id)?;
 
         let xml = format!(
             "<disk type='file' device='disk'>\
@@ -285,7 +312,8 @@ impl VmmBackend for LibvirtBackend {
     }
 
     async fn vmm_ping(&self, _system_id: &str) -> Result<bt::VmmPingResponse, BackendError> {
-        let ver = self.conn.get_lib_version().map_err(map_virt_error)?;
+        let conn = self.connect()?;
+        let ver = conn.get_lib_version().map_err(map_virt_error)?;
         let major = ver / 1_000_000;
         let minor = (ver % 1_000_000) / 1_000;
         let release = ver % 1_000;
@@ -296,7 +324,7 @@ impl VmmBackend for LibvirtBackend {
     }
 
     async fn vm_counters(&self, system_id: &str) -> Result<bt::VmCounters, BackendError> {
-        let domain = self.domain_for(system_id)?;
+        let (_conn, domain) = self.domain_for(system_id)?;
 
         // Get domain XML to find disk targets and NIC interface names
         let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
@@ -350,7 +378,7 @@ impl VmmBackend for LibvirtBackend {
     }
 
     async fn vm_set_secure_boot(&self, system_id: &str, enabled: bool) -> Result<(), BackendError> {
-        let domain = self.domain_for(system_id)?;
+        let (conn, domain) = self.domain_for(system_id)?;
         let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
 
         let sb_config = if enabled {
@@ -365,7 +393,7 @@ impl VmmBackend for LibvirtBackend {
         let new_xml = xml::set_secure_boot_xml(&domain_xml, enabled, sb_config.as_ref())
             .map_err(BackendError::NotSupported)?;
 
-        Domain::define_xml(&self.conn, &new_xml).map_err(map_virt_error)?;
+        Domain::define_xml(&conn, &new_xml).map_err(map_virt_error)?;
         Ok(())
     }
 
@@ -373,7 +401,7 @@ impl VmmBackend for LibvirtBackend {
         &self,
         system_id: &str,
     ) -> Result<bt::SerialConsoleInfo, BackendError> {
-        let domain = self.domain_for(system_id)?;
+        let (_conn, domain) = self.domain_for(system_id)?;
         let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
         let pty_path = xml::parse_console_pty(&domain_xml);
         Ok(bt::SerialConsoleInfo {
