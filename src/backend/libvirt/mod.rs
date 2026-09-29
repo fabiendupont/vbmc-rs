@@ -86,6 +86,12 @@ fn libvirt_dev_to_ipmi_target(dev: &str) -> &'static str {
 }
 
 impl VmmBackend for LibvirtBackend {
+    fn manages_existing_vms(&self) -> bool {
+        // libvirt domains are pre-existing (created via virsh define / virt-install).
+        // vbmc-rs manages them but does not create them — skip vm_create on power-on.
+        true
+    }
+
     async fn vm_info(&self, system_id: &str) -> Result<bt::VmInfo, BackendError> {
         let domain = self.domain_for(system_id)?;
 
