@@ -31,9 +31,14 @@ jobs:
         run: |
           docker build -f Containerfile.kubevirt --target sidecar -t localhost/vbmc-rs-kubevirt-sidecar:test .
 
+      - name: Build webhook image
+        run: |
+          docker build -f Containerfile.kubevirt --target webhook -t localhost/vbmc-rs-webhook:test .
+
       - name: Run E2E tests
         env:
           SIDECAR_IMAGE: localhost/vbmc-rs-kubevirt-sidecar:test
+          WEBHOOK_IMAGE: localhost/vbmc-rs-webhook:test
           E2E_PROVIDER: kind
         run: |
           ./tests/e2e/run.sh

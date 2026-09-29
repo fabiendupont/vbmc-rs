@@ -92,6 +92,16 @@ setup_kind() {
         rm -f /tmp/vbmc-sidecar.tar
     fi
 
+    local WEBHOOK_LOCAL="${WEBHOOK_IMAGE:-localhost/vbmc-rs-webhook:test}"
+    log "Loading webhook image into Kind"
+    if command -v docker &>/dev/null && docker info &>/dev/null; then
+        kind load docker-image "$WEBHOOK_LOCAL" --name "$CLUSTER_NAME"
+    else
+        podman save "$WEBHOOK_LOCAL" -o /tmp/vbmc-webhook.tar
+        kind load image-archive /tmp/vbmc-webhook.tar --name "$CLUSTER_NAME"
+        rm -f /tmp/vbmc-webhook.tar
+    fi
+
     KUBECTL="kubectl"
 }
 
@@ -181,7 +191,7 @@ spec:
       containers:
         - name: webhook
           image: ${WEBHOOK_IMAGE}
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           command: ["/vbmc-rs-webhook"]
           args:
             - --cert=/etc/webhook/tls/tls.crt
