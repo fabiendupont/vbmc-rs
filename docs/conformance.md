@@ -175,7 +175,13 @@ secure_boot_firmware_path = "/usr/share/OVMF/OVMF_CODE.secboot.fd"
 | FirmwareVersion | Static | Hardcoded |
 | All other properties | Static | Hardcoded |
 
-**Read-only.** Single manager resource representing the vbmc-rs instance.
+Single manager resource representing the vbmc-rs instance.
+
+**Actions:**
+
+| Action | Privilege | Description |
+|--------|-----------|-------------|
+| `Manager.ResetToDefaults` | ConfigureManager | Resets all managed system states (boot override, virtual media, secure boot, BIOS, licenses, attestation) to factory defaults. Accepts `ResetAll`, `PreserveNetworkAndUsers`, or `PreserveNetwork` (all behave identically for a virtual BMC). |
 
 ### SessionService, AccountService, EventService
 

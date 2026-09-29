@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
 use crate::auth::AuthenticatedUser;
+use crate::auth::rbac::{Privilege, has_privilege};
+use crate::state::VmState;
 
 const MANAGER_ID: &str = "vbmc";
 
@@ -75,6 +77,8 @@ pub struct Manager {
     pub log_services: Option<ODataId>,
     #[serde(rename = "Links")]
     pub links: ManagerLinks,
+    #[serde(rename = "Actions")]
+    pub actions: ManagerActions,
 }
 
 #[derive(Debug, Serialize)]
@@ -85,6 +89,25 @@ pub struct ManagerConsole {
     pub max_concurrent_sessions: u32,
     #[serde(rename = "ConnectTypesSupported")]
     pub connect_types_supported: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ManagerActions {
+    #[serde(rename = "#Manager.ResetToDefaults")]
+    pub reset_to_defaults: ManagerResetToDefaultsAction,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ManagerResetToDefaultsAction {
+    pub target: String,
+    #[serde(rename = "ResetType@Redfish.AllowableValues")]
+    pub allowable_values: Vec<&'static str>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResetToDefaultsRequest {
+    #[serde(rename = "ResetType")]
+    pub reset_type: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -199,7 +222,52 @@ pub async fn get_manager(
                 "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
             )],
         },
+        actions: ManagerActions {
+            reset_to_defaults: ManagerResetToDefaultsAction {
+                target: format!(
+                    "/redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.ResetToDefaults"
+                ),
+                allowable_values: vec!["ResetAll", "PreserveNetworkAndUsers", "PreserveNetwork"],
+            },
+        },
     }))
+}
+
+pub async fn reset_to_defaults(
+    State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
+    Path(manager_id): Path<String>,
+    Json(body): Json<ResetToDefaultsRequest>,
+) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    if manager_id != MANAGER_ID {
+        return Err(RedfishApiError::NotFound(format!(
+            "Manager '{manager_id}' not found"
+        )));
+    }
+
+    if !has_privilege(&user.role, Privilege::ConfigureManager) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
+    let valid_types = ["ResetAll", "PreserveNetworkAndUsers", "PreserveNetwork"];
+    if !valid_types.contains(&body.reset_type.as_str()) {
+        return Err(RedfishApiError::BadRequest(format!(
+            "Invalid ResetType '{}'. Allowable values: {}",
+            body.reset_type,
+            valid_types.join(", ")
+        )));
+    }
+
+    for system_id in state.config.systems.keys() {
+        let fresh = VmState::new(system_id);
+        state.save_vm_state(system_id, &fresh);
+    }
+
+    tracing::info!(reset_type = %body.reset_type, "Manager.ResetToDefaults applied");
+
+    Ok(Json(serde_json::json!({"message": "Manager reset to defaults"})))
 }
 
 #[cfg(test)]
@@ -260,6 +328,13 @@ mod tests {
                 software_images: vec![ODataId::new(
                     "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs",
                 )],
+            },
+            actions: ManagerActions {
+                reset_to_defaults: ManagerResetToDefaultsAction {
+                    target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults"
+                        .to_string(),
+                    allowable_values: vec!["ResetAll", "PreserveNetworkAndUsers", "PreserveNetwork"],
+                },
             },
         };
 
@@ -384,6 +459,13 @@ mod tests {
                 ),
                 software_images: Vec::new(),
             },
+            actions: ManagerActions {
+                reset_to_defaults: ManagerResetToDefaultsAction {
+                    target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults"
+                        .to_string(),
+                    allowable_values: vec!["ResetAll", "PreserveNetworkAndUsers", "PreserveNetwork"],
+                },
+            },
         };
 
         let json = serde_json::to_value(&manager).unwrap();
@@ -446,9 +528,102 @@ mod tests {
                 ),
                 software_images: Vec::new(),
             },
+            actions: ManagerActions {
+                reset_to_defaults: ManagerResetToDefaultsAction {
+                    target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults"
+                        .to_string(),
+                    allowable_values: vec!["ResetAll", "PreserveNetworkAndUsers", "PreserveNetwork"],
+                },
+            },
         };
 
         let json = serde_json::to_value(&manager).unwrap();
         assert!(json.get("LogServices").is_none());
+    }
+
+    #[test]
+    fn test_manager_actions_serialization() {
+        let actions = ManagerActions {
+            reset_to_defaults: ManagerResetToDefaultsAction {
+                target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults".to_string(),
+                allowable_values: vec!["ResetAll", "PreserveNetworkAndUsers", "PreserveNetwork"],
+            },
+        };
+        let json = serde_json::to_value(&actions).unwrap();
+        assert_eq!(
+            json["#Manager.ResetToDefaults"]["target"],
+            "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults"
+        );
+        assert_eq!(
+            json["#Manager.ResetToDefaults"]["ResetType@Redfish.AllowableValues"][0],
+            "ResetAll"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reset_to_defaults_resets_all_states() {
+        use axum::http::Method;
+        use crate::redfish::test_harness::{self, systems_with};
+
+        let systems = systems_with("vm1");
+        let state = test_harness::app_state(crate::backend::mock::MockBackend::new(), systems);
+
+        // Pre-set some state to verify it gets wiped
+        let mut vm_state = state.get_vm_state("vm1");
+        vm_state.secure_boot_enabled = true;
+        vm_state.boot_override.target = Some("Cd".to_string());
+        vm_state.boot_override.enabled = "Once".to_string();
+        state.save_vm_state("vm1", &vm_state);
+
+        let app = test_harness::router(state.clone());
+        let (status, body, _) = test_harness::request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults",
+            serde_json::json!({"ResetType": "ResetAll"}),
+        )
+        .await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(body["message"], "Manager reset to defaults");
+
+        let after = state.get_vm_state("vm1");
+        assert!(!after.secure_boot_enabled);
+        assert!(after.boot_override.target.is_none());
+        assert_eq!(after.boot_override.enabled, "Disabled");
+    }
+
+    #[tokio::test]
+    async fn test_reset_to_defaults_invalid_type() {
+        use axum::http::Method;
+        use crate::redfish::test_harness::{self, systems_with};
+
+        let app = test_harness::router_with_systems(systems_with("vm1"));
+        let (status, _, _) = test_harness::request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults",
+            serde_json::json!({"ResetType": "Bogus"}),
+        )
+        .await;
+
+        assert_eq!(status, axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_reset_to_defaults_unknown_manager() {
+        use axum::http::Method;
+        use crate::redfish::test_harness::{self, systems_with};
+
+        let app = test_harness::router_with_systems(systems_with("vm1"));
+        let (status, _, _) = test_harness::request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/Managers/other/Actions/Manager.ResetToDefaults",
+            serde_json::json!({"ResetType": "ResetAll"}),
+        )
+        .await;
+
+        assert_eq!(status, axum::http::StatusCode::NOT_FOUND);
     }
 }

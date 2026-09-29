@@ -276,6 +276,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/redfish/v1/Managers/{manager_id}",
             get(managers::get_manager),
         )
+        .route(
+            "/redfish/v1/Managers/{manager_id}/Actions/Manager.ResetToDefaults",
+            post(managers::reset_to_defaults),
+        )
         // Manager Network Protocol
         .route(
             "/redfish/v1/Managers/vbmc/NetworkProtocol",
