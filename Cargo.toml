@@ -1,6 +1,6 @@
 [package]
 name = "vbmc-rs"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "A Redfish-compliant virtual BMC — manage VMs with the same Redfish API used for physical servers"
 license = "Apache-2.0"
@@ -39,7 +39,7 @@ path = "src/scenario_harness/main.rs"
 required-features = ["scenario-harness"]
 
 [features]
-default = ["cloud-hypervisor"]
+default = ["cloud-hypervisor", "libvirt"]
 cloud-hypervisor = []
 pldm-gen = []
 # Cross-BMC behavioral/conformance harness (twin-facade P6 track (b)): a Redfish
