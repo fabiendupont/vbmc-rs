@@ -223,6 +223,12 @@ impl VmmBackend for LibvirtBackend {
         Ok(())
     }
 
+    async fn vm_force_off(&self, system_id: &str) -> Result<(), BackendError> {
+        let domain = self.domain_for(system_id)?;
+        domain.destroy().map_err(map_virt_error)?;
+        Ok(())
+    }
+
     async fn vm_delete(&self, system_id: &str) -> Result<(), BackendError> {
         let domain = self.domain_for(system_id)?;
         domain.destroy().map_err(map_virt_error)?;

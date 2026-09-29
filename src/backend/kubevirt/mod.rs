@@ -642,6 +642,10 @@ impl VmmBackend for KubeVirtBackend {
             .await
     }
 
+    async fn vm_force_off(&self, system_id: &str) -> Result<(), BackendError> {
+        self.vm_shutdown(system_id).await
+    }
+
     async fn vm_delete(&self, system_id: &str) -> Result<(), BackendError> {
         let m = self.mapping_for(system_id)?;
         let api = self.vm_api(&m.namespace);

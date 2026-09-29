@@ -208,9 +208,9 @@ pub async fn reset_system(
             );
         }
         "ForceOff" => {
-            // Power off: manage-only backends only stop the VM; ephemeral
+            // Power off: manage-only backends only force-stop the VM; ephemeral
             // backends also delete the transient VM they created.
-            let _ = state.backend.vm_shutdown(&system_id).await;
+            let _ = state.backend.vm_force_off(&system_id).await;
             if !managed {
                 let _ = state.backend.vm_delete(&system_id).await;
             }

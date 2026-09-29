@@ -338,6 +338,10 @@ impl VmmBackend for CloudHypervisorBackend {
         Self::check_success(status, &body)
     }
 
+    async fn vm_force_off(&self, system_id: &str) -> Result<(), BackendError> {
+        self.vm_shutdown(system_id).await
+    }
+
     async fn vm_delete(&self, system_id: &str) -> Result<(), BackendError> {
         let client = self.client_for(system_id)?;
         let (status, body) = client.put("/api/v1/vm.delete", b"").await?;

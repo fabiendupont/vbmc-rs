@@ -107,6 +107,14 @@ pub trait VmmBackend: Send + Sync {
         system_id: &str,
     ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send;
 
+    /// Immediately force-off the VM without waiting for graceful shutdown.
+    /// Backends that distinguish hard power-kill from ACPI shutdown must
+    /// override this; others default to `vm_shutdown`.
+    fn vm_force_off(
+        &self,
+        system_id: &str,
+    ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send;
+
     fn vm_delete(
         &self,
         system_id: &str,
@@ -290,6 +298,10 @@ pub mod mock {
             Ok(())
         }
 
+        async fn vm_force_off(&self, _system_id: &str) -> Result<(), BackendError> {
+            Ok(())
+        }
+
         async fn vm_delete(&self, _system_id: &str) -> Result<(), BackendError> {
             Ok(())
         }
@@ -463,6 +475,21 @@ impl VmmBackend for Backend {
             Self::Mockup(b) => b.vm_shutdown(system_id).await,
             #[cfg(any(test, feature = "test-support"))]
             Self::Mock(b) => b.vm_shutdown(system_id).await,
+        }
+    }
+
+    async fn vm_force_off(&self, system_id: &str) -> Result<(), BackendError> {
+        match self {
+            Self::CloudHypervisor(b) => b.vm_force_off(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_force_off(system_id).await,
+            #[cfg(feature = "qemu")]
+            Self::Qemu(b) => b.vm_force_off(system_id).await,
+            #[cfg(feature = "libvirt")]
+            Self::Libvirt(b) => b.vm_force_off(system_id).await,
+            Self::Mockup(b) => b.vm_force_off(system_id).await,
+            #[cfg(any(test, feature = "test-support"))]
+            Self::Mock(b) => b.vm_force_off(system_id).await,
         }
     }
 

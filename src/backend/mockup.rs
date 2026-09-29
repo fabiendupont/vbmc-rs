@@ -1084,6 +1084,10 @@ impl VmmBackend for MockupBackend {
         Ok(())
     }
 
+    async fn vm_force_off(&self, system_id: &str) -> Result<(), BackendError> {
+        self.vm_shutdown(system_id).await
+    }
+
     async fn vm_delete(&self, _system_id: &str) -> Result<(), BackendError> {
         Err(BackendError::NotSupported(
             "vm_delete not supported in mockup backend".to_string(),
