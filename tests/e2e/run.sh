@@ -334,7 +334,8 @@ check "Nonexistent system" GET "/redfish/v1/Systems/bogus" 404
 check "Graceful shutdown" POST "/redfish/v1/Systems/${SYSTEM_ID}/Actions/ComputerSystem.Reset" 200 \
     '{"ResetType":"GracefulShutdown"}'
 
-sleep 5
+wait_for "VM stopped" \
+    "! $KUBECTL get vmi ${VM_NAME} -n ${NAMESPACE} &>/dev/null" 120
 
 check "Power on" POST "/redfish/v1/Systems/${SYSTEM_ID}/Actions/ComputerSystem.Reset" 200 \
     '{"ResetType":"On"}'
