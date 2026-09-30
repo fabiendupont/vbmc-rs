@@ -338,12 +338,12 @@ check "Graceful shutdown" POST "/redfish/v1/Systems/${SYSTEM_ID}/Actions/Compute
 check "Force off" POST "/redfish/v1/Systems/${SYSTEM_ID}/Actions/ComputerSystem.Reset" 200 \
     '{"ResetType":"ForceOff"}'
 
-# Under software emulation the VMI may linger; delete it directly as a backstop
-# so the Power on test doesn't race against KubeVirt's cleanup.
-$KUBECTL delete vmi "${VM_NAME}" -n "${NAMESPACE}" --ignore-not-found --wait=false
+# Under software emulation KubeVirt finalizers may never complete; force-delete
+# the VMI to bypass them so the Power on test isn't blocked.
+$KUBECTL delete vmi "${VM_NAME}" -n "${NAMESPACE}" --ignore-not-found --force --grace-period=0
 
 wait_for "VM stopped" \
-    "! $KUBECTL get vmi ${VM_NAME} -n ${NAMESPACE} &>/dev/null" 300
+    "! $KUBECTL get vmi ${VM_NAME} -n ${NAMESPACE} &>/dev/null" 60
 
 check "Power on" POST "/redfish/v1/Systems/${SYSTEM_ID}/Actions/ComputerSystem.Reset" 200 \
     '{"ResetType":"On"}'
