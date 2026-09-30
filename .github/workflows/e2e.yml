@@ -1,19 +1,46 @@
 name: E2E Tests
 
 on:
+  workflow_run:
+    workflows: ["Container Images"]
+    types: [completed]
   workflow_dispatch:
-  push:
-    tags: ["v*"]
+    inputs:
+      image_tag:
+        description: "Image tag to test (e.g. v0.3.0 or latest)"
+        required: false
+        default: "latest"
+
+permissions:
+  packages: read
 
 env:
-  CARGO_TERM_COLOR: always
+  REGISTRY: ghcr.io
+  IMAGE_BASE: ghcr.io/${{ github.repository_owner }}/vbmc-rs
 
 jobs:
   e2e:
     name: KubeVirt E2E
     runs-on: ubuntu-latest
+    # For workflow_run: only run on successful tag builds (not main branch pushes).
+    # For workflow_dispatch: always run.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "tag=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Install Kind
         run: |
@@ -27,13 +54,20 @@ jobs:
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/kubectl
 
-      - name: Build sidecar image
-        run: |
-          docker build -f Containerfile.kubevirt --target sidecar -t localhost/vbmc-rs-kubevirt-sidecar:test .
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build webhook image
+      - name: Pull and retag images
         run: |
-          docker build -f Containerfile.kubevirt --target webhook -t localhost/vbmc-rs-webhook:test .
+          TAG="${{ steps.tag.outputs.tag }}"
+          docker pull ${{ env.IMAGE_BASE }}-kubevirt-sidecar:${TAG}
+          docker tag  ${{ env.IMAGE_BASE }}-kubevirt-sidecar:${TAG} localhost/vbmc-rs-kubevirt-sidecar:test
+          docker pull ${{ env.IMAGE_BASE }}-kubevirt-webhook:${TAG}
+          docker tag  ${{ env.IMAGE_BASE }}-kubevirt-webhook:${TAG} localhost/vbmc-rs-webhook:test
 
       - name: Run E2E tests
         env:
