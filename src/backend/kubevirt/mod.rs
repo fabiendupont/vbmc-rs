@@ -643,7 +643,15 @@ impl VmmBackend for KubeVirtBackend {
     }
 
     async fn vm_force_off(&self, system_id: &str) -> Result<(), BackendError> {
-        self.vm_shutdown(system_id).await
+        let m = self.mapping_for(system_id)?;
+        self.subresource_put(
+            "virtualmachines",
+            &m.namespace,
+            &m.vm_name,
+            "stop",
+            br#"{"gracePeriod":0}"#.to_vec(),
+        )
+        .await
     }
 
     async fn vm_delete(&self, system_id: &str) -> Result<(), BackendError> {
