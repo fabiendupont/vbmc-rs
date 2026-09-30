@@ -334,6 +334,10 @@ check "Nonexistent system" GET "/redfish/v1/Systems/bogus" 404
 check "Graceful shutdown" POST "/redfish/v1/Systems/${SYSTEM_ID}/Actions/ComputerSystem.Reset" 200 \
     '{"ResetType":"GracefulShutdown"}'
 
+# The test VM has no OS to respond to ACPI; force it off so we can test Power on.
+check "Force off" POST "/redfish/v1/Systems/${SYSTEM_ID}/Actions/ComputerSystem.Reset" 200 \
+    '{"ResetType":"ForceOff"}'
+
 wait_for "VM stopped" \
     "! $KUBECTL get vmi ${VM_NAME} -n ${NAMESPACE} &>/dev/null" 120
 
