@@ -130,6 +130,15 @@ pub trait VmmBackend: Send + Sync {
         system_id: &str,
     ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send;
 
+    /// Hard reset (Redfish ForceRestart): hardware-level, no ACPI/OS involvement.
+    /// Defaults to vm_reboot for backends that do not distinguish.
+    fn vm_force_reboot(
+        &self,
+        system_id: &str,
+    ) -> impl std::future::Future<Output = Result<(), BackendError>> + Send {
+        self.vm_reboot(system_id)
+    }
+
     fn vm_add_disk(
         &self,
         system_id: &str,
@@ -312,6 +321,14 @@ pub mod mock {
 
         async fn vm_reboot(&self, _system_id: &str) -> Result<(), BackendError> {
             Ok(())
+        }
+
+        /// Hard reset: equivalent to a physical reset button press (no ACPI,
+        /// no OS involvement). Maps to Redfish ForceRestart. Backends that do
+        /// not distinguish between graceful and hard reboot fall back to
+        /// vm_reboot(); backends that support it should override this method.
+        async fn vm_force_reboot(&self, system_id: &str) -> Result<(), BackendError> {
+            self.vm_reboot(system_id).await
         }
 
         async fn vm_add_disk(
@@ -535,6 +552,21 @@ impl VmmBackend for Backend {
             Self::Mockup(b) => b.vm_reboot(system_id).await,
             #[cfg(any(test, feature = "test-support"))]
             Self::Mock(b) => b.vm_reboot(system_id).await,
+        }
+    }
+
+    async fn vm_force_reboot(&self, system_id: &str) -> Result<(), BackendError> {
+        match self {
+            Self::CloudHypervisor(b) => b.vm_force_reboot(system_id).await,
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_force_reboot(system_id).await,
+            #[cfg(feature = "qemu")]
+            Self::Qemu(b) => b.vm_force_reboot(system_id).await,
+            #[cfg(feature = "libvirt")]
+            Self::Libvirt(b) => b.vm_force_reboot(system_id).await,
+            Self::Mockup(b) => b.vm_force_reboot(system_id).await,
+            #[cfg(any(test, feature = "test-support"))]
+            Self::Mock(b) => b.vm_force_reboot(system_id).await,
         }
     }
 

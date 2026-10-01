@@ -274,6 +274,15 @@ impl VmmBackend for LibvirtBackend {
         Ok(())
     }
 
+    async fn vm_force_reboot(&self, system_id: &str) -> Result<(), BackendError> {
+        // virDomainReset: hardware-level reset with no ACPI/OS involvement.
+        // Unlike virDomainReboot, this never blocks on guest ACPI processing,
+        // so it cannot deadlock virtqemud even when the guest is in firmware.
+        let (_conn, domain) = self.domain_for(system_id)?;
+        domain.reset().map_err(map_virt_error)?;
+        Ok(())
+    }
+
     async fn vm_add_disk(
         &self,
         system_id: &str,

@@ -271,12 +271,12 @@ pub async fn reset_system(
             );
         }
         "ForceRestart" => {
-            // Power cycle: manage-only backends issue a single restart
-            // subresource; ephemeral backends tear the VM down and rebuild it.
+            // Power cycle: manage-only backends issue a hard reset (no ACPI);
+            // ephemeral backends tear the VM down and rebuild it.
             if managed {
                 state
                     .backend
-                    .vm_reboot(&system_id)
+                    .vm_force_reboot(&system_id)
                     .await
                     .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
             } else {
