@@ -93,8 +93,17 @@ pub struct ManagerConsole {
 
 #[derive(Debug, Serialize)]
 pub struct ManagerActions {
+    #[serde(rename = "#Manager.Reset")]
+    pub reset: ManagerResetAction,
     #[serde(rename = "#Manager.ResetToDefaults")]
     pub reset_to_defaults: ManagerResetToDefaultsAction,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ManagerResetAction {
+    pub target: String,
+    #[serde(rename = "ResetType@Redfish.AllowableValues")]
+    pub allowable_values: Vec<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -223,6 +232,10 @@ pub async fn get_manager(
             )],
         },
         actions: ManagerActions {
+                reset: ManagerResetAction {
+                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", manager_id),
+                    allowable_values: vec!["GracefulRestart", "ForceRestart"],
+                },
             reset_to_defaults: ManagerResetToDefaultsAction {
                 target: format!(
                     "/redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.ResetToDefaults"
@@ -332,6 +345,10 @@ mod tests {
                 )],
             },
             actions: ManagerActions {
+                reset: ManagerResetAction {
+                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", manager_id),
+                    allowable_values: vec!["GracefulRestart", "ForceRestart"],
+                },
                 reset_to_defaults: ManagerResetToDefaultsAction {
                     target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults".to_string(),
                     allowable_values: vec![
@@ -465,6 +482,10 @@ mod tests {
                 software_images: Vec::new(),
             },
             actions: ManagerActions {
+                reset: ManagerResetAction {
+                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", manager_id),
+                    allowable_values: vec!["GracefulRestart", "ForceRestart"],
+                },
                 reset_to_defaults: ManagerResetToDefaultsAction {
                     target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults".to_string(),
                     allowable_values: vec![
@@ -537,6 +558,10 @@ mod tests {
                 software_images: Vec::new(),
             },
             actions: ManagerActions {
+                reset: ManagerResetAction {
+                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", manager_id),
+                    allowable_values: vec!["GracefulRestart", "ForceRestart"],
+                },
                 reset_to_defaults: ManagerResetToDefaultsAction {
                     target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults".to_string(),
                     allowable_values: vec![
