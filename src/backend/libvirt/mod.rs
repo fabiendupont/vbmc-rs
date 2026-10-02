@@ -294,14 +294,28 @@ impl VmmBackend for LibvirtBackend {
         let target = disk.id.unwrap_or_else(|| "vdz".to_string());
         let readonly = if disk.readonly { "<readonly/>" } else { "" };
 
-        let xml = format!(
-            "<disk type='file' device='disk'>\
-             <driver name='qemu' type='raw'/>\
-             <source file='{source}'/>\
-             <target dev='{target}' bus='virtio'/>\
-             {readonly}\
-             </disk>"
-        );
+        // Use device='cdrom' on a SATA bus for read-only ISO images so that
+        // OVMF/UEFI recognises the attached medium as a bootable CD-ROM.
+        // Regular writable disks stay as virtio block devices.
+        let xml = if disk.readonly {
+            format!(
+                "<disk type='file' device='cdrom'>\
+                 <driver name='qemu' type='raw'/>\
+                 <source file='{source}'/>\
+                 <target dev='{target}' bus='sata'/>\
+                 <readonly/>\
+                 </disk>"
+            )
+        } else {
+            format!(
+                "<disk type='file' device='disk'>\
+                 <driver name='qemu' type='raw'/>\
+                 <source file='{source}'/>\
+                 <target dev='{target}' bus='virtio'/>\
+                 {readonly}\
+                 </disk>"
+            )
+        };
 
         domain.attach_device(&xml).map_err(map_virt_error)?;
         Ok(())
@@ -310,13 +324,20 @@ impl VmmBackend for LibvirtBackend {
     async fn vm_remove_device(&self, system_id: &str, device_id: &str) -> Result<(), BackendError> {
         let (_conn, domain) = self.domain_for(system_id)?;
 
-        let xml = format!(
-            "<disk type='file' device='disk'>\
-             <target dev='{device_id}' bus='virtio'/>\
+        // Try cdrom/sata first (VirtualMedia); fall back to disk/virtio.
+        let xml_cdrom = format!(
+            "<disk type='file' device='cdrom'>\
+             <target dev='{device_id}' bus='sata'/>\
              </disk>"
         );
-
-        domain.detach_device(&xml).map_err(map_virt_error)?;
+        if domain.detach_device(&xml_cdrom).is_err() {
+            let xml_disk = format!(
+                "<disk type='file' device='disk'>\
+                 <target dev='{device_id}' bus='virtio'/>\
+                 </disk>"
+            );
+            domain.detach_device(&xml_disk).map_err(map_virt_error)?;
+        }
         Ok(())
     }
 
