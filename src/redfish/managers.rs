@@ -233,7 +233,7 @@ pub async fn get_manager(
         },
         actions: ManagerActions {
                 reset: ManagerResetAction {
-                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", manager_id),
+                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", MANAGER_ID),
                     allowable_values: vec!["GracefulRestart", "ForceRestart"],
                 },
             reset_to_defaults: ManagerResetToDefaultsAction {
@@ -346,7 +346,7 @@ mod tests {
             },
             actions: ManagerActions {
                 reset: ManagerResetAction {
-                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", manager_id),
+                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", MANAGER_ID),
                     allowable_values: vec!["GracefulRestart", "ForceRestart"],
                 },
                 reset_to_defaults: ManagerResetToDefaultsAction {
@@ -483,7 +483,7 @@ mod tests {
             },
             actions: ManagerActions {
                 reset: ManagerResetAction {
-                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", manager_id),
+                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", MANAGER_ID),
                     allowable_values: vec!["GracefulRestart", "ForceRestart"],
                 },
                 reset_to_defaults: ManagerResetToDefaultsAction {
@@ -559,7 +559,7 @@ mod tests {
             },
             actions: ManagerActions {
                 reset: ManagerResetAction {
-                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", manager_id),
+                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", MANAGER_ID),
                     allowable_values: vec!["GracefulRestart", "ForceRestart"],
                 },
                 reset_to_defaults: ManagerResetToDefaultsAction {
@@ -580,6 +580,10 @@ mod tests {
     #[test]
     fn test_manager_actions_serialization() {
         let actions = ManagerActions {
+            reset: ManagerResetAction {
+                target: format!("/redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.Reset"),
+                allowable_values: vec!["GracefulRestart", "ForceRestart"],
+            },
             reset_to_defaults: ManagerResetToDefaultsAction {
                 target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults".to_string(),
                 allowable_values: vec!["ResetAll", "PreserveNetworkAndUsers", "PreserveNetwork"],
