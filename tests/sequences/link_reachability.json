@@ -23,10 +23,10 @@
     },
     {
       "name": "Manager NetworkProtocol link resolves",
-      "request": { "method": "GET", "path": "/redfish/v1/Managers/vbmc/NetworkProtocol" },
+      "request": { "method": "GET", "path": "/redfish/v1/Managers/1/NetworkProtocol" },
       "expect": {
         "status": 200,
-        "body_contains": { "@odata.id": "/redfish/v1/Managers/vbmc/NetworkProtocol", "Id": "NetworkProtocol" }
+        "body_contains": { "@odata.id": "/redfish/v1/Managers/1/NetworkProtocol", "Id": "NetworkProtocol" }
       }
     },
     {

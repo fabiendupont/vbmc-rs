@@ -203,26 +203,42 @@ pub async fn get_system_log_entries(
 }
 
 // Manager LogServices collection
-pub async fn get_manager_log_services(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
+pub async fn get_manager_log_services(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+    Path(manager_id): Path<String>,
+) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
+    if manager_id != state.config.manager_id {
+        return Err(RedfishApiError::NotFound(format!(
+            "Manager '{manager_id}' not found"
+        )));
+    }
+    let mid = &state.config.manager_id;
     // Expose both "Log" (used by NICo's machine-controller to check for reset events)
     // and "Audit" (historical name). Both serve the same audit.jsonl data.
     let members = vec![
-        ODataId::new("/redfish/v1/Managers/vbmc/LogServices/Log"),
-        ODataId::new("/redfish/v1/Managers/vbmc/LogServices/Audit"),
+        ODataId::new(format!("/redfish/v1/Managers/{mid}/LogServices/Log")),
+        ODataId::new(format!("/redfish/v1/Managers/{mid}/LogServices/Audit")),
     ];
 
-    Json(Collection::new(
-        "/redfish/v1/Managers/vbmc/LogServices",
+    Ok(Json(Collection::new(
+        format!("/redfish/v1/Managers/{mid}/LogServices"),
         "#LogServiceCollection.LogServiceCollection",
         "Log Service Collection",
         members,
-    ))
+    )))
 }
 
 pub async fn get_manager_log_service(
+    State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
-    Path(log_id): Path<String>,
+    Path((manager_id, log_id)): Path<(String, String)>,
 ) -> Result<Json<LogServiceResource>, RedfishApiError> {
+    if manager_id != state.config.manager_id {
+        return Err(RedfishApiError::NotFound(format!(
+            "Manager '{manager_id}' not found"
+        )));
+    }
     // Accept "Log" (NICo convention) and "Audit" (legacy); both serve the same log.
     if log_id != "Audit" && log_id != "Log" {
         return Err(RedfishApiError::NotFound(format!(
@@ -230,14 +246,15 @@ pub async fn get_manager_log_service(
         )));
     }
 
+    let mid = &state.config.manager_id;
     Ok(Json(LogServiceResource {
-        odata_id: format!("/redfish/v1/Managers/vbmc/LogServices/{log_id}"),
+        odata_id: format!("/redfish/v1/Managers/{mid}/LogServices/{log_id}"),
         odata_type: "#LogService.v1_5_0.LogService",
         id: log_id.clone(),
         name: "BMC Event Log".to_string(),
         description: "BMC event log including power-cycle events",
         entries: ODataId::new(format!(
-            "/redfish/v1/Managers/vbmc/LogServices/{log_id}/Entries"
+            "/redfish/v1/Managers/{mid}/LogServices/{log_id}/Entries"
         )),
         service_enabled: true,
         overwrite_policy: "WrapsWhenFull",
@@ -257,9 +274,15 @@ pub async fn get_manager_log_service(
 pub async fn get_manager_log_entries(
     State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
-    Path(log_id): Path<String>,
+    Path((manager_id, log_id)): Path<(String, String)>,
 ) -> Result<Json<Collection<LogEntryResource>>, RedfishApiError> {
-    let collection_path = format!("/redfish/v1/Managers/vbmc/LogServices/{log_id}/Entries");
+    if manager_id != state.config.manager_id {
+        return Err(RedfishApiError::NotFound(format!(
+            "Manager '{manager_id}' not found"
+        )));
+    }
+    let mid = &state.config.manager_id;
+    let collection_path = format!("/redfish/v1/Managers/{mid}/LogServices/{log_id}/Entries");
 
     match log_id.as_str() {
         "Log" => {
@@ -346,12 +369,17 @@ pub async fn get_manager_log_entries(
     }
 }
 
-/// POST /redfish/v1/Managers/vbmc/LogServices/{log_id}/Actions/LogService.ClearLog
+/// POST /redfish/v1/Managers/{manager_id}/LogServices/{log_id}/Actions/LogService.ClearLog
 pub async fn clear_manager_log(
     State(state): State<Arc<AppState>>,
     user: AuthenticatedUser,
-    Path(log_id): Path<String>,
+    Path((manager_id, log_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    if manager_id != state.config.manager_id {
+        return Err(RedfishApiError::NotFound(format!(
+            "Manager '{manager_id}' not found"
+        )));
+    }
     if !has_privilege(&user.role, Privilege::ConfigureManager) {
         return Err(RedfishApiError::Forbidden(
             "Insufficient privileges".to_string(),
@@ -499,12 +527,12 @@ mod tests {
     #[test]
     fn test_log_service_with_multiple_purposes() {
         let service = LogServiceResource {
-            odata_id: "/redfish/v1/Managers/vbmc/LogServices/Audit".to_string(),
+            odata_id: "/redfish/v1/Managers/1/LogServices/Audit".to_string(),
             odata_type: "#LogService.v1_5_0.LogService",
             id: "Audit".to_string(),
             name: "Audit Log".to_string(),
             description: "Log service",
-            entries: ODataId::new("/redfish/v1/Managers/vbmc/LogServices/Audit/Entries"),
+            entries: ODataId::new("/redfish/v1/Managers/1/LogServices/Audit/Entries"),
             service_enabled: true,
             overwrite_policy: "WrapsWhenFull",
             max_number_of_records: 1000,
@@ -531,7 +559,7 @@ mod tests {
     #[test]
     fn test_log_entry_serialization() {
         let entry = LogEntryResource {
-            odata_id: "/redfish/v1/Managers/vbmc/LogServices/Audit/Entries/0".to_string(),
+            odata_id: "/redfish/v1/Managers/1/LogServices/Audit/Entries/0".to_string(),
             odata_type: "#LogEntry.v1_16_0.LogEntry",
             id: "0".to_string(),
             name: "Audit Entry 0".to_string(),
@@ -546,7 +574,7 @@ mod tests {
 
         assert_eq!(
             value["@odata.id"],
-            "/redfish/v1/Managers/vbmc/LogServices/Audit/Entries/0"
+            "/redfish/v1/Managers/1/LogServices/Audit/Entries/0"
         );
         assert_eq!(value["@odata.type"], "#LogEntry.v1_16_0.LogEntry");
         assert_eq!(value["Id"], "0");
@@ -711,10 +739,10 @@ mod harness_tests {
     async fn test_get_manager_log_services() {
         let app = h::router_with_systems(HashMap::new());
 
-        let (status, json, _) = h::get(&app, "/redfish/v1/Managers/vbmc/LogServices").await;
+        let (status, json, _) = h::get(&app, "/redfish/v1/Managers/1/LogServices").await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(json["@odata.id"], "/redfish/v1/Managers/vbmc/LogServices");
+        assert_eq!(json["@odata.id"], "/redfish/v1/Managers/1/LogServices");
         assert_eq!(
             json["@odata.type"],
             "#LogServiceCollection.LogServiceCollection"
@@ -726,8 +754,8 @@ mod harness_tests {
             .iter()
             .filter_map(|m| m["@odata.id"].as_str())
             .collect();
-        assert!(ids.contains(&"/redfish/v1/Managers/vbmc/LogServices/Log"));
-        assert!(ids.contains(&"/redfish/v1/Managers/vbmc/LogServices/Audit"));
+        assert!(ids.contains(&"/redfish/v1/Managers/1/LogServices/Log"));
+        assert!(ids.contains(&"/redfish/v1/Managers/1/LogServices/Audit"));
     }
 
     #[tokio::test]
@@ -738,14 +766,14 @@ mod harness_tests {
         for log_id in &["Audit", "Log"] {
             let (status, json, _) = h::get(
                 &app,
-                &format!("/redfish/v1/Managers/vbmc/LogServices/{log_id}"),
+                &format!("/redfish/v1/Managers/1/LogServices/{log_id}"),
             )
             .await;
 
             assert_eq!(status, StatusCode::OK, "log_id={log_id}");
             assert_eq!(
                 json["@odata.id"],
-                format!("/redfish/v1/Managers/vbmc/LogServices/{log_id}"),
+                format!("/redfish/v1/Managers/1/LogServices/{log_id}"),
                 "log_id={log_id}"
             );
             assert_eq!(json["@odata.type"], "#LogService.v1_5_0.LogService");
@@ -763,7 +791,7 @@ mod harness_tests {
     async fn test_get_manager_log_service_unknown_log_id() {
         let app = h::router_with_systems(HashMap::new());
 
-        let (status, json, _) = h::get(&app, "/redfish/v1/Managers/vbmc/LogServices/Unknown").await;
+        let (status, json, _) = h::get(&app, "/redfish/v1/Managers/1/LogServices/Unknown").await;
 
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert!(
@@ -780,7 +808,7 @@ mod harness_tests {
 
         // Both "Log" and "Audit" must work; each returns entries at its own @odata.id.
         for log_id in &["Audit", "Log"] {
-            let path = format!("/redfish/v1/Managers/vbmc/LogServices/{log_id}/Entries");
+            let path = format!("/redfish/v1/Managers/1/LogServices/{log_id}/Entries");
             let (status, json, _) = h::get(&app, &path).await;
 
             assert_eq!(status, StatusCode::OK, "log_id={log_id}");
@@ -800,7 +828,7 @@ mod harness_tests {
 
         let (status, json, _) = h::get(
             &app,
-            "/redfish/v1/Managers/vbmc/LogServices/Unknown/Entries",
+            "/redfish/v1/Managers/1/LogServices/Unknown/Entries",
         )
         .await;
 

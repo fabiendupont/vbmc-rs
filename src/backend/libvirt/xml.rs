@@ -12,6 +12,7 @@ pub struct DomainInfo {
     pub disks: Vec<bt::DiskInfo>,
     pub nics: Vec<bt::NicInfo>,
     pub pci_devices: Vec<bt::PciDeviceInfo>,
+    pub uuid: Option<String>,
 }
 
 /// Parse a libvirt domain XML string to extract VM hardware information.
@@ -26,6 +27,7 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
     let mut ps = ParseState {
         in_vcpu: false,
         in_memory: false,
+        in_uuid: false,
         memory_unit: String::from("KiB"),
         in_devices: false,
         secure_boot: None,
@@ -48,6 +50,10 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
                     info.vcpu_count = text.trim().parse().unwrap_or(0);
                     ps.in_vcpu = false;
                 }
+                if ps.in_uuid {
+                    info.uuid = Some(text.trim().to_string());
+                    ps.in_uuid = false;
+                }
                 if ps.in_memory {
                     let raw_val: u64 = text.trim().parse().unwrap_or(0);
                     info.memory_bytes = match ps.memory_unit.as_str() {
@@ -62,6 +68,7 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
             }
             Ok(Event::End(ref e)) => match e.name().into_inner() {
                 "vcpu" => ps.in_vcpu = false,
+                "uuid" => ps.in_uuid = false,
                 "memory" => ps.in_memory = false,
                 "devices" => ps.in_devices = false,
                 "disk" if ps.current_disk.is_some() => {
@@ -135,6 +142,7 @@ pub fn parse_domain_xml(xml: &str) -> DomainInfo {
 struct ParseState {
     in_vcpu: bool,
     in_memory: bool,
+    in_uuid: bool,
     memory_unit: String,
     in_devices: bool,
     secure_boot: Option<bool>,
@@ -146,6 +154,7 @@ struct ParseState {
 fn handle_open_tag(name: &str, e: &quick_xml::events::BytesStart<'_>, ps: &mut ParseState) {
     match name {
         "vcpu" => ps.in_vcpu = true,
+        "uuid" if !ps.in_devices => ps.in_uuid = true,
         "memory" => {
             ps.in_memory = true;
             for attr in e.attributes().flatten() {

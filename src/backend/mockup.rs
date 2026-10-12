@@ -427,26 +427,26 @@ impl MockupStore {
                 "@odata.id": "/redfish/v1/Managers",
                 "@odata.type": "#ManagerCollection.ManagerCollection",
                 "Name": "Manager Collection",
-                "Members": [{"@odata.id": "/redfish/v1/Managers/vbmc"}],
+                "Members": [{"@odata.id": "/redfish/v1/Managers/1"}],
                 "Members@odata.count": 1
             }),
         );
 
         store.resources.insert(
-            "/redfish/v1/Managers/vbmc".to_string(),
+            "/redfish/v1/Managers/1".to_string(),
             serde_json::json!({
-                "@odata.id": "/redfish/v1/Managers/vbmc",
+                "@odata.id": "/redfish/v1/Managers/1",
                 "@odata.type": "#Manager.v1_18_0.Manager",
                 "Id": "vbmc",
                 "Name": "vbmc-rs Manager",
                 "ManagerType": "BMC",
                 "FirmwareVersion": "0.1.0",
                 "Status": {"State": "Enabled", "Health": "OK"},
-                "EthernetInterfaces": {"@odata.id": "/redfish/v1/Managers/vbmc/EthernetInterfaces"},
-                "NetworkProtocol": {"@odata.id": "/redfish/v1/Managers/vbmc/NetworkProtocol"},
+                "EthernetInterfaces": {"@odata.id": "/redfish/v1/Managers/1/EthernetInterfaces"},
+                "NetworkProtocol": {"@odata.id": "/redfish/v1/Managers/1/NetworkProtocol"},
                 "Actions": {
                     "#Manager.Reset": {
-                        "target": "/redfish/v1/Managers/vbmc/Actions/Manager.Reset",
+                        "target": "/redfish/v1/Managers/1/Actions/Manager.Reset",
                         "ResetType@Redfish.AllowableValues": ["GracefulRestart", "ForceRestart"]
                     }
                 }
@@ -454,9 +454,9 @@ impl MockupStore {
         );
 
         store.resources.insert(
-            "/redfish/v1/Managers/vbmc/NetworkProtocol".to_string(),
+            "/redfish/v1/Managers/1/NetworkProtocol".to_string(),
             serde_json::json!({
-                "@odata.id": "/redfish/v1/Managers/vbmc/NetworkProtocol",
+                "@odata.id": "/redfish/v1/Managers/1/NetworkProtocol",
                 "@odata.type": "#ManagerNetworkProtocol.v1_9_0.ManagerNetworkProtocol",
                 "Id": "NetworkProtocol",
                 "Name": "Manager Network Protocol",
@@ -471,20 +471,20 @@ impl MockupStore {
         );
 
         store.resources.insert(
-            "/redfish/v1/Managers/vbmc/EthernetInterfaces".to_string(),
+            "/redfish/v1/Managers/1/EthernetInterfaces".to_string(),
             serde_json::json!({
-                "@odata.id": "/redfish/v1/Managers/vbmc/EthernetInterfaces",
+                "@odata.id": "/redfish/v1/Managers/1/EthernetInterfaces",
                 "@odata.type": "#EthernetInterfaceCollection.EthernetInterfaceCollection",
                 "Name": "Ethernet Interface Collection",
-                "Members": [{"@odata.id": "/redfish/v1/Managers/vbmc/EthernetInterfaces/eth0"}],
+                "Members": [{"@odata.id": "/redfish/v1/Managers/1/EthernetInterfaces/eth0"}],
                 "Members@odata.count": 1
             }),
         );
 
         store.resources.insert(
-            "/redfish/v1/Managers/vbmc/EthernetInterfaces/eth0".to_string(),
+            "/redfish/v1/Managers/1/EthernetInterfaces/eth0".to_string(),
             serde_json::json!({
-                "@odata.id": "/redfish/v1/Managers/vbmc/EthernetInterfaces/eth0",
+                "@odata.id": "/redfish/v1/Managers/1/EthernetInterfaces/eth0",
                 "@odata.type": "#EthernetInterface.v1_9_0.EthernetInterface",
                 "Id": "eth0",
                 "Name": "BMC Ethernet Interface",
@@ -529,7 +529,7 @@ impl MockupStore {
                             "ComponentCertificate": {"@odata.id": ca_cert_path}
                         }
                     },
-                    "Requester": {"@odata.id": "/redfish/v1/Managers/vbmc"}
+                    "Requester": {"@odata.id": "/redfish/v1/Managers/1"}
                 },
                 "Actions": {
                     "#ComponentIntegrity.SPDMGetSignedMeasurements": {
@@ -665,7 +665,7 @@ impl MockupStore {
                 "ComponentIntegrity": {"@odata.id": "/redfish/v1/ComponentIntegrity"},
                 "Links": {
                     "Sessions": {"@odata.id": "/redfish/v1/SessionService/Sessions"},
-                    "ManagerProvidingService": {"@odata.id": "/redfish/v1/Managers/vbmc"}
+                    "ManagerProvidingService": {"@odata.id": "/redfish/v1/Managers/1"}
                 }
             }),
         );
