@@ -26,11 +26,32 @@
 use std::collections::VecDeque;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
+use chrono::SecondsFormat;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+/// Serialize a `DateTime<Utc>` as RFC3339 with microsecond precision so that
+/// NICo's timestamp filter (`Created > restart_time`) is not defeated by
+/// second-only precision.  chrono's default serde representation omits
+/// sub-second digits when nanoseconds are zero; using `SecondsFormat::Micros`
+/// guarantees six decimal places regardless (e.g. `"2026-10-12T12:48:35.700123Z"`).
+fn serialize_datetime_micros<S>(dt: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&dt.to_rfc3339_opts(SecondsFormat::Micros, true))
+}
+
+fn deserialize_datetime<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    s.parse::<DateTime<Utc>>().map_err(serde::de::Error::custom)
+}
 
 /// Maximum entries retained in the ring buffer and persisted to disk.
 pub const MAX_ENTRIES: usize = 1000;
@@ -51,7 +72,13 @@ pub struct LogEntry {
     pub message_id: String,
     /// "OK", "Warning", or "Critical".
     pub severity: String,
-    /// ISO-8601 UTC timestamp.
+    /// ISO-8601 UTC timestamp with microsecond precision.
+    /// Serialised as RFC3339+micros so that NICo's `Created > restart_time`
+    /// filter is not defeated by second-only precision.
+    #[serde(
+        serialize_with = "serialize_datetime_micros",
+        deserialize_with = "deserialize_datetime"
+    )]
     pub created: DateTime<Utc>,
 }
 
@@ -68,10 +95,7 @@ impl EventLog {
     /// Create a new `EventLog`, loading existing entries from `log_path`.
     pub fn new(log_path: PathBuf) -> Self {
         let entries = Self::load_from_disk(&log_path);
-        let next_id = entries
-            .back()
-            .map(|e| e.id + 1)
-            .unwrap_or(1);
+        let next_id = entries.back().map(|e| e.id + 1).unwrap_or(1);
         Self {
             entries: Mutex::new(entries),
             next_id: AtomicU64::new(next_id),
@@ -258,6 +282,83 @@ mod tests {
 
         let log2 = EventLog::new(path);
         let e2 = log2.append("after reload", "Msg.1.0.B", "OK");
-        assert!(e2.id > last_id, "id after reload must exceed id before reload");
+        assert!(
+            e2.id > last_id,
+            "id after reload must exceed id before reload"
+        );
+    }
+
+    /// Timestamp precision regression test.
+    ///
+    /// NICo's machine-controller filters log entries with `Created > restart_time`
+    /// where `restart_time` has sub-second precision (e.g. nanoseconds from the DB).
+    /// If `Created` is serialised with second-only precision (the chrono serde
+    /// default) an entry created at `T.700ms` is stored as `T.000` and the filter
+    /// `T.000 > T.660` fails → the entry is excluded → NICo loops forever.
+    ///
+    /// This test asserts that the on-disk serialisation includes microseconds.
+    #[test]
+    fn test_created_timestamp_has_sub_second_precision() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("event-log.jsonl");
+
+        let log = EventLog::new(path.clone());
+        log.append(
+            "System reset (force restart)",
+            "Power.1.0.PowerStateChange",
+            "OK",
+        );
+
+        // Read the raw JSONL line and check that the created field has fractional
+        // seconds (at least one digit after the dot in the time component).
+        let content = std::fs::read_to_string(&path).unwrap();
+        let line = content.lines().next().unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(line).unwrap();
+        let created_str = parsed["created"].as_str().unwrap();
+
+        // RFC3339 with micros: "2026-10-12T12:48:35.700123Z"
+        // Must contain a '.' between the seconds digits and 'Z'.
+        assert!(
+            created_str.contains('.'),
+            "Created timestamp must have sub-second precision, got: {created_str}"
+        );
+        // Must be at least millisecond precision (3 digits after '.').
+        let frac_part = created_str
+            .split('.')
+            .nth(1)
+            .expect("no fractional part in timestamp");
+        let digits: String = frac_part
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        assert!(
+            digits.len() >= 3,
+            "Expected at least millisecond precision (3 digits), got {digits:?} in {created_str}"
+        );
+    }
+
+    /// Timestamps survive a restart (load → serve) with precision intact.
+    #[test]
+    fn test_created_timestamp_survives_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("event-log.jsonl");
+
+        let original_created = {
+            let log = EventLog::new(path.clone());
+            let e = log.append("test", "Msg.1.0.A", "OK");
+            e.created
+        };
+
+        let log2 = EventLog::new(path);
+        let entries = log2.entries_newest_first();
+        assert_eq!(entries.len(), 1);
+
+        // Microsecond precision must be preserved across the JSONL roundtrip.
+        let reloaded = entries[0].created;
+        assert_eq!(
+            original_created.timestamp_micros(),
+            reloaded.timestamp_micros(),
+            "Microsecond precision lost across JSONL roundtrip"
+        );
     }
 }

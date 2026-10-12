@@ -85,9 +85,7 @@ pub async fn get_system_log_services(
     }
 
     let members = vec![
-        ODataId::new(format!(
-            "/redfish/v1/Systems/{system_id}/LogServices/Log"
-        )),
+        ODataId::new(format!("/redfish/v1/Systems/{system_id}/LogServices/Log")),
         ODataId::new(format!(
             "/redfish/v1/Systems/{system_id}/LogServices/Console"
         )),
@@ -172,13 +170,7 @@ pub async fn get_system_log_entries(
     // Dispatch to the appropriate handler based on log_id.
     match log_id.as_str() {
         "Log" => {
-            match get_system_log_entries_sel(
-                State(state),
-                user,
-                Path((system_id, log_id)),
-            )
-            .await
-            {
+            match get_system_log_entries_sel(State(state), user, Path((system_id, log_id))).await {
                 Ok(json) => json.into_response(),
                 Err(e) => e.into_response(),
             }
@@ -197,8 +189,7 @@ pub async fn get_system_log_entries(
             ))
             .into_response()
         }
-        _ => RedfishApiError::NotFound(format!("LogService '{log_id}' not found"))
-            .into_response(),
+        _ => RedfishApiError::NotFound(format!("LogService '{log_id}' not found")).into_response(),
     }
 }
 
@@ -302,7 +293,7 @@ pub async fn get_manager_log_entries(
                     message: e.message,
                     created: Some(
                         e.created
-                            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                            .to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
                             .to_string(),
                     ),
                     severity: match e.severity.as_str() {
@@ -420,8 +411,7 @@ pub async fn get_system_log_entries_sel(
         )));
     }
 
-    let collection_path =
-        format!("/redfish/v1/Systems/{system_id}/LogServices/{log_id}/Entries");
+    let collection_path = format!("/redfish/v1/Systems/{system_id}/LogServices/{log_id}/Entries");
 
     match log_id.as_str() {
         "Log" => {
@@ -438,7 +428,7 @@ pub async fn get_system_log_entries_sel(
                     message: e.message,
                     created: Some(
                         e.created
-                            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                            .to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
                             .to_string(),
                     ),
                     severity: match e.severity.as_str() {
@@ -826,11 +816,8 @@ mod harness_tests {
     async fn test_get_manager_log_entries_unknown_log_id() {
         let app = h::router_with_systems(HashMap::new());
 
-        let (status, json, _) = h::get(
-            &app,
-            "/redfish/v1/Managers/1/LogServices/Unknown/Entries",
-        )
-        .await;
+        let (status, json, _) =
+            h::get(&app, "/redfish/v1/Managers/1/LogServices/Unknown/Entries").await;
 
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert!(
