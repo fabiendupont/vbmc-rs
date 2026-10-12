@@ -5,8 +5,8 @@ use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::auth::accounts::AccountStore;
 use crate::auth::sessions::SessionStore;
-use crate::backend::Backend;
 use crate::backend::mockup::MockupStore;
+use crate::backend::{Backend, VmmBackend};
 use crate::config::{AppConfig, SecurityPolicyConfig};
 use crate::events::EventBus;
 use crate::events::event_log::EventLog;
@@ -50,6 +50,9 @@ impl AppState {
         for system_id in config.systems.keys() {
             let state = VmState::load(&config.state_directory, system_id)
                 .unwrap_or_else(|_| VmState::new(system_id));
+            // Rebuild backend-internal state (e.g. libvirt pending_once) from the
+            // persisted VmState so that Once overrides survive vbmc-rs restarts.
+            backend.vm_init_boot_state(system_id, &state.boot_override);
             vm_states.insert(system_id.clone(), state);
         }
 

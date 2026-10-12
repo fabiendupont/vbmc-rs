@@ -62,13 +62,14 @@ fi
 
 # ── Step 2: Python venv ────────────────────────────────────────────────
 
-if [ ! -d "$VENV_DIR" ]; then
+if [ ! -d "$VENV_DIR" ] || ! "$VENV_DIR/bin/python3" -c "" 2>/dev/null; then
     echo "==> Creating Python venv at $VENV_DIR..."
+    rm -rf "$VENV_DIR"
     python3 -m venv "$VENV_DIR"
 fi
 
 echo "==> Installing/upgrading DMTF Redfish Service Validator..."
-"$VENV_DIR/bin/pip" install --quiet --upgrade redfish_service_validator
+"$VENV_DIR/bin/python3" -m pip install --quiet --upgrade redfish_service_validator
 echo ""
 
 # ── Step 3: Generate temp config with state dir ────────────────────────

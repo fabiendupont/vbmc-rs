@@ -86,6 +86,17 @@ pub trait VmmBackend: Send + Sync {
         false
     }
 
+    /// Reinitialise backend-internal boot override state from the persisted VmState.
+    /// Called synchronously at startup for each system after VmState is loaded,
+    /// before any async operations begin.
+    ///
+    /// The default implementation is a no-op.  The libvirt backend overrides this
+    /// to repopulate its in-memory `pending_once` map from the saved BootOverride
+    /// so that Once overrides survive vbmc-rs restarts.
+    fn vm_init_boot_state(&self, system_id: &str, boot_override: &crate::state::BootOverride) {
+        let _ = (system_id, boot_override);
+    }
+
     fn vm_info(
         &self,
         system_id: &str,
@@ -432,6 +443,21 @@ impl VmmBackend for Backend {
             Self::Mockup(b) => b.manages_existing_vms(),
             #[cfg(any(test, feature = "test-support"))]
             Self::Mock(b) => b.manages_existing_vms(),
+        }
+    }
+
+    fn vm_init_boot_state(&self, system_id: &str, boot_override: &crate::state::BootOverride) {
+        match self {
+            Self::CloudHypervisor(b) => b.vm_init_boot_state(system_id, boot_override),
+            #[cfg(feature = "kubevirt")]
+            Self::KubeVirt(b) => b.vm_init_boot_state(system_id, boot_override),
+            #[cfg(feature = "qemu")]
+            Self::Qemu(b) => b.vm_init_boot_state(system_id, boot_override),
+            #[cfg(feature = "libvirt")]
+            Self::Libvirt(b) => b.vm_init_boot_state(system_id, boot_override),
+            Self::Mockup(b) => b.vm_init_boot_state(system_id, boot_override),
+            #[cfg(any(test, feature = "test-support"))]
+            Self::Mock(b) => b.vm_init_boot_state(system_id, boot_override),
         }
     }
 
