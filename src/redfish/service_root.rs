@@ -163,7 +163,10 @@ pub async fn get_service_root(State(state): State<Arc<AppState>>) -> Json<Servic
         },
         links: ServiceRootLinks {
             sessions: ODataId::new("/redfish/v1/SessionService/Sessions"),
-            manager_providing_service: ODataId::new("/redfish/v1/Managers/vbmc"),
+            manager_providing_service: ODataId::new(format!(
+                "/redfish/v1/Managers/{}",
+                state.config.manager_id
+            )),
         },
     })
 }
@@ -227,7 +230,7 @@ mod tests {
             },
             links: ServiceRootLinks {
                 sessions: ODataId::new("/redfish/v1/SessionService/Sessions"),
-                manager_providing_service: ODataId::new("/redfish/v1/Managers/vbmc"),
+                manager_providing_service: ODataId::new("/redfish/v1/Managers/1"),
             },
         };
 
@@ -328,7 +331,7 @@ mod tests {
             },
             links: ServiceRootLinks {
                 sessions: ODataId::new("/redfish/v1/SessionService/Sessions"),
-                manager_providing_service: ODataId::new("/redfish/v1/Managers/vbmc"),
+                manager_providing_service: ODataId::new("/redfish/v1/Managers/1"),
             },
         };
 

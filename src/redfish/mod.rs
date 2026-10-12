@@ -274,7 +274,8 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/redfish/v1/Systems/{system_id}/SerialConsole",
             get(serial_console::serial_console_ws),
         )
-        // Managers
+        // Managers — all sub-routes use {manager_id} so the configurable
+        // manager ID (default "1") is enforced in each handler.
         .route("/redfish/v1/Managers", get(managers::get_managers))
         .route(
             "/redfish/v1/Managers/{manager_id}",
@@ -286,29 +287,29 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         // Manager Network Protocol
         .route(
-            "/redfish/v1/Managers/vbmc/NetworkProtocol",
+            "/redfish/v1/Managers/{manager_id}/NetworkProtocol",
             get(manager_network::get_network_protocol),
         )
         // Manager Ethernet Interfaces
         .route(
-            "/redfish/v1/Managers/vbmc/EthernetInterfaces",
+            "/redfish/v1/Managers/{manager_id}/EthernetInterfaces",
             get(manager_network::get_manager_ethernet_interfaces),
         )
         .route(
-            "/redfish/v1/Managers/vbmc/EthernetInterfaces/{nic_id}",
+            "/redfish/v1/Managers/{manager_id}/EthernetInterfaces/{nic_id}",
             get(manager_network::get_manager_ethernet_interface),
         )
         // Manager LogServices
         .route(
-            "/redfish/v1/Managers/vbmc/LogServices",
+            "/redfish/v1/Managers/{manager_id}/LogServices",
             get(log_service::get_manager_log_services),
         )
         .route(
-            "/redfish/v1/Managers/vbmc/LogServices/{log_id}",
+            "/redfish/v1/Managers/{manager_id}/LogServices/{log_id}",
             get(log_service::get_manager_log_service),
         )
         .route(
-            "/redfish/v1/Managers/vbmc/LogServices/{log_id}/Entries",
+            "/redfish/v1/Managers/{manager_id}/LogServices/{log_id}/Entries",
             get(log_service::get_manager_log_entries),
         )
         .route(

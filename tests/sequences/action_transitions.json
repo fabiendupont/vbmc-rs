@@ -77,7 +77,7 @@
     },
     {
       "name": "Manager.Reset is acknowledged",
-      "request": { "method": "POST", "path": "/redfish/v1/Managers/vbmc/Actions/Manager.Reset" },
+      "request": { "method": "POST", "path": "/redfish/v1/Managers/1/Actions/Manager.Reset" },
       "expect": { "status": 200 }
     },
     {

@@ -12,7 +12,7 @@ use crate::auth::AuthenticatedUser;
 #[derive(Debug, Serialize)]
 pub struct NetworkProtocolResource {
     #[serde(rename = "@odata.id")]
-    pub odata_id: &'static str,
+    pub odata_id: String,
     #[serde(rename = "@odata.type")]
     pub odata_type: &'static str,
     #[serde(rename = "Id")]
@@ -278,14 +278,21 @@ pub struct EthernetLinks {
 pub async fn get_network_protocol(
     State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
-) -> Json<NetworkProtocolResource> {
+    Path(manager_id): Path<String>,
+) -> Result<Json<NetworkProtocolResource>, RedfishApiError> {
+    if manager_id != state.config.manager_id {
+        return Err(RedfishApiError::NotFound(format!(
+            "Manager '{manager_id}' not found"
+        )));
+    }
+    let mid = &state.config.manager_id;
     let hostname = std::fs::read_to_string("/etc/hostname")
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "vbmc".to_string());
     let port = state.config.server.port;
 
-    Json(NetworkProtocolResource {
-        odata_id: "/redfish/v1/Managers/vbmc/NetworkProtocol",
+    Ok(Json(NetworkProtocolResource {
+        odata_id: format!("/redfish/v1/Managers/{mid}/NetworkProtocol"),
         odata_type: "#ManagerNetworkProtocol.v1_13_0.ManagerNetworkProtocol",
         id: "NetworkProtocol",
         name: "Manager Network Protocol",
@@ -383,35 +390,49 @@ pub async fn get_network_protocol(
             proxy_auto_config_uri: "",
         },
         status: Status::enabled_ok(),
-    })
+    }))
 }
 
 pub async fn get_manager_ethernet_interfaces(
+    State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
-) -> Json<Collection<ODataId>> {
-    let members = vec![ODataId::new(
-        "/redfish/v1/Managers/vbmc/EthernetInterfaces/mgmt0",
-    )];
+    Path(manager_id): Path<String>,
+) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
+    if manager_id != state.config.manager_id {
+        return Err(RedfishApiError::NotFound(format!(
+            "Manager '{manager_id}' not found"
+        )));
+    }
+    let mid = &state.config.manager_id;
+    let members = vec![ODataId::new(format!(
+        "/redfish/v1/Managers/{mid}/EthernetInterfaces/mgmt0"
+    ))];
 
-    Json(Collection::new(
-        "/redfish/v1/Managers/vbmc/EthernetInterfaces",
+    Ok(Json(Collection::new(
+        format!("/redfish/v1/Managers/{mid}/EthernetInterfaces"),
         "#EthernetInterfaceCollection.EthernetInterfaceCollection",
         "Manager Ethernet Interface Collection",
         members,
-    ))
+    )))
 }
 
 pub async fn get_manager_ethernet_interface(
     State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
-    Path(nic_id): Path<String>,
+    Path((manager_id, nic_id)): Path<(String, String)>,
 ) -> Result<Json<EthernetInterfaceResource>, RedfishApiError> {
+    if manager_id != state.config.manager_id {
+        return Err(RedfishApiError::NotFound(format!(
+            "Manager '{manager_id}' not found"
+        )));
+    }
     if nic_id != "mgmt0" {
         return Err(RedfishApiError::NotFound(format!(
             "EthernetInterface '{nic_id}' not found"
         )));
     }
 
+    let mid = &state.config.manager_id;
     let bind_address = state.config.server.bind_address.clone();
     let addr = if bind_address == "0.0.0.0" {
         "127.0.0.1".to_string()
@@ -431,7 +452,7 @@ pub async fn get_manager_ethernet_interface(
     };
 
     Ok(Json(EthernetInterfaceResource {
-        odata_id: format!("/redfish/v1/Managers/vbmc/EthernetInterfaces/{nic_id}"),
+        odata_id: format!("/redfish/v1/Managers/{mid}/EthernetInterfaces/{nic_id}"),
         odata_type: "#EthernetInterface.v1_12_0.EthernetInterface",
         id: nic_id,
         name: "Manager Ethernet Interface",
@@ -702,7 +723,7 @@ mod tests {
     #[test]
     fn test_network_protocol_resource_serialization() {
         let resource = NetworkProtocolResource {
-            odata_id: "/redfish/v1/Managers/vbmc/NetworkProtocol",
+            odata_id: "/redfish/v1/Managers/1/NetworkProtocol".to_string(),
             odata_type: "#ManagerNetworkProtocol.v1_13_0.ManagerNetworkProtocol",
             id: "NetworkProtocol",
             name: "Manager Network Protocol",
@@ -799,10 +820,7 @@ mod tests {
         };
 
         let json = serde_json::to_value(&resource).unwrap();
-        assert_eq!(
-            json["@odata.id"],
-            "/redfish/v1/Managers/vbmc/NetworkProtocol"
-        );
+        assert_eq!(json["@odata.id"], "/redfish/v1/Managers/1/NetworkProtocol");
         assert_eq!(
             json["@odata.type"],
             "#ManagerNetworkProtocol.v1_13_0.ManagerNetworkProtocol"
@@ -818,7 +836,7 @@ mod tests {
     #[test]
     fn test_ethernet_interface_resource_serialization() {
         let resource = EthernetInterfaceResource {
-            odata_id: "/redfish/v1/Managers/vbmc/EthernetInterfaces/mgmt0".to_string(),
+            odata_id: "/redfish/v1/Managers/1/EthernetInterfaces/mgmt0".to_string(),
             odata_type: "#EthernetInterface.v1_12_0.EthernetInterface",
             id: "mgmt0".to_string(),
             name: "Manager Ethernet Interface",
@@ -884,7 +902,7 @@ mod tests {
         let json = serde_json::to_value(&resource).unwrap();
         assert_eq!(
             json["@odata.id"],
-            "/redfish/v1/Managers/vbmc/EthernetInterfaces/mgmt0"
+            "/redfish/v1/Managers/1/EthernetInterfaces/mgmt0"
         );
         assert_eq!(
             json["@odata.type"],
@@ -902,7 +920,7 @@ mod tests {
     #[test]
     fn test_ethernet_interface_ipv6_default_gateway_present() {
         let resource = EthernetInterfaceResource {
-            odata_id: "/redfish/v1/Managers/vbmc/EthernetInterfaces/mgmt0".to_string(),
+            odata_id: "/redfish/v1/Managers/1/EthernetInterfaces/mgmt0".to_string(),
             odata_type: "#EthernetInterface.v1_12_0.EthernetInterface",
             id: "mgmt0".to_string(),
             name: "Manager Ethernet Interface",
@@ -967,7 +985,7 @@ mod tests {
     #[test]
     fn test_ethernet_interface_ipv6_default_gateway_absent() {
         let resource = EthernetInterfaceResource {
-            odata_id: "/redfish/v1/Managers/vbmc/EthernetInterfaces/mgmt0".to_string(),
+            odata_id: "/redfish/v1/Managers/1/EthernetInterfaces/mgmt0".to_string(),
             odata_type: "#EthernetInterface.v1_12_0.EthernetInterface",
             id: "mgmt0".to_string(),
             name: "Manager Ethernet Interface",

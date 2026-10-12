@@ -56,6 +56,7 @@ pub fn test_config(systems: HashMap<String, SystemConfig>) -> AppConfig {
         mockup_directory: None,
         metrics: MetricsConfig::default(),
         systems,
+        manager_id: "1".to_string(),
     }
 }
 

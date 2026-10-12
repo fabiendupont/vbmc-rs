@@ -40,6 +40,10 @@ impl BackendType {
     }
 }
 
+fn default_manager_id() -> String {
+    "1".to_string()
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
     pub server: ServerConfig,
@@ -67,6 +71,11 @@ pub struct AppConfig {
     pub mockup_directory: Option<PathBuf>,
     #[serde(default)]
     pub systems: HashMap<String, SystemConfig>,
+    /// Redfish Manager resource ID used in all `/redfish/v1/Managers/{manager_id}/…`
+    /// paths.  Defaults to "1" — the industry-standard convention used by HPE iLO,
+    /// Dell iDRAC and Lenovo XCC.  Override per deployment when needed.
+    #[serde(default = "default_manager_id")]
+    pub manager_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -393,6 +402,7 @@ impl AppConfig {
             snmp_trap: SnmpTrapConfig::default(),
             mockup_directory: None,
             systems: HashMap::new(),
+            manager_id: default_manager_id(),
         }
     }
 }

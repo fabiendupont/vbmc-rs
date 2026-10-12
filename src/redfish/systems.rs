@@ -613,7 +613,10 @@ pub async fn get_system(
                 "/redfish/v1/Chassis/{}",
                 state.chassis_id
             ))],
-            managed_by: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
+            managed_by: vec![ODataId::new(format!(
+                "/redfish/v1/Managers/{}",
+                state.config.manager_id
+            ))],
             trusted_components: vec![ODataId::new(format!(
                 "/redfish/v1/Chassis/{}/TrustedComponents/{system_id}",
                 state.chassis_id

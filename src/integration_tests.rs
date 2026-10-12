@@ -40,6 +40,7 @@ fn make_test_config(systems: HashMap<String, SystemConfig>) -> AppConfig {
         mockup_directory: None,
         metrics: MetricsConfig::default(),
         systems,
+        manager_id: "1".to_string(),
     }
 }
 
@@ -560,7 +561,7 @@ async fn test_managers() {
     let state = make_app_state(MockBackend::new(), HashMap::new());
     let app = build_app(state);
 
-    let (status, json, _) = get(&app, "/redfish/v1/Managers/vbmc").await;
+    let (status, json, _) = get(&app, "/redfish/v1/Managers/1").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["ManagerType"], "BMC");
     assert!(json["LogServices"]["@odata.id"].as_str().is_some());
@@ -727,7 +728,7 @@ async fn test_manager_log_services() {
     let state = make_app_state(MockBackend::new(), HashMap::new());
     let app = build_app(state);
 
-    let (status, json, _) = get(&app, "/redfish/v1/Managers/vbmc/LogServices").await;
+    let (status, json, _) = get(&app, "/redfish/v1/Managers/1/LogServices").await;
     assert_eq!(status, StatusCode::OK);
     // Both "Log" (NICo convention) and "Audit" (legacy) are now listed.
     assert_eq!(json["Members@odata.count"], 2);
@@ -800,7 +801,7 @@ async fn test_odata_context_on_manager() {
     let state = make_app_state(MockBackend::new(), HashMap::new());
     let app = build_app(state);
 
-    let (_, json, _) = get(&app, "/redfish/v1/Managers/vbmc").await;
+    let (_, json, _) = get(&app, "/redfish/v1/Managers/1").await;
     assert_eq!(
         json["@odata.context"],
         "/redfish/v1/$metadata#Manager.Manager"

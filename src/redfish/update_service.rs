@@ -1,7 +1,11 @@
+use std::sync::Arc;
+
 use axum::Json;
+use axum::extract::State;
 use serde::Serialize;
 
 use super::types::{Collection, ODataId, Status};
+use crate::app_state::AppState;
 use crate::auth::AuthenticatedUser;
 
 #[derive(Debug, Serialize)]
@@ -114,10 +118,12 @@ pub async fn get_firmware_inventory(_user: AuthenticatedUser) -> Json<Collection
 }
 
 pub async fn get_firmware_inventory_item(
+    State(state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
     axum::extract::Path(item_id): axum::extract::Path<String>,
 ) -> Result<Json<SoftwareInventoryResource>, super::error::RedfishApiError> {
     if item_id == "vbmc-rs" {
+        let mid = &state.config.manager_id;
         return Ok(Json(SoftwareInventoryResource {
             odata_id: "/redfish/v1/UpdateService/FirmwareInventory/vbmc-rs".to_string(),
             odata_type: "#SoftwareInventory.v1_10_0.SoftwareInventory",
@@ -133,7 +139,7 @@ pub async fn get_firmware_inventory_item(
             version_scheme: "SemVer",
             release_type: "Production",
             write_protected: true,
-            related_item: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
+            related_item: vec![ODataId::new(format!("/redfish/v1/Managers/{mid}"))],
             associated_physical_context: "Chassis",
             additional_versions: FwAdditionalVersions {
                 bootloader: "",
@@ -210,7 +216,7 @@ mod tests {
             version_scheme: "SemVer",
             release_type: "Production",
             write_protected: true,
-            related_item: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
+            related_item: vec![ODataId::new("/redfish/v1/Managers/1")],
             associated_physical_context: "Chassis",
             additional_versions: FwAdditionalVersions {
                 bootloader: "",

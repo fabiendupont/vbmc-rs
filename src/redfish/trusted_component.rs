@@ -210,8 +210,14 @@ pub async fn get_chassis(
         },
         links: ChassisLinks {
             computer_systems,
-            managed_by: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
-            managers_in_chassis: vec![ODataId::new("/redfish/v1/Managers/vbmc")],
+            managed_by: vec![ODataId::new(format!(
+                "/redfish/v1/Managers/{}",
+                state.config.manager_id
+            ))],
+            managers_in_chassis: vec![ODataId::new(format!(
+                "/redfish/v1/Managers/{}",
+                state.config.manager_id
+            ))],
             drives: Vec::new(),
             storage: Vec::new(),
             fans: vec![ODataId::new(format!(

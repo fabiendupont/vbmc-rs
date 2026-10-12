@@ -158,7 +158,7 @@ impl VmmBackend for LibvirtBackend {
             disks: parsed.disks,
             nics: parsed.nics,
             pci_devices: parsed.pci_devices,
-            uuid: None,
+            uuid: parsed.uuid,
             raw: None,
         })
     }

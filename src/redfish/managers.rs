@@ -11,8 +11,6 @@ use crate::auth::AuthenticatedUser;
 use crate::auth::rbac::{Privilege, has_privilege};
 use crate::state::VmState;
 
-const MANAGER_ID: &str = "vbmc";
-
 #[derive(Debug, Serialize)]
 pub struct Manager {
     #[serde(rename = "@odata.id")]
@@ -20,7 +18,7 @@ pub struct Manager {
     #[serde(rename = "@odata.type")]
     pub odata_type: &'static str,
     #[serde(rename = "Id")]
-    pub id: &'static str,
+    pub id: String,
     #[serde(rename = "Name")]
     pub name: &'static str,
     #[serde(rename = "Description")]
@@ -139,8 +137,12 @@ pub struct ManagerLinks {
     pub software_images: Vec<ODataId>,
 }
 
-pub async fn get_managers(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
-    let members = vec![ODataId::new(format!("/redfish/v1/Managers/{MANAGER_ID}"))];
+pub async fn get_managers(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+) -> Json<Collection<ODataId>> {
+    let mid = &state.config.manager_id;
+    let members = vec![ODataId::new(format!("/redfish/v1/Managers/{mid}"))];
     Json(Collection::new(
         "/redfish/v1/Managers",
         "#ManagerCollection.ManagerCollection",
@@ -154,12 +156,13 @@ pub async fn get_manager(
     _user: AuthenticatedUser,
     Path(manager_id): Path<String>,
 ) -> Result<Json<Manager>, RedfishApiError> {
-    if manager_id != MANAGER_ID {
+    if manager_id != state.config.manager_id {
         return Err(RedfishApiError::NotFound(format!(
             "Manager '{manager_id}' not found"
         )));
     }
 
+    let mid = &state.config.manager_id;
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let uuid = state.instance_uuid.clone();
     let serial = format!("VBMC-{}", uuid.split('-').next().unwrap_or("0000"));
@@ -172,9 +175,9 @@ pub async fn get_manager(
         .collect();
 
     Ok(Json(Manager {
-        odata_id: format!("/redfish/v1/Managers/{MANAGER_ID}"),
+        odata_id: format!("/redfish/v1/Managers/{mid}"),
         odata_type: "#Manager.v1_19_0.Manager",
-        id: MANAGER_ID,
+        id: mid.clone(),
         name: "vbmc-rs Virtual BMC",
         description: "vbmc-rs Virtual Baseboard Management Controller",
         manager_type: "BMC",
@@ -211,9 +214,11 @@ pub async fn get_manager(
         auto_dst_enabled: false,
         location: super::types::RedfishLocation::new("BMC", "Embedded", 0)
             .with_config(&state.config.location),
-        network_protocol: ODataId::new("/redfish/v1/Managers/vbmc/NetworkProtocol"),
-        ethernet_interfaces: ODataId::new("/redfish/v1/Managers/vbmc/EthernetInterfaces"),
-        log_services: Some(ODataId::new("/redfish/v1/Managers/vbmc/LogServices")),
+        network_protocol: ODataId::new(format!("/redfish/v1/Managers/{mid}/NetworkProtocol")),
+        ethernet_interfaces: ODataId::new(format!("/redfish/v1/Managers/{mid}/EthernetInterfaces")),
+        log_services: Some(ODataId::new(format!(
+            "/redfish/v1/Managers/{mid}/LogServices"
+        ))),
         links: ManagerLinks {
             manager_for_servers,
             manager_for_chassis: vec![ODataId::new(format!(
@@ -232,14 +237,12 @@ pub async fn get_manager(
             )],
         },
         actions: ManagerActions {
-                reset: ManagerResetAction {
-                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", MANAGER_ID),
-                    allowable_values: vec!["GracefulRestart", "ForceRestart"],
-                },
+            reset: ManagerResetAction {
+                target: format!("/redfish/v1/Managers/{mid}/Actions/Manager.Reset"),
+                allowable_values: vec!["GracefulRestart", "ForceRestart"],
+            },
             reset_to_defaults: ManagerResetToDefaultsAction {
-                target: format!(
-                    "/redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.ResetToDefaults"
-                ),
+                target: format!("/redfish/v1/Managers/{mid}/Actions/Manager.ResetToDefaults"),
                 allowable_values: vec!["ResetAll", "PreserveNetworkAndUsers", "PreserveNetwork"],
             },
         },
@@ -252,7 +255,7 @@ pub async fn reset_to_defaults(
     Path(manager_id): Path<String>,
     Json(body): Json<ResetToDefaultsRequest>,
 ) -> Result<Json<serde_json::Value>, RedfishApiError> {
-    if manager_id != MANAGER_ID {
+    if manager_id != state.config.manager_id {
         return Err(RedfishApiError::NotFound(format!(
             "Manager '{manager_id}' not found"
         )));
@@ -292,9 +295,9 @@ mod tests {
     #[test]
     fn test_manager_serialization() {
         let manager = Manager {
-            odata_id: "/redfish/v1/Managers/vbmc".to_string(),
+            odata_id: "/redfish/v1/Managers/1".to_string(),
             odata_type: "#Manager.v1_19_0.Manager",
-            id: "vbmc",
+            id: "1".to_string(),
             name: "vbmc-rs Virtual BMC",
             description: "vbmc-rs Virtual Baseboard Management Controller",
             manager_type: "BMC",
@@ -327,9 +330,9 @@ mod tests {
             service_identification: "vbmc-rs-0000".to_string(),
             auto_dst_enabled: false,
             location: super::super::types::RedfishLocation::new("BMC", "Embedded", 0),
-            network_protocol: ODataId::new("/redfish/v1/Managers/vbmc/NetworkProtocol"),
-            ethernet_interfaces: ODataId::new("/redfish/v1/Managers/vbmc/EthernetInterfaces"),
-            log_services: Some(ODataId::new("/redfish/v1/Managers/vbmc/LogServices")),
+            network_protocol: ODataId::new("/redfish/v1/Managers/1/NetworkProtocol"),
+            ethernet_interfaces: ODataId::new("/redfish/v1/Managers/1/EthernetInterfaces"),
+            log_services: Some(ODataId::new("/redfish/v1/Managers/1/LogServices")),
             links: ManagerLinks {
                 manager_for_servers: vec![ODataId::new("/redfish/v1/Systems/vm1")],
                 manager_for_chassis: vec![ODataId::new("/redfish/v1/Chassis/ch1")],
@@ -346,11 +349,11 @@ mod tests {
             },
             actions: ManagerActions {
                 reset: ManagerResetAction {
-                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", MANAGER_ID),
+                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", "1"),
                     allowable_values: vec!["GracefulRestart", "ForceRestart"],
                 },
                 reset_to_defaults: ManagerResetToDefaultsAction {
-                    target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults".to_string(),
+                    target: "/redfish/v1/Managers/1/Actions/Manager.ResetToDefaults".to_string(),
                     allowable_values: vec![
                         "ResetAll",
                         "PreserveNetworkAndUsers",
@@ -362,9 +365,9 @@ mod tests {
 
         let json = serde_json::to_value(&manager).unwrap();
 
-        assert_eq!(json["@odata.id"], "/redfish/v1/Managers/vbmc");
+        assert_eq!(json["@odata.id"], "/redfish/v1/Managers/1");
         assert_eq!(json["@odata.type"], "#Manager.v1_19_0.Manager");
-        assert_eq!(json["Id"], "vbmc");
+        assert_eq!(json["Id"], "1");
         assert_eq!(json["ManagerType"], "BMC");
         assert_eq!(json["CommandShell"]["ServiceEnabled"], true);
         assert_eq!(json["CommandShell"]["MaxConcurrentSessions"], 2);
@@ -431,9 +434,9 @@ mod tests {
     #[test]
     fn test_manager_log_services_present() {
         let manager = Manager {
-            odata_id: "/redfish/v1/Managers/vbmc".to_string(),
+            odata_id: "/redfish/v1/Managers/1".to_string(),
             odata_type: "#Manager.v1_19_0.Manager",
-            id: "vbmc",
+            id: "1".to_string(),
             name: "vbmc-rs Virtual BMC",
             description: "vbmc-rs Virtual Baseboard Management Controller",
             manager_type: "BMC",
@@ -466,9 +469,9 @@ mod tests {
             service_identification: "vbmc-rs-0000".to_string(),
             auto_dst_enabled: false,
             location: super::super::types::RedfishLocation::new("BMC", "Embedded", 0),
-            network_protocol: ODataId::new("/redfish/v1/Managers/vbmc/NetworkProtocol"),
-            ethernet_interfaces: ODataId::new("/redfish/v1/Managers/vbmc/EthernetInterfaces"),
-            log_services: Some(ODataId::new("/redfish/v1/Managers/vbmc/LogServices")),
+            network_protocol: ODataId::new("/redfish/v1/Managers/1/NetworkProtocol"),
+            ethernet_interfaces: ODataId::new("/redfish/v1/Managers/1/EthernetInterfaces"),
+            log_services: Some(ODataId::new("/redfish/v1/Managers/1/LogServices")),
             links: ManagerLinks {
                 manager_for_servers: Vec::new(),
                 manager_for_chassis: Vec::new(),
@@ -483,11 +486,11 @@ mod tests {
             },
             actions: ManagerActions {
                 reset: ManagerResetAction {
-                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", MANAGER_ID),
+                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", "1"),
                     allowable_values: vec!["GracefulRestart", "ForceRestart"],
                 },
                 reset_to_defaults: ManagerResetToDefaultsAction {
-                    target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults".to_string(),
+                    target: "/redfish/v1/Managers/1/Actions/Manager.ResetToDefaults".to_string(),
                     allowable_values: vec![
                         "ResetAll",
                         "PreserveNetworkAndUsers",
@@ -500,16 +503,16 @@ mod tests {
         let json = serde_json::to_value(&manager).unwrap();
         assert_eq!(
             json["LogServices"]["@odata.id"],
-            "/redfish/v1/Managers/vbmc/LogServices"
+            "/redfish/v1/Managers/1/LogServices"
         );
     }
 
     #[test]
     fn test_manager_log_services_absent() {
         let manager = Manager {
-            odata_id: "/redfish/v1/Managers/vbmc".to_string(),
+            odata_id: "/redfish/v1/Managers/1".to_string(),
             odata_type: "#Manager.v1_19_0.Manager",
-            id: "vbmc",
+            id: "1".to_string(),
             name: "vbmc-rs Virtual BMC",
             description: "vbmc-rs Virtual Baseboard Management Controller",
             manager_type: "BMC",
@@ -542,8 +545,8 @@ mod tests {
             service_identification: "vbmc-rs-0000".to_string(),
             auto_dst_enabled: false,
             location: super::super::types::RedfishLocation::new("BMC", "Embedded", 0),
-            network_protocol: ODataId::new("/redfish/v1/Managers/vbmc/NetworkProtocol"),
-            ethernet_interfaces: ODataId::new("/redfish/v1/Managers/vbmc/EthernetInterfaces"),
+            network_protocol: ODataId::new("/redfish/v1/Managers/1/NetworkProtocol"),
+            ethernet_interfaces: ODataId::new("/redfish/v1/Managers/1/EthernetInterfaces"),
             log_services: None,
             links: ManagerLinks {
                 manager_for_servers: Vec::new(),
@@ -559,11 +562,11 @@ mod tests {
             },
             actions: ManagerActions {
                 reset: ManagerResetAction {
-                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", MANAGER_ID),
+                    target: format!("/redfish/v1/Managers/{}/Actions/Manager.Reset", "1"),
                     allowable_values: vec!["GracefulRestart", "ForceRestart"],
                 },
                 reset_to_defaults: ManagerResetToDefaultsAction {
-                    target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults".to_string(),
+                    target: "/redfish/v1/Managers/1/Actions/Manager.ResetToDefaults".to_string(),
                     allowable_values: vec![
                         "ResetAll",
                         "PreserveNetworkAndUsers",
@@ -581,18 +584,18 @@ mod tests {
     fn test_manager_actions_serialization() {
         let actions = ManagerActions {
             reset: ManagerResetAction {
-                target: format!("/redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.Reset"),
+                target: "/redfish/v1/Managers/1/Actions/Manager.Reset".to_string(),
                 allowable_values: vec!["GracefulRestart", "ForceRestart"],
             },
             reset_to_defaults: ManagerResetToDefaultsAction {
-                target: "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults".to_string(),
+                target: "/redfish/v1/Managers/1/Actions/Manager.ResetToDefaults".to_string(),
                 allowable_values: vec!["ResetAll", "PreserveNetworkAndUsers", "PreserveNetwork"],
             },
         };
         let json = serde_json::to_value(&actions).unwrap();
         assert_eq!(
             json["#Manager.ResetToDefaults"]["target"],
-            "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults"
+            "/redfish/v1/Managers/1/Actions/Manager.ResetToDefaults"
         );
         assert_eq!(
             json["#Manager.ResetToDefaults"]["ResetType@Redfish.AllowableValues"][0],
@@ -619,7 +622,7 @@ mod tests {
         let (status, body, _) = test_harness::request_json(
             &app,
             Method::POST,
-            "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults",
+            "/redfish/v1/Managers/1/Actions/Manager.ResetToDefaults",
             serde_json::json!({"ResetType": "ResetAll"}),
         )
         .await;
@@ -642,7 +645,7 @@ mod tests {
         let (status, _, _) = test_harness::request_json(
             &app,
             Method::POST,
-            "/redfish/v1/Managers/vbmc/Actions/Manager.ResetToDefaults",
+            "/redfish/v1/Managers/1/Actions/Manager.ResetToDefaults",
             serde_json::json!({"ResetType": "Bogus"}),
         )
         .await;
