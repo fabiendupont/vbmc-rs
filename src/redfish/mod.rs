@@ -307,6 +307,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/redfish/v1/Managers/vbmc/LogServices/{log_id}/Entries",
             get(log_service::get_manager_log_entries),
         )
+        .route(
+            "/redfish/v1/Managers/vbmc/LogServices/{log_id}/Actions/LogService.ClearLog",
+            post(log_service::clear_manager_log),
+        )
         // Task Service
         .route(
             "/redfish/v1/TaskService",

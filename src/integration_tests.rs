@@ -718,7 +718,8 @@ async fn test_system_log_services() {
 
     let (status, json, _) = get(&app, "/redfish/v1/Systems/vm1/LogServices").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["Members@odata.count"], 1);
+    // "Log" (SEL) and "Console" are now both listed.
+    assert_eq!(json["Members@odata.count"], 2);
 }
 
 #[tokio::test]
@@ -728,7 +729,8 @@ async fn test_manager_log_services() {
 
     let (status, json, _) = get(&app, "/redfish/v1/Managers/vbmc/LogServices").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["Members@odata.count"], 1);
+    // Both "Log" (NICo convention) and "Audit" (legacy) are now listed.
+    assert_eq!(json["Members@odata.count"], 2);
 }
 
 // ── 404 on unknown routes ─────────────────────────────────────────────

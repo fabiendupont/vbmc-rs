@@ -9,6 +9,7 @@ use crate::backend::Backend;
 use crate::backend::mockup::MockupStore;
 use crate::config::{AppConfig, SecurityPolicyConfig};
 use crate::events::EventBus;
+use crate::events::event_log::EventLog;
 use crate::events::subscriptions::SubscriptionStore;
 use crate::state::VmState;
 use crate::tasks::TaskManager;
@@ -29,6 +30,10 @@ pub struct AppState {
     /// Chassis ID derived from config: the unique chassis_id across all systems,
     /// defaulting to "1" when none is set.
     pub chassis_id: String,
+    /// Persistent System Event Log (SEL) — survives vbmc-rs restarts.
+    /// Served at Managers/vbmc/LogServices/Log/Entries and
+    /// Systems/{id}/LogServices/Log/Entries.
+    pub event_log: Arc<EventLog>,
     system_locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
@@ -71,6 +76,10 @@ impl AppState {
             }
         };
 
+        // The event log lives next to the VmState files so it survives restarts.
+        let event_log_path = config.state_directory.join("event-log.jsonl");
+        let event_log = Arc::new(EventLog::new(event_log_path));
+
         Self {
             config,
             backend,
@@ -85,6 +94,7 @@ impl AppState {
             instance_uuid: uuid::Uuid::new_v4().to_string(),
             mockup_store,
             chassis_id,
+            event_log,
             system_locks: DashMap::new(),
         }
     }

@@ -86,12 +86,58 @@ fn emit_power_event(
     severity: &str,
     actor: Option<String>,
 ) {
+    // Map the Redfish ResetType to a human-readable SEL message.  The message
+    // MUST contain at least one of the keywords NICo's machine-controller
+    // searches for ("reset", "reboot", "restart", "power", "start") so that
+    // `check_restart_in_logs` succeeds after a ForceRestart.
+    let (message, message_id) = match reset_type {
+        "On" | "ForceOn" => (
+            format!("System power on: '{system_id}'"),
+            "Power.1.0.PowerStateChange",
+        ),
+        "ForceOff" => (
+            format!("System power off (force): '{system_id}'"),
+            "Power.1.0.PowerStateChange",
+        ),
+        "GracefulShutdown" => (
+            format!("System graceful shutdown: '{system_id}'"),
+            "Power.1.0.PowerStateChange",
+        ),
+        "GracefulRestart" => (
+            format!("System graceful restart: '{system_id}'"),
+            "Power.1.0.PowerStateChange",
+        ),
+        "ForceRestart" => (
+            format!("System reset (force restart): '{system_id}'"),
+            "Power.1.0.PowerStateChange",
+        ),
+        "PushPowerButton" => (
+            format!("System power button pressed: '{system_id}'"),
+            "Power.1.0.PowerStateChange",
+        ),
+        "Pause" => (
+            format!("System paused: '{system_id}'"),
+            "Power.1.0.PowerStateChange",
+        ),
+        "Resume" => (
+            format!("System resumed: '{system_id}'"),
+            "Power.1.0.PowerStateChange",
+        ),
+        other => (
+            format!("System reset action '{other}': '{system_id}'"),
+            "Power.1.0.PowerStateChange",
+        ),
+    };
+
+    // Append to the persistent System Event Log.
+    state.event_log.append(&message, message_id, severity);
+
     state.event_bus.emit(RedfishEvent {
         event_type: EVENT_TYPE_STATUS_CHANGE.to_string(),
         event_id: uuid::Uuid::new_v4().to_string(),
         event_timestamp: Utc::now(),
         message_id: MSG_SYSTEM_POWER_ON.to_string(),
-        message: format!("System '{system_id}' reset action: {reset_type}"),
+        message: message.clone(),
         origin_of_condition: Some(format!("/redfish/v1/Systems/{system_id}")),
         severity: severity.to_string(),
         actor,
@@ -196,6 +242,31 @@ pub async fn reset_system(
                 .vm_boot(&system_id)
                 .await
                 .map_err(|e| RedfishApiError::InternalError(e.to_string()))?;
+
+            // VirtualMedia persistence: if an ISO was inserted before this
+            // power-on (e.g. during a previous boot) it may have been lost
+            // when the domain was destroyed (hotplug is live-only for libvirt).
+            // Re-attach the CDROM device now that the VM is running so the
+            // ISO remains available — errors are silently ignored because the
+            // device may already be present.
+            {
+                let vm_state = state.get_vm_state(&system_id);
+                if vm_state.virtual_media.inserted {
+                    if let (Some(path), Some(device_id)) = (
+                        &vm_state.virtual_media.image_path,
+                        &vm_state.virtual_media.device_id,
+                    ) {
+                        let disk = DiskCreateConfig {
+                            path: Some(path.to_string_lossy().to_string()),
+                            id: Some(device_id.clone()),
+                            readonly: true,
+                            vhost_user: None,
+                            vhost_socket: None,
+                        };
+                        let _ = state.backend.vm_add_disk(&system_id, disk).await;
+                    }
+                }
+            }
 
             clear_once_boot_override(&state, &system_id).await;
 
