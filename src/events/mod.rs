@@ -1,4 +1,5 @@
 pub mod audit_log;
+pub mod event_log;
 pub mod registry;
 pub mod snmp_trap;
 pub mod subscriptions;

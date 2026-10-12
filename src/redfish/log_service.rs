@@ -8,6 +8,7 @@ use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
 use crate::auth::AuthenticatedUser;
+use crate::auth::rbac::{Privilege, has_privilege};
 
 #[derive(Debug, Serialize)]
 pub struct LogServiceResource {
@@ -83,9 +84,14 @@ pub async fn get_system_log_services(
         )));
     }
 
-    let members = vec![ODataId::new(format!(
-        "/redfish/v1/Systems/{system_id}/LogServices/Console"
-    ))];
+    let members = vec![
+        ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/LogServices/Log"
+        )),
+        ODataId::new(format!(
+            "/redfish/v1/Systems/{system_id}/LogServices/Console"
+        )),
+    ];
 
     Ok(Json(Collection::new(
         format!("/redfish/v1/Systems/{system_id}/LogServices"),
@@ -105,64 +111,105 @@ pub async fn get_system_log_service(
             "System '{system_id}' not found"
         )));
     }
-    if log_id != "Console" {
-        return Err(RedfishApiError::NotFound(format!(
-            "LogService '{log_id}' not found"
-        )));
-    }
 
-    Ok(Json(LogServiceResource {
-        odata_id: format!("/redfish/v1/Systems/{system_id}/LogServices/Console"),
-        odata_type: "#LogService.v1_5_0.LogService",
-        id: "Console".to_string(),
-        name: "Console Log".to_string(),
-        description: "Log service",
-        entries: ODataId::new(format!(
-            "/redfish/v1/Systems/{system_id}/LogServices/Console/Entries"
-        )),
-        service_enabled: true,
-        overwrite_policy: "WrapsWhenFull",
-        max_number_of_records: 1000,
-        date_time: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-        date_time_local_offset: "+00:00",
-        log_entry_type: "Event",
-        auto_dst_enabled: false,
-        syslog_filters: Vec::new(),
-        log_purposes: vec!["Diagnostic"],
-        overflow: false,
-        persistency: false,
-        status: Status::enabled_ok(),
-    }))
+    match log_id.as_str() {
+        "Log" => Ok(Json(LogServiceResource {
+            odata_id: format!("/redfish/v1/Systems/{system_id}/LogServices/Log"),
+            odata_type: "#LogService.v1_5_0.LogService",
+            id: "Log".to_string(),
+            name: "System Event Log".to_string(),
+            description: "BMC system event log including power-cycle events",
+            entries: ODataId::new(format!(
+                "/redfish/v1/Systems/{system_id}/LogServices/Log/Entries"
+            )),
+            service_enabled: true,
+            overwrite_policy: "WrapsWhenFull",
+            max_number_of_records: 1000,
+            date_time: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            date_time_local_offset: "+00:00",
+            log_entry_type: "Event",
+            auto_dst_enabled: false,
+            syslog_filters: Vec::new(),
+            log_purposes: vec!["Diagnostic", "Operations"],
+            overflow: false,
+            persistency: true,
+            status: Status::enabled_ok(),
+        })),
+        "Console" => Ok(Json(LogServiceResource {
+            odata_id: format!("/redfish/v1/Systems/{system_id}/LogServices/Console"),
+            odata_type: "#LogService.v1_5_0.LogService",
+            id: "Console".to_string(),
+            name: "Console Log".to_string(),
+            description: "Serial console log",
+            entries: ODataId::new(format!(
+                "/redfish/v1/Systems/{system_id}/LogServices/Console/Entries"
+            )),
+            service_enabled: true,
+            overwrite_policy: "WrapsWhenFull",
+            max_number_of_records: 1000,
+            date_time: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            date_time_local_offset: "+00:00",
+            log_entry_type: "Event",
+            auto_dst_enabled: false,
+            syslog_filters: Vec::new(),
+            log_purposes: vec!["Diagnostic"],
+            overflow: false,
+            persistency: false,
+            status: Status::enabled_ok(),
+        })),
+        _ => Err(RedfishApiError::NotFound(format!(
+            "LogService '{log_id}' not found"
+        ))),
+    }
 }
 
 pub async fn get_system_log_entries(
     State(state): State<Arc<AppState>>,
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     Path((system_id, log_id)): Path<(String, String)>,
-) -> Result<Json<Collection<ODataId>>, RedfishApiError> {
-    if !state.config.systems.contains_key(&system_id) {
-        return Err(RedfishApiError::NotFound(format!(
-            "System '{system_id}' not found"
-        )));
+) -> axum::response::Response {
+    use axum::response::IntoResponse as _;
+    // Dispatch to the appropriate handler based on log_id.
+    match log_id.as_str() {
+        "Log" => {
+            match get_system_log_entries_sel(
+                State(state),
+                user,
+                Path((system_id, log_id)),
+            )
+            .await
+            {
+                Ok(json) => json.into_response(),
+                Err(e) => e.into_response(),
+            }
+        }
+        "Console" => {
+            if !state.config.systems.contains_key(&system_id) {
+                return RedfishApiError::NotFound(format!("System '{system_id}' not found"))
+                    .into_response();
+            }
+            // Console entries come from serial console output; empty for now.
+            Json(Collection::new(
+                format!("/redfish/v1/Systems/{system_id}/LogServices/Console/Entries"),
+                "#LogEntryCollection.LogEntryCollection",
+                "Log Entry Collection",
+                Vec::<ODataId>::new(),
+            ))
+            .into_response()
+        }
+        _ => RedfishApiError::NotFound(format!("LogService '{log_id}' not found"))
+            .into_response(),
     }
-    if log_id != "Console" {
-        return Err(RedfishApiError::NotFound(format!(
-            "LogService '{log_id}' not found"
-        )));
-    }
-
-    // Console entries would come from serial console output; empty for now
-    Ok(Json(Collection::new(
-        format!("/redfish/v1/Systems/{system_id}/LogServices/{log_id}/Entries"),
-        "#LogEntryCollection.LogEntryCollection",
-        "Log Entry Collection",
-        Vec::<ODataId>::new(),
-    )))
 }
 
 // Manager LogServices collection
 pub async fn get_manager_log_services(_user: AuthenticatedUser) -> Json<Collection<ODataId>> {
-    let members = vec![ODataId::new("/redfish/v1/Managers/vbmc/LogServices/Audit")];
+    // Expose both "Log" (used by NICo's machine-controller to check for reset events)
+    // and "Audit" (historical name). Both serve the same audit.jsonl data.
+    let members = vec![
+        ODataId::new("/redfish/v1/Managers/vbmc/LogServices/Log"),
+        ODataId::new("/redfish/v1/Managers/vbmc/LogServices/Audit"),
+    ];
 
     Json(Collection::new(
         "/redfish/v1/Managers/vbmc/LogServices",
@@ -176,19 +223,22 @@ pub async fn get_manager_log_service(
     _user: AuthenticatedUser,
     Path(log_id): Path<String>,
 ) -> Result<Json<LogServiceResource>, RedfishApiError> {
-    if log_id != "Audit" {
+    // Accept "Log" (NICo convention) and "Audit" (legacy); both serve the same log.
+    if log_id != "Audit" && log_id != "Log" {
         return Err(RedfishApiError::NotFound(format!(
             "LogService '{log_id}' not found"
         )));
     }
 
     Ok(Json(LogServiceResource {
-        odata_id: "/redfish/v1/Managers/vbmc/LogServices/Audit".to_string(),
+        odata_id: format!("/redfish/v1/Managers/vbmc/LogServices/{log_id}"),
         odata_type: "#LogService.v1_5_0.LogService",
-        id: "Audit".to_string(),
-        name: "Audit Log".to_string(),
-        description: "Log service",
-        entries: ODataId::new("/redfish/v1/Managers/vbmc/LogServices/Audit/Entries"),
+        id: log_id.clone(),
+        name: "BMC Event Log".to_string(),
+        description: "BMC event log including power-cycle events",
+        entries: ODataId::new(format!(
+            "/redfish/v1/Managers/vbmc/LogServices/{log_id}/Entries"
+        )),
         service_enabled: true,
         overwrite_policy: "WrapsWhenFull",
         max_number_of_records: 1000,
@@ -209,51 +259,274 @@ pub async fn get_manager_log_entries(
     _user: AuthenticatedUser,
     Path(log_id): Path<String>,
 ) -> Result<Json<Collection<LogEntryResource>>, RedfishApiError> {
-    if log_id != "Audit" {
-        return Err(RedfishApiError::NotFound(format!(
+    let collection_path = format!("/redfish/v1/Managers/vbmc/LogServices/{log_id}/Entries");
+
+    match log_id.as_str() {
+        "Log" => {
+            // "Log" serves the dedicated in-memory/persistent event log that
+            // contains power-cycle and BMC events.  This is what NICo's
+            // machine-controller queries when checking for a post-reset entry.
+            let raw = state.event_log.entries_newest_first();
+            let entries: Vec<LogEntryResource> = raw
+                .into_iter()
+                .map(|e| LogEntryResource {
+                    odata_id: format!("{collection_path}/{}", e.id),
+                    odata_type: "#LogEntry.v1_16_0.LogEntry",
+                    id: e.id.to_string(),
+                    name: format!("Entry {}", e.id),
+                    description: "Log entry",
+                    entry_type: "Event",
+                    message: e.message,
+                    created: Some(
+                        e.created
+                            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                            .to_string(),
+                    ),
+                    severity: match e.severity.as_str() {
+                        "Warning" => "Warning",
+                        "Critical" => "Critical",
+                        _ => "OK",
+                    },
+                })
+                .collect();
+
+            Ok(Json(Collection::new(
+                collection_path,
+                "#LogEntryCollection.LogEntryCollection",
+                "Log Entry Collection",
+                entries,
+            )))
+        }
+        "Audit" => {
+            // "Audit" keeps the legacy behaviour: read from audit.jsonl.
+            // RedfishEvent serialises its fields with PascalCase Redfish names
+            // (e.g. "Message", "EventTimestamp") — use those exact keys here.
+            let audit_path = if state.config.audit_log.as_os_str().is_empty() {
+                state.config.state_directory.join("audit.jsonl")
+            } else {
+                state.config.audit_log.clone()
+            };
+
+            let mut entries = Vec::new();
+            if let Ok(content) = std::fs::read_to_string(&audit_path) {
+                for (i, line) in content.lines().rev().take(50).enumerate() {
+                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(line) {
+                        entries.push(LogEntryResource {
+                            odata_id: format!("{collection_path}/{i}"),
+                            odata_type: "#LogEntry.v1_16_0.LogEntry",
+                            id: i.to_string(),
+                            name: format!("Entry {i}"),
+                            description: "Log entry",
+                            entry_type: "Event",
+                            message: event
+                                .get("Message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            created: event
+                                .get("EventTimestamp")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
+                            severity: "OK",
+                        });
+                    }
+                }
+            }
+
+            Ok(Json(Collection::new(
+                collection_path,
+                "#LogEntryCollection.LogEntryCollection",
+                "Log Entry Collection",
+                entries,
+            )))
+        }
+        _ => Err(RedfishApiError::NotFound(format!(
             "LogService '{log_id}' not found"
+        ))),
+    }
+}
+
+/// POST /redfish/v1/Managers/vbmc/LogServices/{log_id}/Actions/LogService.ClearLog
+pub async fn clear_manager_log(
+    State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
+    Path(log_id): Path<String>,
+) -> Result<Json<serde_json::Value>, RedfishApiError> {
+    if !has_privilege(&user.role, Privilege::ConfigureManager) {
+        return Err(RedfishApiError::Forbidden(
+            "Insufficient privileges".to_string(),
+        ));
+    }
+
+    match log_id.as_str() {
+        "Log" => {
+            state.event_log.clear();
+            Ok(Json(serde_json::json!({"message": "Log cleared"})))
+        }
+        "Audit" => {
+            // Clear the audit.jsonl file.
+            let audit_path = if state.config.audit_log.as_os_str().is_empty() {
+                state.config.state_directory.join("audit.jsonl")
+            } else {
+                state.config.audit_log.clone()
+            };
+            let _ = std::fs::write(&audit_path, "");
+            Ok(Json(serde_json::json!({"message": "Audit log cleared"})))
+        }
+        _ => Err(RedfishApiError::NotFound(format!(
+            "LogService '{log_id}' not found"
+        ))),
+    }
+}
+
+/// GET /redfish/v1/Systems/{system_id}/LogServices/Log/Entries
+/// Serves the same persistent event log as the Manager LogServices/Log endpoint.
+pub async fn get_system_log_entries_sel(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+    Path((system_id, log_id)): Path<(String, String)>,
+) -> Result<Json<Collection<LogEntryResource>>, RedfishApiError> {
+    if !state.config.systems.contains_key(&system_id) {
+        return Err(RedfishApiError::NotFound(format!(
+            "System '{system_id}' not found"
         )));
     }
 
-    // Parse audit.jsonl entries
-    let audit_path = if state.config.audit_log.as_os_str().is_empty() {
-        state.config.state_directory.join("audit.jsonl")
-    } else {
-        state.config.audit_log.clone()
-    };
+    let collection_path =
+        format!("/redfish/v1/Systems/{system_id}/LogServices/{log_id}/Entries");
 
-    let mut entries = Vec::new();
-    if let Ok(content) = std::fs::read_to_string(&audit_path) {
-        for (i, line) in content.lines().rev().take(50).enumerate() {
-            if let Ok(event) = serde_json::from_str::<serde_json::Value>(line) {
-                entries.push(LogEntryResource {
-                    odata_id: format!("/redfish/v1/Managers/vbmc/LogServices/Audit/Entries/{i}"),
+    match log_id.as_str() {
+        "Log" => {
+            let raw = state.event_log.entries_newest_first();
+            let entries: Vec<LogEntryResource> = raw
+                .into_iter()
+                .map(|e| LogEntryResource {
+                    odata_id: format!("{collection_path}/{}", e.id),
                     odata_type: "#LogEntry.v1_16_0.LogEntry",
-                    id: i.to_string(),
-                    name: format!("Audit Entry {i}"),
+                    id: e.id.to_string(),
+                    name: format!("Entry {}", e.id),
                     description: "Log entry",
                     entry_type: "Event",
-                    message: event
-                        .get("message")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    created: event
-                        .get("event_timestamp")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                    severity: "OK",
-                });
-            }
-        }
-    }
+                    message: e.message,
+                    created: Some(
+                        e.created
+                            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                            .to_string(),
+                    ),
+                    severity: match e.severity.as_str() {
+                        "Warning" => "Warning",
+                        "Critical" => "Critical",
+                        _ => "OK",
+                    },
+                })
+                .collect();
 
-    Ok(Json(Collection::new(
-        "/redfish/v1/Managers/vbmc/LogServices/Audit/Entries",
-        "#LogEntryCollection.LogEntryCollection",
-        "Log Entry Collection",
-        entries,
-    )))
+            Ok(Json(Collection::new(
+                collection_path,
+                "#LogEntryCollection.LogEntryCollection",
+                "Log Entry Collection",
+                entries,
+            )))
+        }
+        "Console" => {
+            // Console entries: delegate to the existing handler logic.
+            Ok(Json(Collection::new(
+                collection_path,
+                "#LogEntryCollection.LogEntryCollection",
+                "Log Entry Collection",
+                Vec::<LogEntryResource>::new(),
+            )))
+        }
+        _ => Err(RedfishApiError::NotFound(format!(
+            "LogService '{log_id}' not found"
+        ))),
+    }
+}
+
+/// GET /redfish/v1/Systems/{system_id}/LogServices/{log_id}/Entries/{entry_id}
+pub async fn get_system_log_entry(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+    Path((system_id, log_id, entry_id)): Path<(String, String, String)>,
+) -> Result<Json<LogEntryResource>, RedfishApiError> {
+    if !state.config.systems.contains_key(&system_id) {
+        return Err(RedfishApiError::NotFound(format!(
+            "System '{system_id}' not found"
+        )));
+    }
+    let id: u64 = entry_id
+        .parse()
+        .map_err(|_| RedfishApiError::NotFound(format!("Log entry '{entry_id}' not found")))?;
+    let entry = state
+        .event_log
+        .entries_newest_first()
+        .into_iter()
+        .find(|e| e.id == id)
+        .ok_or_else(|| RedfishApiError::NotFound(format!("Log entry '{entry_id}' not found")))?;
+    let base = format!("/redfish/v1/Systems/{system_id}/LogServices/{log_id}/Entries");
+    Ok(Json(LogEntryResource {
+        odata_id: format!("{base}/{}", entry.id),
+        odata_type: "#LogEntry.v1_16_0.LogEntry",
+        id: entry.id.to_string(),
+        name: format!("Entry {}", entry.id),
+        description: "Log entry",
+        entry_type: "Event",
+        message: entry.message,
+        created: Some(
+            entry
+                .created
+                .to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
+                .to_string(),
+        ),
+        severity: match entry.severity.as_str() {
+            "Warning" => "Warning",
+            "Critical" => "Critical",
+            _ => "OK",
+        },
+    }))
+}
+
+/// GET /redfish/v1/Managers/{manager_id}/LogServices/{log_id}/Entries/{entry_id}
+pub async fn get_manager_log_entry(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+    Path((manager_id, log_id, entry_id)): Path<(String, String, String)>,
+) -> Result<Json<LogEntryResource>, RedfishApiError> {
+    if manager_id != state.config.manager_id {
+        return Err(RedfishApiError::NotFound(format!(
+            "Manager '{manager_id}' not found"
+        )));
+    }
+    let id: u64 = entry_id
+        .parse()
+        .map_err(|_| RedfishApiError::NotFound(format!("Log entry '{entry_id}' not found")))?;
+    let entry = state
+        .event_log
+        .entries_newest_first()
+        .into_iter()
+        .find(|e| e.id == id)
+        .ok_or_else(|| RedfishApiError::NotFound(format!("Log entry '{entry_id}' not found")))?;
+    let base = format!("/redfish/v1/Managers/{manager_id}/LogServices/{log_id}/Entries");
+    Ok(Json(LogEntryResource {
+        odata_id: format!("{base}/{}", entry.id),
+        odata_type: "#LogEntry.v1_16_0.LogEntry",
+        id: entry.id.to_string(),
+        name: format!("Entry {}", entry.id),
+        description: "Log entry",
+        entry_type: "Event",
+        message: entry.message,
+        created: Some(
+            entry
+                .created
+                .to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
+                .to_string(),
+        ),
+        severity: match entry.severity.as_str() {
+            "Warning" => "Warning",
+            "Critical" => "Critical",
+            _ => "OK",
+        },
+    }))
 }
 
 #[cfg(test)]
@@ -412,11 +685,15 @@ mod harness_tests {
             json["@odata.type"],
             "#LogServiceCollection.LogServiceCollection"
         );
-        assert_eq!(json["Members@odata.count"], 1);
-        assert_eq!(
-            json["Members"][0]["@odata.id"],
-            "/redfish/v1/Systems/sys/LogServices/Console"
-        );
+        // "Log" (SEL) and "Console" are now both listed.
+        assert_eq!(json["Members@odata.count"], 2);
+        let members = json["Members"].as_array().unwrap();
+        let ids: Vec<&str> = members
+            .iter()
+            .filter_map(|m| m["@odata.id"].as_str())
+            .collect();
+        assert!(ids.contains(&"/redfish/v1/Systems/sys/LogServices/Log"));
+        assert!(ids.contains(&"/redfish/v1/Systems/sys/LogServices/Console"));
     }
 
     #[tokio::test]
@@ -528,33 +805,44 @@ mod harness_tests {
             json["@odata.type"],
             "#LogServiceCollection.LogServiceCollection"
         );
-        assert_eq!(json["Members@odata.count"], 1);
-        assert_eq!(
-            json["Members"][0]["@odata.id"],
-            "/redfish/v1/Managers/vbmc/LogServices/Audit"
-        );
+        // Both "Log" and "Audit" are now listed.
+        assert_eq!(json["Members@odata.count"], 2);
+        let members = json["Members"].as_array().unwrap();
+        let ids: Vec<&str> = members
+            .iter()
+            .filter_map(|m| m["@odata.id"].as_str())
+            .collect();
+        assert!(ids.contains(&"/redfish/v1/Managers/vbmc/LogServices/Log"));
+        assert!(ids.contains(&"/redfish/v1/Managers/vbmc/LogServices/Audit"));
     }
 
     #[tokio::test]
     async fn test_get_manager_log_service() {
         let app = h::router_with_systems(HashMap::new());
 
-        let (status, json, _) = h::get(&app, "/redfish/v1/Managers/vbmc/LogServices/Audit").await;
+        // Test both "Audit" (legacy) and "Log" (NICo convention).
+        for log_id in &["Audit", "Log"] {
+            let (status, json, _) = h::get(
+                &app,
+                &format!("/redfish/v1/Managers/vbmc/LogServices/{log_id}"),
+            )
+            .await;
 
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(
-            json["@odata.id"],
-            "/redfish/v1/Managers/vbmc/LogServices/Audit"
-        );
-        assert_eq!(json["@odata.type"], "#LogService.v1_5_0.LogService");
-        assert_eq!(json["Id"], "Audit");
-        assert_eq!(json["Name"], "Audit Log");
-        assert_eq!(json["ServiceEnabled"], true);
-        assert_eq!(json["Persistency"], true);
-        assert_eq!(
-            json["LogPurposes"],
-            serde_json::json!(["Security", "Diagnostic"])
-        );
+            assert_eq!(status, StatusCode::OK, "log_id={log_id}");
+            assert_eq!(
+                json["@odata.id"],
+                format!("/redfish/v1/Managers/vbmc/LogServices/{log_id}"),
+                "log_id={log_id}"
+            );
+            assert_eq!(json["@odata.type"], "#LogService.v1_5_0.LogService");
+            assert_eq!(json["Id"], *log_id);
+            assert_eq!(json["ServiceEnabled"], true);
+            assert_eq!(json["Persistency"], true);
+            assert_eq!(
+                json["LogPurposes"],
+                serde_json::json!(["Security", "Diagnostic"])
+            );
+        }
     }
 
     #[tokio::test]
@@ -576,20 +864,20 @@ mod harness_tests {
     async fn test_get_manager_log_entries() {
         let app = h::router_with_systems(HashMap::new());
 
-        let (status, json, _) =
-            h::get(&app, "/redfish/v1/Managers/vbmc/LogServices/Audit/Entries").await;
+        // Both "Log" and "Audit" must work; each returns entries at its own @odata.id.
+        for log_id in &["Audit", "Log"] {
+            let path = format!("/redfish/v1/Managers/vbmc/LogServices/{log_id}/Entries");
+            let (status, json, _) = h::get(&app, &path).await;
 
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(
-            json["@odata.id"],
-            "/redfish/v1/Managers/vbmc/LogServices/Audit/Entries"
-        );
-        assert_eq!(
-            json["@odata.type"],
-            "#LogEntryCollection.LogEntryCollection"
-        );
-        // Entries will be empty if no audit.jsonl file exists
-        assert!(json["Members@odata.count"].as_u64().is_some());
+            assert_eq!(status, StatusCode::OK, "log_id={log_id}");
+            assert_eq!(json["@odata.id"], path, "log_id={log_id}");
+            assert_eq!(
+                json["@odata.type"],
+                "#LogEntryCollection.LogEntryCollection"
+            );
+            // Entries will be empty if no audit.jsonl file exists
+            assert!(json["Members@odata.count"].as_u64().is_some());
+        }
     }
 
     #[tokio::test]

@@ -363,6 +363,12 @@ async fn main() -> anyhow::Result<()> {
         audit_path,
     ));
 
+    // Append a BMC startup entry to the persistent event log so controllers
+    // can confirm the BMC came up (e.g. HPE iLO emits "BMC startup complete").
+    app_state
+        .event_log
+        .append("BMC startup complete", "Manager.1.0.ManagerReady", "OK");
+
     if config.snmp_trap.enabled {
         let trap_rx = app_state.event_bus.subscribe();
         tokio::spawn(events::snmp_trap::snmp_trap_sender(
