@@ -21,7 +21,16 @@ pub struct LibvirtBackend {
     // poll cycle, exhausting virtqemud's worker thread pool.
     conn: Mutex<Option<Connect>>,
     domains: HashMap<String, String>, // system_id → domain_name
-    pending_once: Mutex<HashMap<String, (String, String)>>, // system_id → (original_first_dev, override_dev)
+    /// Once overrides pending the next vm_boot: system_id → (original_first_dev, override_dev).
+    /// Cleared after vm_boot applies and restores the XML.  Repopulated from VmState
+    /// on startup via init_boot_state() so Once overrides survive vbmc-rs restarts.
+    pending_once: Mutex<HashMap<String, (String, String)>>,
+    /// Original first-boot device (libvirt dev string, e.g. "hd") before any override
+    /// was applied.  Set when the first Continuous or Once override is activated;
+    /// cleared and used for XML restore when BootSourceOverrideEnabled=Disabled is set.
+    /// Falls back to "hd" if not populated (e.g., after vbmc-rs restart with a
+    /// Continuous override already active).
+    original_boot_devs: Mutex<HashMap<String, String>>,
 }
 
 // SAFETY: virt::connect::Connect and virt::domain::Domain are Send + Sync
@@ -37,6 +46,72 @@ impl LibvirtBackend {
             conn: Mutex::new(Some(conn)),
             domains,
             pending_once: Mutex::new(HashMap::new()),
+            original_boot_devs: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Reinitialise in-memory boot override state from a persisted VmState entry.
+    /// Called at startup for each system after VmState is loaded so that Once
+    /// overrides survive vbmc-rs restarts (pending_once is in-memory only).
+    ///
+    /// For Once: the domain XML was NOT modified (the override is applied
+    /// transiently at vm_boot time), so the current first-boot device in the XML
+    /// IS the original pre-override device.  We read it here and reconstruct the
+    /// pending_once entry.
+    ///
+    /// For Continuous: the domain XML was already modified to put the override
+    /// device first.  We don't need to touch pending_once, but we record "hd" as
+    /// the restore target (best-effort fallback) so that a subsequent Disabled
+    /// can restore a sane default.
+    pub fn init_boot_state(&self, system_id: &str, boot_override: &crate::state::BootOverride) {
+        match boot_override.enabled.as_str() {
+            "Once" => {
+                let Some(target) = &boot_override.target else {
+                    return;
+                };
+                let Some(override_dev) = ipmi_target_to_libvirt_dev(target) else {
+                    return;
+                };
+
+                // The domain XML was not changed for Once overrides — read it to
+                // find the original (currently-stored) first-boot device.
+                let Ok(domain) = self.domain_for(system_id) else {
+                    return;
+                };
+                let Ok(domain_xml) = domain.get_xml_desc(0) else {
+                    return;
+                };
+                let original_dev =
+                    xml::get_first_boot_device(&domain_xml).unwrap_or_else(|| "hd".to_string());
+
+                tracing::info!(
+                    "Restoring pending Once boot override for {system_id}: \
+                     original={original_dev} override={override_dev}"
+                );
+                self.pending_once.lock().unwrap().insert(
+                    system_id.to_string(),
+                    (original_dev.clone(), override_dev.to_string()),
+                );
+                self.original_boot_devs
+                    .lock()
+                    .unwrap()
+                    .entry(system_id.to_string())
+                    .or_insert(original_dev);
+            }
+            "Continuous" => {
+                // XML is already set to the override dev.  We don't know the true
+                // original without additional persistence.  Record "hd" as the
+                // restore-on-Disabled fallback so that the common NICo pattern
+                // (PXE → provision → Disabled) reverts cleanly to disk-first.
+                self.original_boot_devs
+                    .lock()
+                    .unwrap()
+                    .entry(system_id.to_string())
+                    .or_insert_with(|| "hd".to_string());
+            }
+            _ => {
+                // Disabled or unknown — nothing to restore.
+            }
         }
     }
 
@@ -67,8 +142,7 @@ impl LibvirtBackend {
                 0 => Err(BackendError::VmNotFound),
                 1 => Ok(domains.into_iter().next().unwrap()),
                 _ => Err(BackendError::InvalidState(
-                    "multiple domains found; set domain_name in config to disambiguate"
-                        .to_string(),
+                    "multiple domains found; set domain_name in config to disambiguate".to_string(),
                 )),
             }
         };
@@ -121,21 +195,15 @@ fn ipmi_target_to_libvirt_dev(target: &str) -> Option<&'static str> {
     }
 }
 
-fn libvirt_dev_to_ipmi_target(dev: &str) -> &'static str {
-    match dev {
-        "network" => "Pxe",
-        "hd" => "Hdd",
-        "cdrom" => "Cd",
-        "fd" => "Floppy",
-        _ => "None",
-    }
-}
-
 impl VmmBackend for LibvirtBackend {
     fn manages_existing_vms(&self) -> bool {
         // libvirt domains are pre-existing (created via virsh define / virt-install).
         // vbmc-rs manages them but does not create them — skip vm_create on power-on.
         true
+    }
+
+    fn vm_init_boot_state(&self, system_id: &str, boot_override: &crate::state::BootOverride) {
+        self.init_boot_state(system_id, boot_override);
     }
 
     async fn vm_info(&self, system_id: &str) -> Result<bt::VmInfo, BackendError> {
@@ -203,47 +271,56 @@ impl VmmBackend for LibvirtBackend {
             create_result.map(|_| ())?;
         } else {
             let domain = self.domain_for(system_id)?;
-            domain.create_with_flags(VIR_DOMAIN_START_PAUSED).map_err(map_virt_error)?;
+            domain
+                .create_with_flags(VIR_DOMAIN_START_PAUSED)
+                .map_err(map_virt_error)?;
             domain.resume().map_err(map_virt_error)?;
         }
         Ok(())
     }
 
-    async fn vm_get_boot_override(
-        &self,
-        system_id: &str,
-    ) -> Result<Option<bt::BootOverrideInfo>, BackendError> {
-        let domain = self.domain_for(system_id)?;
-        let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
-
-        let Some(current_dev) = xml::get_first_boot_device(&domain_xml) else {
-            return Ok(None);
-        };
-
-        if let Some((_, override_dev)) = self.pending_once.lock().unwrap().get(system_id).cloned() {
-            return Ok(Some(bt::BootOverrideInfo {
-                target: libvirt_dev_to_ipmi_target(&override_dev).to_string(),
-                enabled: "Once".to_string(),
-                mode: None,
-                uefi_target: None,
-            }));
-        }
-
-        Ok(Some(bt::BootOverrideInfo {
-            target: libvirt_dev_to_ipmi_target(&current_dev).to_string(),
-            enabled: "Continuous".to_string(),
-            mode: None,
-            uefi_target: None,
-        }))
-    }
+    // vm_get_boot_override is intentionally not overridden for the libvirt backend.
+    // The VmState on disk (updated by patch_system and clear_once_boot_override) is
+    // the authoritative source for the Redfish BootSourceOverrideEnabled/Target fields.
+    // Returning None here causes get_system to fall back to vm_state.boot_override.
+    // The libvirt backend is responsible only for translating Redfish boot overrides
+    // into domain XML changes via vm_set_boot_override.
 
     async fn vm_set_boot_override(
         &self,
         system_id: &str,
         info: &bt::BootOverrideInfo,
     ) -> Result<(), BackendError> {
-        if info.target == "None" {
+        if info.target == "None" || info.enabled == "Disabled" {
+            // Clear any pending Once override.
             self.pending_once.lock().unwrap().remove(system_id);
+
+            // Restore domain XML to the original boot order.  Use the saved
+            // original device if available; fall back to "hd" (conventional
+            // disk-first default used for NICo-managed domains).
+            let original_dev = self
+                .original_boot_devs
+                .lock()
+                .unwrap()
+                .remove(system_id)
+                .unwrap_or_else(|| "hd".to_string());
+
+            let Ok(domain) = self.domain_for(system_id) else {
+                return Ok(());
+            };
+            let Ok(domain_xml) = domain.get_xml_desc(0) else {
+                return Ok(());
+            };
+            let current_dev = xml::get_first_boot_device(&domain_xml).unwrap_or_default();
+            if current_dev != original_dev {
+                tracing::info!(
+                    "Restoring boot order for {system_id}: {current_dev} → {original_dev}"
+                );
+                let restored_xml = xml::set_boot_order_xml(&domain_xml, &original_dev);
+                if let Err(e) = self.define_xml(&restored_xml) {
+                    tracing::warn!("Failed to restore boot order for {system_id}: {e}");
+                }
+            }
             return Ok(());
         }
 
@@ -254,17 +331,41 @@ impl VmmBackend for LibvirtBackend {
         if info.enabled == "Continuous" {
             let domain = self.domain_for(system_id)?;
             let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
+            let current_first_dev =
+                xml::get_first_boot_device(&domain_xml).unwrap_or_else(|| "hd".to_string());
+
+            // Save original boot dev before applying the first override.
+            // Subsequent overrides (e.g. Once after Continuous) keep the
+            // stored original so that Disabled can always restore correctly.
+            self.original_boot_devs
+                .lock()
+                .unwrap()
+                .entry(system_id.to_string())
+                .or_insert_with(|| current_first_dev.clone());
+
             let new_xml = xml::set_boot_order_xml(&domain_xml, override_dev);
             self.define_xml(&new_xml)?;
+            // Remove any pending Once entry — Continuous overrides the XML directly.
             self.pending_once.lock().unwrap().remove(system_id);
         } else {
+            // Once: do NOT modify domain XML — apply the override transiently in
+            // vm_boot and restore the original XML after the domain starts.
             let domain = self.domain_for(system_id)?;
             let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
-            let original_dev =
-                xml::get_first_boot_device(&domain_xml).unwrap_or_else(|| override_dev.to_string());
+            let current_first_dev =
+                xml::get_first_boot_device(&domain_xml).unwrap_or_else(|| "hd".to_string());
+
+            // Save original boot dev (only on the first override; keep any
+            // existing stored original so Disabled can always restore it).
+            self.original_boot_devs
+                .lock()
+                .unwrap()
+                .entry(system_id.to_string())
+                .or_insert_with(|| current_first_dev.clone());
+
             self.pending_once.lock().unwrap().insert(
                 system_id.to_string(),
-                (original_dev, override_dev.to_string()),
+                (current_first_dev, override_dev.to_string()),
             );
         }
         Ok(())
