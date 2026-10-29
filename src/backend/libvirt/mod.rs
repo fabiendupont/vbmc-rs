@@ -248,8 +248,20 @@ impl VmmBackend for LibvirtBackend {
         if let Some((original_dev, override_dev)) = pending {
             let domain = self.domain_for(system_id)?;
             let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
+            let already_first =
+                xml::get_first_boot_device(&domain_xml).as_deref() == Some(override_dev.as_str());
             let override_xml = xml::set_boot_order_xml(&domain_xml, &override_dev);
-            self.define_xml(&override_xml)?;
+            if !already_first && override_xml == domain_xml {
+                // No bootable device of the requested kind — defining the
+                // unchanged XML would silently boot the wrong device.
+                self.pending_once.lock().unwrap().remove(system_id);
+                return Err(BackendError::NotSupported(format!(
+                    "no bootable device of kind '{override_dev}' in domain XML"
+                )));
+            }
+            if !already_first {
+                self.define_xml(&override_xml)?;
+            }
 
             // VIR_DOMAIN_START_PAUSED: QEMU process starts in microseconds (no
             // UEFI initialisation wait). resume() unpauses it; UEFI initialises
@@ -262,10 +274,12 @@ impl VmmBackend for LibvirtBackend {
                 .and_then(|_| domain.resume().map_err(map_virt_error));
 
             // Restore original boot order regardless of whether create succeeded.
-            let domain = self.domain_for(system_id)?;
-            let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
-            let restored_xml = xml::set_boot_order_xml(&domain_xml, &original_dev);
-            self.define_xml(&restored_xml)?;
+            if !already_first {
+                let domain = self.domain_for(system_id)?;
+                let domain_xml = domain.get_xml_desc(0).map_err(map_virt_error)?;
+                let restored_xml = xml::set_boot_order_xml(&domain_xml, &original_dev);
+                self.define_xml(&restored_xml)?;
+            }
             self.pending_once.lock().unwrap().remove(system_id);
 
             create_result.map(|_| ())?;
@@ -317,8 +331,8 @@ impl VmmBackend for LibvirtBackend {
                     "Restoring boot order for {system_id}: {current_dev} → {original_dev}"
                 );
                 let restored_xml = xml::set_boot_order_xml(&domain_xml, &original_dev);
-                if let Err(e) = self.define_xml(&restored_xml) {
-                    tracing::warn!("Failed to restore boot order for {system_id}: {e}");
+                if restored_xml != domain_xml {
+                    self.define_xml(&restored_xml)?;
                 }
             }
             return Ok(());
@@ -344,6 +358,13 @@ impl VmmBackend for LibvirtBackend {
                 .or_insert_with(|| current_first_dev.clone());
 
             let new_xml = xml::set_boot_order_xml(&domain_xml, override_dev);
+            if new_xml == domain_xml && current_first_dev != override_dev {
+                // No bootable device of the requested kind — defining the
+                // unchanged XML would silently keep the current boot order.
+                return Err(BackendError::NotSupported(format!(
+                    "no bootable device of kind '{override_dev}' in domain XML"
+                )));
+            }
             self.define_xml(&new_xml)?;
             // Remove any pending Once entry — Continuous overrides the XML directly.
             self.pending_once.lock().unwrap().remove(system_id);
@@ -362,6 +383,15 @@ impl VmmBackend for LibvirtBackend {
                 .unwrap()
                 .entry(system_id.to_string())
                 .or_insert_with(|| current_first_dev.clone());
+
+            // Validate the requested kind exists now rather than failing (or
+            // silently no-op'ing) at the next vm_boot.
+            let probe_xml = xml::set_boot_order_xml(&domain_xml, override_dev);
+            if probe_xml == domain_xml && current_first_dev != override_dev {
+                return Err(BackendError::NotSupported(format!(
+                    "no bootable device of kind '{override_dev}' in domain XML"
+                )));
+            }
 
             self.pending_once.lock().unwrap().insert(
                 system_id.to_string(),

@@ -451,11 +451,19 @@ fn set_nvram_template(xml: &str, template: &str) -> String {
 /// Return the `dev` attribute of the first `<boot dev='...'>` element inside
 /// the `<os>` block, or `None` if no such element exists.
 pub fn get_first_boot_device(xml: &str) -> Option<String> {
-    let os_start = xml.find("<os")?;
-    let os_end = xml.find("</os>")?;
-    let os_block = &xml[os_start..os_end];
-    let boot_pos = os_block.find("<boot")?;
-    boot_dev_attr(&os_block[boot_pos..])
+    if let (Some(os_start), Some(os_end)) = (xml.find("<os"), xml.find("</os>")) {
+        let os_block = &xml[os_start..os_end];
+        if let Some(boot_pos) = os_block.find("<boot") {
+            return boot_dev_attr(&os_block[boot_pos..]);
+        }
+    }
+    // No os-level boot element: the domain uses the per-device
+    // `<boot order='N'/>` form. The device holding the lowest order boots
+    // first.
+    per_device_boots(xml)
+        .into_iter()
+        .min_by_key(|b| b.order)
+        .map(|b| b.kind.to_string())
 }
 
 /// Rewrite the `<os>` boot order so that `first_dev` is the first entry.
@@ -463,6 +471,14 @@ pub fn get_first_boot_device(xml: &str) -> Option<String> {
 /// duplicates of `first_dev` removed. When there are no existing boot
 /// entries at all the single entry is inserted just before `</os>`.
 pub fn set_boot_order_xml(xml: &str, first_dev: &str) -> String {
+    // Domains created with per-device `<boot order='N'/>` elements cannot
+    // carry os-level `<boot dev='...'/>` elements as well — libvirt rejects
+    // the define outright. Dispatch to the per-device rewrite instead.
+    let entries = per_device_boots(xml);
+    if !entries.is_empty() {
+        return set_boot_order_per_device(xml, first_dev, &entries);
+    }
+
     let os_start = match xml.find("<os") {
         Some(i) => i,
         None => return xml.to_string(),
@@ -532,6 +548,137 @@ fn boot_dev_attr(tag_start: &str) -> Option<String> {
         return Some(after[..after.find('"')?].to_string());
     }
     None
+}
+
+/// A per-device `<boot order='N'/>` entry: the byte range of its `order`
+/// attribute value in the domain XML, the boot kind of the enclosing device
+/// element, and the current order value.
+struct PerDeviceBoot {
+    value_start: usize,
+    value_end: usize,
+    kind: &'static str,
+    order: u32,
+}
+
+/// Value of the `name='...'` (or double-quoted) attribute in `tag`.
+fn attr_value(tag: &str, name: &str) -> Option<String> {
+    let single = format!("{}='", name);
+    let double = format!("{}=\"", name);
+    let (p, off) = if let Some(p) = tag.find(&single) {
+        (p, single.len())
+    } else {
+        (tag.find(&double)?, double.len())
+    };
+    let quote = tag.as_bytes()[p + off - 1] as char;
+    let value = &tag[p + off..];
+    let end = value.find(quote)?;
+    Some(value[..end].to_string())
+}
+
+/// Boot kind of a `<disk>`/`<interface>` element opening tag, using the same
+/// dev names as os-level `<boot dev='...'/>`: `<disk device='disk'>` is "hd",
+/// `device='cdrom'` is "cdrom", `device='floppy'` is "fd", and any
+/// `<interface>` is "network".
+fn device_kind(open_tag: &str) -> Option<&'static str> {
+    if open_tag.starts_with("<interface") {
+        return Some("network");
+    }
+    if !open_tag.starts_with("<disk") {
+        return None;
+    }
+    match attr_value(open_tag, "device")?.as_str() {
+        "disk" => Some("hd"),
+        "cdrom" => Some("cdrom"),
+        "floppy" => Some("fd"),
+        _ => None,
+    }
+}
+
+/// Find every per-device `<boot order='N'/>` element and classify the
+/// enclosing device element. Entries are returned in document order. The
+/// enclosing device is the nearest `<disk`/`<interface` opening tag before
+/// the boot element — valid libvirt XML only nests `<boot>` directly inside
+/// its device, so the nearest opening tag is always the parent.
+fn per_device_boots(xml: &str) -> Vec<PerDeviceBoot> {
+    let mut out = Vec::new();
+    let mut scan = 0;
+    while let Some(rel) = xml[scan..].find("<boot ") {
+        let tag_start = scan + rel;
+        let tag_close = match xml[tag_start..].find("/>") {
+            Some(i) => tag_start + i + 2,
+            None => break,
+        };
+        let tag = &xml[tag_start..tag_close];
+        // Per-device form carries `order`; the os-level form carries `dev`
+        // and is skipped here.
+        if let Some(order_str) = attr_value(tag, "order") {
+            let order = order_str.parse().unwrap_or(u32::MAX);
+            let before = &xml[..tag_start];
+            let dev_start = match (before.rfind("<disk"), before.rfind("<interface")) {
+                (Some(d), Some(i)) => Some(d.max(i)),
+                (d, i) => d.or(i),
+            };
+            if let Some(dev_start) = dev_start {
+                let open_end = dev_start + xml[dev_start..].find('>').map(|i| i + 1).unwrap_or(0);
+                let open_tag = &xml[dev_start..open_end];
+                if let Some(kind) = device_kind(open_tag) {
+                    // Byte range of the order attribute's value in the full
+                    // document: `order`, optional whitespace, '=', quote,
+                    // value. Canonical libvirt XML puts no space after '='.
+                    let pat = tag.find("order").expect("order attr present");
+                    let after_name = &tag[pat + 5..];
+                    let lead = after_name.len() - after_name.trim_start().len();
+                    let value_start = tag_start + pat + 5 + lead + 2;
+                    let value_end = value_start + order_str.len();
+                    out.push(PerDeviceBoot {
+                        value_start,
+                        value_end,
+                        kind,
+                        order,
+                    });
+                }
+            }
+        }
+        scan = tag_close;
+    }
+    out
+}
+
+/// Rewrite per-device `<boot order='N'/>` attributes so that the first device
+/// of kind `first_dev` holds order 1 and every other device keeps its
+/// relative order after it. Returns the input unchanged when no device of
+/// that kind exists — callers treat an unchanged result as an error rather
+/// than silently booting the wrong device.
+fn set_boot_order_per_device(xml: &str, first_dev: &str, entries: &[PerDeviceBoot]) -> String {
+    if !entries.iter().any(|e| e.kind == first_dev) {
+        return xml.to_string();
+    }
+    // Target: the matching device with the lowest current order; document
+    // order breaks ties. Everything else keeps its relative order after it.
+    let target_idx = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.kind == first_dev)
+        .min_by_key(|(i, e)| (e.order, *i))
+        .map(|(i, _)| i)
+        .expect("presence checked above");
+    let mut others: Vec<usize> = (0..entries.len()).filter(|i| *i != target_idx).collect();
+    others.sort_by_key(|i| (entries[*i].order, *i));
+
+    let mut new_orders = vec![0u32; entries.len()];
+    new_orders[target_idx] = 1;
+    for (next, i) in others.iter().enumerate() {
+        new_orders[*i] = next as u32 + 2;
+    }
+
+    // Apply right-to-left so earlier byte ranges stay valid.
+    let mut result = xml.to_string();
+    for (i, e) in entries.iter().enumerate().rev() {
+        if new_orders[i] != e.order {
+            result.replace_range(e.value_start..e.value_end, &new_orders[i].to_string());
+        }
+    }
+    result
 }
 
 /// Remove all `<boot .../>` self-closing tags from `s`, trimming the inline
@@ -1302,6 +1449,134 @@ mod coverage_tests {
         assert_eq!(get_first_boot_device(&result), Some("network".to_string()));
     }
 
+    const PER_DEVICE_DOMAIN_XML: &str = r#"<domain type='kvm'>
+  <os>
+    <type machine='q35'>hvm</type>
+  </os>
+  <devices>
+    <disk type='file' device='disk'>
+      <source file='/var/lib/libvirt/images/machine.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+      <boot order='1'/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <target dev='sda' bus='sata'/>
+      <boot order='3'/>
+    </disk>
+    <interface type='network'>
+      <source network='front'/>
+      <boot order='2'/>
+    </interface>
+  </devices>
+</domain>"#;
+
+    #[test]
+    fn test_get_first_boot_device_per_device() {
+        // No os-level boot; the disk holds the lowest per-device order.
+        assert_eq!(
+            get_first_boot_device(PER_DEVICE_DOMAIN_XML),
+            Some("hd".to_string())
+        );
+    }
+
+    #[test]
+    fn test_set_boot_order_per_device_network_first() {
+        let result = set_boot_order_xml(PER_DEVICE_DOMAIN_XML, "network");
+        assert_eq!(get_first_boot_device(&result), Some("network".to_string()));
+        // The interface takes order 1; disk and cdrom keep their relative
+        // order (2 and 3).
+        assert!(result.contains("<source network='front'/>\n      <boot order='1'/>"));
+        assert!(result.contains("<target dev='vda' bus='virtio'/>\n      <boot order='2'/>"));
+        assert!(result.contains("<target dev='sda' bus='sata'/>\n      <boot order='3'/>"));
+    }
+
+    #[test]
+    fn test_set_boot_order_per_device_hd_first_idempotent() {
+        // The disk already boots first: the rewrite must be a no-op.
+        assert_eq!(
+            set_boot_order_xml(PER_DEVICE_DOMAIN_XML, "hd"),
+            PER_DEVICE_DOMAIN_XML
+        );
+    }
+
+    #[test]
+    fn test_set_boot_order_per_device_cdrom_first() {
+        let result = set_boot_order_xml(PER_DEVICE_DOMAIN_XML, "cdrom");
+        assert_eq!(get_first_boot_device(&result), Some("cdrom".to_string()));
+        assert!(result.contains("<target dev='sda' bus='sata'/>\n      <boot order='1'/>"));
+        assert!(result.contains("<target dev='vda' bus='virtio'/>\n      <boot order='2'/>"));
+        assert!(result.contains("<source network='front'/>\n      <boot order='3'/>"));
+    }
+
+    #[test]
+    fn test_set_boot_order_per_device_unknown_kind_unchanged() {
+        // No floppy device: the XML is returned unchanged so callers can
+        // turn the no-op into an error instead of booting the wrong device.
+        assert_eq!(
+            set_boot_order_xml(PER_DEVICE_DOMAIN_XML, "fd"),
+            PER_DEVICE_DOMAIN_XML
+        );
+    }
+
+    // Trimmed from the real nico-machine-0 lab domain: boot orders only on
+    // the disk and the front NIC, other interfaces carry no boot element.
+    const LAB_DOMAIN_XML: &str = r#"<domain type='kvm'>
+  <os firmware='efi'>
+    <type arch='x86_64' machine='pc-q35-10.2'>hvm</type>
+    <loader readonly='yes' secure='no' type='pflash' format='raw'>/usr/share/edk2/ovmf/OVMF_CODE.fd</loader>
+    <nvram template='/usr/share/edk2/ovmf/OVMF_VARS.fd'>/var/lib/libvirt/qemu/nvram/nico-machine-0_VARS.fd</nvram>
+  </os>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='/home/fdupont/nico-e2e-sno/nico-machine-0.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+      <boot order='2'/>
+    </disk>
+    <interface type='network'>
+      <mac address='02:00:00:aa:cc:01'/>
+      <source network='nico-front-0'/>
+      <model type='virtio'/>
+      <boot order='1'/>
+    </interface>
+    <interface type='network'>
+      <mac address='02:00:00:aa:cc:02'/>
+      <source network='nico-back-0'/>
+      <model type='virtio'/>
+    </interface>
+  </devices>
+</domain>"#;
+
+    #[test]
+    fn test_lab_domain_get_first_boot_device() {
+        // Front NIC (order 1) boots first; the boot-less back NIC is
+        // irrelevant, and <bootmenu>/<boot dev> style tags inside <os> are
+        // not per-device boot orders.
+        assert_eq!(
+            get_first_boot_device(LAB_DOMAIN_XML),
+            Some("network".to_string())
+        );
+    }
+
+    #[test]
+    fn test_lab_domain_set_hd_first() {
+        let result = set_boot_order_xml(LAB_DOMAIN_XML, "hd");
+        assert_eq!(get_first_boot_device(&result), Some("hd".to_string()));
+        assert!(result.contains("<target dev='vda' bus='virtio'/>\n      <boot order='1'/>"));
+        assert!(
+            result.contains("<model type='virtio'/>\n      <boot order='2'/>\n    </interface>")
+        );
+    }
+
+    #[test]
+    fn test_set_boot_order_os_level_untouched_when_no_per_device() {
+        // Domains with os-level boot keep using the os-level rewrite.
+        let result = set_boot_order_xml(FULL_DOMAIN_XML, "network");
+        assert_eq!(get_first_boot_device(&result), Some("network".to_string()));
+        assert!(!result.contains("order="));
+    }
+
     #[test]
     fn test_set_boot_order_deduplication() {
         // first_dev already present in the list — must not appear twice
@@ -1330,7 +1605,7 @@ mod coverage_tests {
   </os>
   <devices/>
 </domain>"#;
-        let result = set_boot_order_xml(&xml, "network");
+        let result = set_boot_order_xml(xml, "network");
         assert!(result.contains("<boot dev='network'/>"));
         assert_eq!(get_first_boot_device(&result), Some("network".to_string()));
     }

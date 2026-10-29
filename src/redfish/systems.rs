@@ -688,8 +688,6 @@ pub async fn patch_system(
         if let Some(uefi) = boot.uefi_target_boot_source_override {
             vm_state.boot_override.uefi_target = Some(uefi);
         }
-        state.save_vm_state(&system_id, &vm_state);
-
         let override_info = BootOverrideInfo {
             target: vm_state
                 .boot_override
@@ -700,13 +698,19 @@ pub async fn patch_system(
             mode: vm_state.boot_override.mode.clone(),
             uefi_target: vm_state.boot_override.uefi_target.clone(),
         };
-        if let Err(e) = state
+        // Apply first, persist only on success — a failed backend call must
+        // surface as a Redfish error, not a silent 200 that leaves the
+        // requested override recorded in vm_state but not in effect.
+        state
             .backend
             .vm_set_boot_override(&system_id, &override_info)
             .await
-        {
-            tracing::warn!("vm_set_boot_override failed for {system_id}: {e}");
-        }
+            .map_err(|e| {
+                RedfishApiError::InternalError(format!(
+                    "failed to apply boot override for system '{system_id}': {e}"
+                ))
+            })?;
+        state.save_vm_state(&system_id, &vm_state);
     }
 
     Ok(Json(serde_json::json!({"message": "System updated"})))
