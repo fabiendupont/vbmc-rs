@@ -250,7 +250,28 @@ pub struct SystemConfig {
     #[serde(default)]
     pub attestation: Option<AttestationConfig>,
     #[serde(default)]
+    pub spdm: Option<SpdmConfig>,
+    #[serde(default)]
     pub ipmi_socket: Option<PathBuf>,
+}
+
+/// Configuration for the SPDM responder role: signing signed measurement
+/// statements for `ComponentIntegrity.SPDMGetSignedMeasurements` action
+/// requests, as consumed by out-of-band attestation services such as Keylime.
+#[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
+pub struct SpdmConfig {
+    /// Path to the EC P-384 private key (SEC1 or PKCS#8 PEM) used to sign
+    /// measurement statements.
+    pub private_key: PathBuf,
+    /// Path to the SPDM certificate chain blob (DMTF DSP0274 CERTIFICATE
+    /// format: 2-byte total length, then 2-byte length-prefixed DER certs,
+    /// leaf first). Served to clients alongside signed measurements.
+    pub cert_chain: PathBuf,
+    /// Measurement values (hex-encoded) to include in signed statements.
+    /// Defaults to deterministic pseudo-measurements when absent.
+    #[serde(default)]
+    pub measurements: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

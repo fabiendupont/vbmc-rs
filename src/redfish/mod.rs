@@ -559,6 +559,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/redfish/v1/ComponentIntegrity/{system_id}",
             get(component_integrity::get_component_integrity),
         )
+        .route(
+            "/redfish/v1/ComponentIntegrity/{system_id}/Actions/ComponentIntegrity.SPDMGetSignedMeasurements",
+            post(component_integrity::spdm_get_signed_measurements),
+        )
         // Registries
         .route(
             "/redfish/v1/Registries",

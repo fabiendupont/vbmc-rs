@@ -3,6 +3,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
+use crate::attestation::spdm_responder::SpdmResponder;
 use crate::auth::accounts::AccountStore;
 use crate::auth::sessions::SessionStore;
 use crate::backend::mockup::MockupStore;
@@ -34,6 +35,9 @@ pub struct AppState {
     /// Served at Managers/vbmc/LogServices/Log/Entries and
     /// Systems/{id}/LogServices/Log/Entries.
     pub event_log: Arc<EventLog>,
+    /// SPDM responder identities keyed by system ID, for signing
+    /// ComponentIntegrity.SPDMGetSignedMeasurements responses.
+    pub spdm_responders: DashMap<String, SpdmResponder>,
     system_locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
@@ -83,6 +87,25 @@ impl AppState {
         let event_log_path = config.state_directory.join("event-log.jsonl");
         let event_log = Arc::new(EventLog::new(event_log_path));
 
+        // Load SPDM responder identities (device key + cert chain) for systems
+        // configured with an [systems.<id>.spdm] section. Failures are logged
+        // and surfaced as a 503 on the SPDMGetSignedMeasurements action rather
+        // than preventing startup.
+        let spdm_responders: DashMap<String, SpdmResponder> = DashMap::new();
+        for (system_id, system_config) in &config.systems {
+            if let Some(spdm_config) = &system_config.spdm {
+                match SpdmResponder::load(spdm_config) {
+                    Ok(responder) => {
+                        tracing::info!(system = %system_id, "loaded SPDM responder identity");
+                        spdm_responders.insert(system_id.clone(), responder);
+                    }
+                    Err(e) => {
+                        tracing::error!(system = %system_id, error = %e, "cannot load SPDM responder identity");
+                    }
+                }
+            }
+        }
+
         Self {
             config,
             backend,
@@ -99,6 +122,7 @@ impl AppState {
             chassis_id,
             event_log,
             system_locks: DashMap::new(),
+            spdm_responders,
         }
     }
 

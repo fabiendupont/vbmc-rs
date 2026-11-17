@@ -1,5 +1,6 @@
 #[cfg(feature = "keylime")]
 pub mod keylime;
+pub mod spdm_responder;
 pub mod swtpm;
 pub mod trust_chain;
 #[cfg(feature = "trustee")]

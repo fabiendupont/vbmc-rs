@@ -58,6 +58,7 @@ fn make_system_config(name: &str) -> SystemConfig {
         vm_name: None,
         chassis_id: None,
         attestation: None,
+        spdm: None,
         ipmi_socket: None,
     }
 }

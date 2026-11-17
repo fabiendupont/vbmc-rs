@@ -2,11 +2,16 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use serde::Serialize;
 
 use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
+use crate::attestation::spdm_responder::{
+    HASHING_ALGORITHM, SIGNING_ALGORITHM, SPDM_VERSION_STRING, SpdmGetSignedMeasurementsRequest,
+};
 use crate::attestation::trust_chain::AttestationEvidence;
 use crate::auth::AuthenticatedUser;
 
@@ -38,6 +43,42 @@ pub struct ComponentIntegrityResource {
     pub links: ComponentIntegrityLinks,
     #[serde(rename = "SPDM", skip_serializing_if = "Option::is_none")]
     pub spdm: Option<SpdmInfo>,
+    #[serde(rename = "Actions", skip_serializing_if = "Option::is_none")]
+    pub actions: Option<ComponentIntegrityActions>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ComponentIntegrityActions {
+    #[serde(rename = "#ComponentIntegrity.SPDMGetSignedMeasurements")]
+    pub spdm_get_signed_measurements: ActionTarget,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActionTarget {
+    pub target: String,
+}
+
+/// Response payload of the SPDMGetSignedMeasurements action (ComponentIntegrity
+/// schema). `SignedMeasurements` is the Base64 of the signed DSP0274 statement
+/// (message plus trailing raw ECDSA signature). `CertificateChain` carries the
+/// Base64 DMTF certificate chain blob so clients can validate the signature
+/// against the device's chain without a separate certificate lookup.
+#[derive(Debug, Serialize)]
+pub struct SpdmGetSignedMeasurementsResponse {
+    #[serde(rename = "@odata.type")]
+    pub odata_type: &'static str,
+    #[serde(rename = "Version")]
+    pub version: &'static str,
+    #[serde(rename = "HashingAlgorithm")]
+    pub hashing_algorithm: &'static str,
+    #[serde(rename = "SigningAlgorithm")]
+    pub signing_algorithm: &'static str,
+    #[serde(rename = "SignedMeasurements")]
+    pub signed_measurements: String,
+    #[serde(rename = "PublicKey")]
+    pub public_key: String,
+    #[serde(rename = "CertificateChain")]
+    pub certificate_chain: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -290,6 +331,52 @@ pub async fn get_component_integrity(
             components_protected: vec![ODataId::new(format!("/redfish/v1/Systems/{system_id}"))],
         },
         spdm: Some(spdm),
+        actions: Some(ComponentIntegrityActions {
+            spdm_get_signed_measurements: ActionTarget {
+                target: format!(
+                    "/redfish/v1/ComponentIntegrity/{system_id}/Actions/ComponentIntegrity.SPDMGetSignedMeasurements"
+                ),
+            },
+        }),
+    }))
+}
+
+/// POST /redfish/v1/ComponentIntegrity/{system_id}/Actions/ComponentIntegrity.SPDMGetSignedMeasurements
+///
+/// Signs fresh SPDM measurements over the caller-supplied nonce using the
+/// system's configured SPDM responder identity. The nonce must be provided by
+/// the caller (a 32-byte hex string) so that a replayed response cannot match
+/// a later attestation challenge.
+pub async fn spdm_get_signed_measurements(
+    State(state): State<Arc<AppState>>,
+    _user: AuthenticatedUser,
+    Path(system_id): Path<String>,
+    Json(request): Json<SpdmGetSignedMeasurementsRequest>,
+) -> Result<Json<SpdmGetSignedMeasurementsResponse>, RedfishApiError> {
+    let responder = state.spdm_responders.get(&system_id).ok_or_else(|| {
+        RedfishApiError::ServiceUnavailable(format!(
+            "ComponentIntegrity '{system_id}' has no SPDM responder identity configured"
+        ))
+    })?;
+
+    let nonce = request
+        .nonce
+        .ok_or_else(|| RedfishApiError::BadRequest("Nonce is required".to_string()))?;
+
+    let indices = request.measurement_indices.unwrap_or_default();
+
+    let signed = responder
+        .signed_measurements(&nonce, &indices)
+        .map_err(RedfishApiError::BadRequest)?;
+
+    Ok(Json(SpdmGetSignedMeasurementsResponse {
+        odata_type: "#ComponentIntegrity.v1_2_0.SPDMGetSignedMeasurementsResponse",
+        version: SPDM_VERSION_STRING,
+        hashing_algorithm: HASHING_ALGORITHM,
+        signing_algorithm: SIGNING_ALGORITHM,
+        signed_measurements: BASE64.encode(&signed),
+        public_key: responder.public_key_pem(),
+        certificate_chain: BASE64.encode(responder.cert_chain()),
     }))
 }
 
@@ -320,6 +407,7 @@ mod tests {
                 components_protected: vec![ODataId::new("/redfish/v1/Systems/vm1".to_string())],
             },
             spdm: None,
+            actions: None,
         };
 
         let json = serde_json::to_value(&resource).unwrap();
