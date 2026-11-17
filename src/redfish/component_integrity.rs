@@ -681,4 +681,142 @@ mod tests {
             "/redfish/v1/Systems/vm2"
         );
     }
+
+    // ---- HTTP-level tests for the SPDMGetSignedMeasurements action ----
+
+    use crate::redfish::test_harness::{request_json, router_with_systems};
+    use axum::http::{Method, StatusCode};
+    use p384::ecdsa::SigningKey;
+    use p384::elliptic_curve::pkcs8::EncodePrivateKey;
+    use p384::elliptic_curve::rand_core::OsRng;
+
+    fn spdm_systems() -> std::collections::HashMap<String, crate::config::SystemConfig> {
+        let dir = tempfile::tempdir().unwrap();
+
+        let signing_key = SigningKey::random(&mut OsRng);
+        let key_pem = signing_key
+            .to_pkcs8_pem(p384::elliptic_curve::pkcs8::LineEnding::LF)
+            .unwrap();
+        let key_path = dir.path().join("key.pem");
+        std::fs::write(&key_path, key_pem.as_bytes()).unwrap();
+
+        let chain = b"\x00\x06\x00\x04\xde\xad\xbe\xef".to_vec();
+        let chain_path = dir.path().join("chain.blob");
+        std::fs::write(&chain_path, &chain).unwrap();
+
+        // Keep the tempdir alive for the duration of the test by converting it
+        // into a leaked path (test-only; the files are tiny and the OS reclaims
+        // them at exit).
+        let dir_path = dir.keep();
+
+        let mut spdm = std::collections::HashMap::new();
+        spdm.insert(
+            "vm1".to_string(),
+            crate::config::SystemConfig {
+                name: Some("vm1".to_string()),
+                spdm: Some(crate::config::SpdmConfig {
+                    private_key: key_path,
+                    cert_chain: chain_path,
+                    measurements: vec!["aa".repeat(48), "bb".repeat(48)],
+                }),
+                ..crate::redfish::test_harness::system_config("vm1")
+            },
+        );
+        let _ = dir_path;
+        spdm
+    }
+
+    #[tokio::test]
+    async fn test_spdm_get_signed_measurements_action() {
+        let app = router_with_systems(spdm_systems());
+        let nonce_hex = "11".repeat(32);
+
+        let body = serde_json::json!({
+            "Nonce": nonce_hex,
+            "SlotId": 0,
+            "MeasurementIndices": [255]
+        });
+        let (status, json, _) = request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/ComponentIntegrity/vm1/Actions/ComponentIntegrity.SPDMGetSignedMeasurements",
+            body,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["Version"], "1.2");
+        assert_eq!(json["HashingAlgorithm"], "SHA384");
+        assert_eq!(json["SigningAlgorithm"], "TPM_ALG_ECDSA_ECC_NIST_P384");
+
+        let signed = BASE64
+            .decode(json["SignedMeasurements"].as_str().unwrap())
+            .unwrap();
+        // message layout: header(9) + record + nonce(32) + opaque len(2) + signature(96)
+        assert_eq!(signed[0], 0x12);
+        assert_eq!(signed[1], 0x60);
+        assert_eq!(signed[4], 2); // two measurement blocks
+        let record_len = u32::from_le_bytes([signed[5], signed[6], signed[7], signed[8]]) as usize;
+        let nonce_offset = 9 + record_len;
+        assert_eq!(
+            hex::encode(&signed[nonce_offset..nonce_offset + 32]),
+            nonce_hex.to_lowercase()
+        );
+
+        let chain = BASE64
+            .decode(json["CertificateChain"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(chain, b"\x00\x06\x00\x04\xde\xad\xbe\xef".to_vec());
+        assert!(
+            json["PublicKey"]
+                .as_str()
+                .unwrap()
+                .starts_with("-----BEGIN PUBLIC KEY-----")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_spdm_get_signed_measurements_requires_nonce() {
+        let app = router_with_systems(spdm_systems());
+
+        let (status, json, _) = request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/ComponentIntegrity/vm1/Actions/ComponentIntegrity.SPDMGetSignedMeasurements",
+            serde_json::json!({}),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(json["error"]["message"].as_str().unwrap().contains("Nonce"));
+    }
+
+    #[tokio::test]
+    async fn test_spdm_get_signed_measurements_without_config() {
+        use crate::redfish::test_harness::systems_with;
+        let app = router_with_systems(systems_with("vm1"));
+
+        let (status, _, _) = request_json(
+            &app,
+            Method::POST,
+            "/redfish/v1/ComponentIntegrity/vm1/Actions/ComponentIntegrity.SPDMGetSignedMeasurements",
+            serde_json::json!({"Nonce": "11".repeat(32)}),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn test_component_integrity_advertises_action() {
+        use crate::redfish::test_harness::{get, router_with_systems, systems_with};
+        let app = router_with_systems(systems_with("vm1"));
+
+        let (status, json, _) = get(&app, "/redfish/v1/ComponentIntegrity/vm1").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            json["Actions"]["#ComponentIntegrity.SPDMGetSignedMeasurements"]["target"],
+            "/redfish/v1/ComponentIntegrity/vm1/Actions/ComponentIntegrity.SPDMGetSignedMeasurements"
+        );
+    }
 }

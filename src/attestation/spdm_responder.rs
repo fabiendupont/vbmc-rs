@@ -146,11 +146,11 @@ impl SpdmResponder {
 /// Parse the Redfish action request parameters for SPDMGetSignedMeasurements.
 #[derive(Debug, serde::Deserialize)]
 pub struct SpdmGetSignedMeasurementsRequest {
-    #[serde(default)]
+    #[serde(default, rename = "Nonce")]
     pub nonce: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "SlotId")]
     pub slot_id: Option<u8>,
-    #[serde(default)]
+    #[serde(default, rename = "MeasurementIndices")]
     pub measurement_indices: Option<Vec<u8>>,
 }
 

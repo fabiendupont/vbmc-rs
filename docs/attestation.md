@@ -82,6 +82,39 @@ The attestation coordinator runs as a tokio background task. On each interval:
 
 Events use severity `OK` for Success transitions and `Warning` for Failed or Unknown.
 
+## SPDM responder (signed measurements for OOB attestation)
+
+In addition to *consuming* attestation results, vbmc-rs can *produce* SPDM
+evidence: systems configured with an `[systems.<id>.spdm]` section advertise the
+`#ComponentIntegrity.SPDMGetSignedMeasurements` action, which out-of-band
+attestation services (such as [Keylime's OOB
+collector](https://github.com/keylime/keylime)) invoke to obtain fresh signed
+measurements.
+
+```toml
+[systems.vm1.spdm]
+private_key = "/path/to/device-key.pem"   # EC P-384 (PKCS#8 or SEC1 PEM)
+cert_chain  = "/path/to/device-chain.blob" # DMTF DSP0274 chain blob (leaf first)
+measurements = [                            # optional hex values; deterministic defaults otherwise
+  "aabb...",
+]
+```
+
+Each action request supplies a 32-byte hex `Nonce`, a `SlotId` and
+`MeasurementIndices`. The handler builds a DSP0274 MEASUREMENTS response over
+the caller's nonce and the configured measurement blocks, signs it with the
+device key (ECDSA P-384, raw `r||s`), and returns the schema-conformant
+response (`Version`, `HashingAlgorithm`, `SigningAlgorithm`,
+`SignedMeasurements`) plus a `CertificateChain` property carrying the chain
+blob and a `PublicKey` PEM, so the client can validate the signature without a
+separate certificate lookup. Because the caller's nonce is inside the signed
+data, a response cannot be replayed against a later attestation challenge.
+
+Note: measurement values are taken from configuration (or derived
+deterministically) — they represent the "firmware" the virtual device claims to
+be running. For fidelity, point `measurements` at digests of the VM's actual
+firmware images.
+
 ## Redfish resources
 
 Attestation data is exposed through:
