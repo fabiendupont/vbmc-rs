@@ -38,6 +38,11 @@ jobs:
       - name: Test
         run: cargo test --all-features
 
+      # Catch packaging regressions (bad excludes, metadata warnings, files
+      # breaking the packaged build) before release day rather than during it
+      - name: Verify publishable package
+        run: cargo publish --dry-run
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest

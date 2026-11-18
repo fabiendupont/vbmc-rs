@@ -5,7 +5,6 @@ edition = "2024"
 description = "A Redfish-compliant virtual BMC — manage VMs with the same Redfish API used for physical servers"
 license = "Apache-2.0"
 repository = "https://github.com/fabiendupont/vbmc-rs"
-homepage = "https://github.com/fabiendupont/vbmc-rs"
 readme = "README.md"
 keywords = ["redfish", "bmc", "ipmi", "virtualization", "server-management"]
 categories = ["virtualization", "simulation", "web-programming::http-server"]
@@ -15,7 +14,6 @@ exclude = [
     "charts",
     "docs",
     "scripts",
-    "tests",
     "Containerfile*",
     "codecov.yml",
     "event-log.jsonl",

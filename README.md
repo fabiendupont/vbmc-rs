@@ -95,6 +95,21 @@ vbmc-rs -c examples/config-mockup.toml
 - **Task service** — async operation tracking for long-running actions
 - **Kubernetes-native** — sidecar injection webhook, aggregator with OAuth (TokenReview + SubjectAccessReview), Helm chart
 
+## Installing
+
+```sh
+# From crates.io (default: Cloud-Hypervisor backend)
+cargo install vbmc-rs
+
+# With additional backends
+cargo install vbmc-rs --features qemu,libvirt
+
+# Kubernetes variant (aggregator + KubeVirt backend)
+cargo install vbmc-rs --features cloud-hypervisor,qemu,kubevirt,aggregator
+```
+
+Prebuilt binaries for x86_64 and aarch64 are attached to each [GitHub release](https://github.com/fabiendupont/vbmc-rs/releases), and container images are published to `ghcr.io/fabiendupont/vbmc-rs`.
+
 ## Building
 
 ```sh
