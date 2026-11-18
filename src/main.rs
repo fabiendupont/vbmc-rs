@@ -352,11 +352,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Start audit log writer
     let audit_rx = app_state.event_bus.subscribe();
-    let audit_path = if config.audit_log.as_os_str().is_empty() {
-        config.state_directory.join("audit.jsonl")
-    } else {
-        config.audit_log.clone()
-    };
+    let audit_path = config.audit_log_path();
     tokio::spawn(events::audit_log::audit_log_writer(
         audit_rx,
         config.audit_log_target,

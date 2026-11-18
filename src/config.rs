@@ -391,6 +391,24 @@ impl AppConfig {
         Ok(config)
     }
 
+    /// Resolve the audit log file path.
+    ///
+    /// Priority: an explicit `audit_log` config value, then `state_directory/audit.jsonl`,
+    /// and finally the well-known `/var/lib/vbmc-rs/audit.jsonl`. The last fallback matters
+    /// for containers: with no configuration at all the previous behaviour resolved to
+    /// `./audit.jsonl` relative to the process working directory — `/` in the
+    /// `FROM scratch` container image — which is never writable under the randomized
+    /// non-root UIDs used by Kubernetes/OpenShift, silently disabling the audit trail.
+    pub fn audit_log_path(&self) -> PathBuf {
+        if !self.audit_log.as_os_str().is_empty() {
+            return self.audit_log.clone();
+        }
+        if !self.state_directory.as_os_str().is_empty() {
+            return self.state_directory.join("audit.jsonl");
+        }
+        PathBuf::from("/var/lib/vbmc-rs/audit.jsonl")
+    }
+
     pub fn simulate(port: u16) -> Self {
         Self::simulate_with_tls(port, None, None)
     }
@@ -431,6 +449,32 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_audit_log_path_priority() {
+        let mut config: AppConfig = toml::from_str("[server]\n").unwrap();
+
+        // No configuration at all: well-known default (never CWD, which is not
+        // writable in containers running under randomized non-root UIDs)
+        assert_eq!(
+            config.audit_log_path(),
+            PathBuf::from("/var/lib/vbmc-rs/audit.jsonl")
+        );
+
+        // state_directory set: audit log falls back inside it
+        config.state_directory = PathBuf::from("/var/lib/vbmc");
+        assert_eq!(
+            config.audit_log_path(),
+            PathBuf::from("/var/lib/vbmc/audit.jsonl")
+        );
+
+        // Explicit audit_log wins over state_directory
+        config.audit_log = PathBuf::from("/var/log/vbmc-rs/audit.jsonl");
+        assert_eq!(
+            config.audit_log_path(),
+            PathBuf::from("/var/log/vbmc-rs/audit.jsonl")
+        );
+    }
 
     #[test]
     fn test_parse_cloud_hypervisor_config() {

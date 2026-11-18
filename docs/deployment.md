@@ -511,6 +511,30 @@ audit_log = "/var/log/vbmc-rs/audit.jsonl"
 
 The audit log records all Redfish events in JSONL format (one JSON object per line). See [observability.md](observability.md) for the event format and log rotation recommendations.
 
+The path is resolved with the following priority:
+
+1. an explicit `audit_log` value;
+2. `audit.jsonl` inside `state_directory`, when configured;
+3. the default `/var/lib/vbmc-rs/audit.jsonl`.
+
+**Containers (Kubernetes/OpenShift):** containers run with a randomized non-root
+UID and a read-only root filesystem, so the audit log path must point into a
+writable mounted volume. Mount an `emptyDir`/PVC at `/var/lib/vbmc-rs` (or set
+`audit_log` to a path inside any writable volume), for example:
+
+```yaml
+volumeMounts:
+  - name: audit
+    mountPath: /var/lib/vbmc-rs
+volumes:
+  - name: audit
+    emptyDir: {}
+```
+
+If the audit log file cannot be opened, vbmc-rs logs an error and **falls back
+to writing events to stdout** rather than silently dropping them; `kubectl
+logs` retains the trail until the fallback is fixed.
+
 ## Logging
 
 vbmc-rs uses the `tracing` crate. Control verbosity with `RUST_LOG`:

@@ -315,11 +315,7 @@ pub async fn get_manager_log_entries(
             // "Audit" keeps the legacy behaviour: read from audit.jsonl.
             // RedfishEvent serialises its fields with PascalCase Redfish names
             // (e.g. "Message", "EventTimestamp") — use those exact keys here.
-            let audit_path = if state.config.audit_log.as_os_str().is_empty() {
-                state.config.state_directory.join("audit.jsonl")
-            } else {
-                state.config.audit_log.clone()
-            };
+            let audit_path = state.config.audit_log_path();
 
             let mut entries = Vec::new();
             if let Ok(content) = std::fs::read_to_string(&audit_path) {
@@ -384,11 +380,7 @@ pub async fn clear_manager_log(
         }
         "Audit" => {
             // Clear the audit.jsonl file.
-            let audit_path = if state.config.audit_log.as_os_str().is_empty() {
-                state.config.state_directory.join("audit.jsonl")
-            } else {
-                state.config.audit_log.clone()
-            };
+            let audit_path = state.config.audit_log_path();
             let _ = std::fs::write(&audit_path, "");
             Ok(Json(serde_json::json!({"message": "Audit log cleared"})))
         }

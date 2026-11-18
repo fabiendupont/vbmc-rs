@@ -12,10 +12,15 @@ pub async fn audit_log_writer(
     target: AuditLogTarget,
     path: PathBuf,
 ) {
-    let mut file = match target {
+    // Degrade to stdout instead of dropping events: an unwritable audit log path
+    // (e.g. the randomized non-root UIDs used by Kubernetes/OpenShift with a bad
+    // default path) must not silently disable the audit trail.
+    let mut file = None;
+    let mut write_stdout = matches!(target, AuditLogTarget::Stdout | AuditLogTarget::Both);
+
+    match target {
         AuditLogTarget::Stdout => {
             info!("Audit log writer started: stdout");
-            None
         }
         AuditLogTarget::File | AuditLogTarget::Both => {
             let label = match target {
@@ -28,7 +33,6 @@ pub async fn audit_log_writer(
                 && let Err(e) = tokio::fs::create_dir_all(parent).await
             {
                 error!("Failed to create audit log directory: {e}");
-                return;
             }
 
             match tokio::fs::OpenOptions::new()
@@ -37,14 +41,16 @@ pub async fn audit_log_writer(
                 .open(&path)
                 .await
             {
-                Ok(f) => Some(f),
+                Ok(f) => file = Some(f),
                 Err(e) => {
-                    error!("Failed to open audit log file: {e}");
-                    return;
+                    error!(
+                        "Failed to open audit log file: {e} — falling back to stdout so audit events are not lost"
+                    );
+                    write_stdout = true;
                 }
             }
         }
-    };
+    }
 
     loop {
         match rx.recv().await {
@@ -58,7 +64,7 @@ pub async fn audit_log_writer(
                 };
                 line.push('\n');
 
-                if matches!(target, AuditLogTarget::Stdout | AuditLogTarget::Both) {
+                if write_stdout {
                     print!("{line}");
                 }
 
