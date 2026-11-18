@@ -38,6 +38,9 @@ pub struct AppState {
     /// SPDM responder identities keyed by system ID, for signing
     /// ComponentIntegrity.SPDMGetSignedMeasurements responses.
     pub spdm_responders: DashMap<String, SpdmResponder>,
+    /// Measurement payloads of completed SPDM measurement tasks, keyed by system
+    /// ID, served at the SPDMGetSignedMeasurements `/data` endpoint.
+    pub spdm_measurement_results: DashMap<String, serde_json::Value>,
     system_locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
@@ -92,6 +95,7 @@ impl AppState {
         // and surfaced as a 503 on the SPDMGetSignedMeasurements action rather
         // than preventing startup.
         let spdm_responders: DashMap<String, SpdmResponder> = DashMap::new();
+        let spdm_measurement_results: DashMap<String, serde_json::Value> = DashMap::new();
         for (system_id, system_config) in &config.systems {
             if let Some(spdm_config) = &system_config.spdm {
                 match SpdmResponder::load(spdm_config) {
@@ -123,6 +127,7 @@ impl AppState {
             event_log,
             system_locks: DashMap::new(),
             spdm_responders,
+            spdm_measurement_results,
         }
     }
 

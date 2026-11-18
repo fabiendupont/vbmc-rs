@@ -272,6 +272,16 @@ pub struct SpdmConfig {
     /// Defaults to deterministic pseudo-measurements when absent.
     #[serde(default)]
     pub measurements: Vec<String>,
+    /// Simulated MCTP/SPDM collection latency in milliseconds. Real BMCs must
+    /// traverse the sideband bus to the device's root of trust, which is why
+    /// they return a Task from SPDMGetSignedMeasurements; this models that
+    /// latency so clients exercise their task-polling paths.
+    #[serde(default = "default_spdm_collection_delay_ms")]
+    pub collection_delay_ms: u64,
+}
+
+fn default_spdm_collection_delay_ms() -> u64 {
+    200
 }
 
 #[derive(Debug, Clone, Deserialize)]

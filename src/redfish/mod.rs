@@ -3,6 +3,7 @@ pub mod assembly;
 pub mod bios;
 pub mod boot_options;
 pub mod certificate_service;
+pub mod chassis_certificates;
 pub mod chassis_power;
 pub mod chassis_power_subsystem;
 pub mod chassis_thermal;
@@ -562,6 +563,18 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/redfish/v1/ComponentIntegrity/{system_id}/Actions/ComponentIntegrity.SPDMGetSignedMeasurements",
             post(component_integrity::spdm_get_signed_measurements),
+        )
+        .route(
+            "/redfish/v1/ComponentIntegrity/{system_id}/Actions/ComponentIntegrity.SPDMGetSignedMeasurements/data",
+            get(component_integrity::spdm_get_signed_measurements_data),
+        )
+        .route(
+            "/redfish/v1/Chassis/{chassis_id}/Certificates",
+            get(chassis_certificates::get_certificates_collection),
+        )
+        .route(
+            "/redfish/v1/Chassis/{chassis_id}/Certificates/{cert_id}",
+            get(chassis_certificates::get_certificate),
         )
         // Registries
         .route(

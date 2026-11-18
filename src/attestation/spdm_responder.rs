@@ -16,6 +16,7 @@
 //! Signature(var)
 //! ```
 
+use base64::Engine;
 use p384::ecdsa::{Signature, SigningKey, signature::Signer};
 use p384::elliptic_curve::pkcs8::DecodePrivateKey;
 
@@ -30,11 +31,17 @@ pub const HASHING_ALGORITHM: &str = "SHA384";
 pub const SPDM_VERSION_STRING: &str = "1.2";
 
 /// A loaded SPDM responder identity: signing key plus the certificate chain
-/// blob served to attestation clients.
+/// blob served to attestation clients. `collection_delay_ms` models the time a
+/// real BMC takes to traverse MCTP to the device's root of trust and run the
+/// SPDM exchange — the reason SPDM-capable BMCs return a Task from
+/// SPDMGetSignedMeasurements rather than responding synchronously.
+#[derive(Clone)]
 pub struct SpdmResponder {
     signing_key: SigningKey,
     cert_chain: Vec<u8>,
     measurements: Vec<Vec<u8>>,
+    /// Simulated MCTP/SPDM collection latency in milliseconds (see struct docs)
+    pub collection_delay_ms: u64,
 }
 
 impl SpdmResponder {
@@ -62,12 +69,48 @@ impl SpdmResponder {
             signing_key,
             cert_chain,
             measurements,
+            collection_delay_ms: config.collection_delay_ms,
         })
     }
 
     /// The DMTF DSP0274 certificate chain blob (leaf first).
     pub fn cert_chain(&self) -> &[u8] {
         &self.cert_chain
+    }
+
+    /// The DMTF DSP0274 certificate chain blob, re-armored as concatenated PEM certificates
+    /// (leaf first). This is the form served by Redfish Certificate resources, matching what
+    /// SPDM-capable BMCs publish at `/redfish/v1/Chassis/{id}/Certificates/{slot}`.
+    pub fn cert_chain_pem(&self) -> String {
+        let mut pem = String::new();
+        let blob = &self.cert_chain;
+
+        if blob.len() < 2 {
+            return pem;
+        }
+
+        let total = u16::from_le_bytes([blob[0], blob[1]]) as usize;
+        let mut offset = 2;
+
+        while offset + 2 <= total.min(blob.len()) {
+            let len = u16::from_le_bytes([blob[offset], blob[offset + 1]]) as usize;
+            offset += 2;
+            if len == 0 || offset + len > blob.len() {
+                break;
+            }
+            let der = &blob[offset..offset + len];
+            offset += len;
+
+            pem.push_str("-----BEGIN CERTIFICATE-----\n");
+            let b64 = base64::engine::general_purpose::STANDARD.encode(der);
+            for chunk in b64.as_bytes().chunks(64) {
+                pem.push_str(std::str::from_utf8(chunk).unwrap_or(""));
+                pem.push('\n');
+            }
+            pem.push_str("-----END CERTIFICATE-----\n");
+        }
+
+        pem
     }
 
     /// The leaf certificate public key in PEM form.
@@ -163,8 +206,9 @@ mod tests {
         let signing_key = SigningKey::random(&mut OsRng);
         SpdmResponder {
             signing_key,
-            cert_chain: b"\x00\x04\x00\x02\xca\xfe".to_vec(),
+            cert_chain: b"\x04\x00\x02\x00\xca\xfe".to_vec(),
             measurements: vec![vec![0xaa; 48], vec![0xbb; 48]],
+            collection_delay_ms: 0,
         }
     }
 

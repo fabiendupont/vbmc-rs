@@ -101,14 +101,37 @@ measurements = [                            # optional hex values; deterministic
 ```
 
 Each action request supplies a 32-byte hex `Nonce`, a `SlotId` and
-`MeasurementIndices`. The handler builds a DSP0274 MEASUREMENTS response over
-the caller's nonce and the configured measurement blocks, signs it with the
-device key (ECDSA P-384, raw `r||s`), and returns the schema-conformant
-response (`Version`, `HashingAlgorithm`, `SigningAlgorithm`,
-`SignedMeasurements`) plus a `CertificateChain` property carrying the chain
-blob and a `PublicKey` PEM, so the client can validate the signature without a
-separate certificate lookup. Because the caller's nonce is inside the signed
-data, a response cannot be replayed against a later attestation challenge.
+`MeasurementIndices`. Gathering the measurements means traversing MCTP to the
+device's root of trust, which is genuinely slow on real hardware — so, matching
+SPDM-capable BMCs such as the NVIDIA GB300 NVL72 trays, the action is
+**asynchronous**: it returns HTTP 202 with a Task resource. Clients poll the
+task until `TaskState` is `Completed`, then retrieve the payload from
+`GET {action target}/data`. The simulated collection latency is configurable
+per system:
+
+```toml
+[systems.vm1.spdm]
+collection_delay_ms = 200   # default; set 0 for instant completion
+```
+
+The payload contains the schema-conformant members (`Version`,
+`HashingAlgorithm`, `SigningAlgorithm`, `SignedMeasurements`, a `Certificate`
+link and a `PublicKey` PEM) plus a non-standard `CertificateChain` property
+carrying the Base64 DMTF chain blob inline for clients that want everything in
+one round-trip.
+
+The device's SPDM certificate chain is also published as a Redfish Certificate
+resource, the way real BMCs do it:
+
+- `GET /redfish/v1/Chassis/{chassis_id}/Certificates` — collection
+- `GET /redfish/v1/Chassis/{chassis_id}/Certificates/{system_id}` — the chain
+  as concatenated PEM (`CertificateString`, `CertificateType: PEMchain`),
+  linked from the ComponentIntegrity resource
+  (`SPDM.IdentityAuthentication.ResponderAuthentication.ComponentCertificate`)
+  and from the action response's `Certificate` member
+
+Because the caller's nonce is inside the signed data, a response cannot be
+replayed against a later attestation challenge.
 
 Note: measurement values are taken from configuration (or derived
 deterministically) — they represent the "firmware" the virtual device claims to
