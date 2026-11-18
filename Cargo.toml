@@ -9,6 +9,17 @@ homepage = "https://github.com/fabiendupont/vbmc-rs"
 readme = "README.md"
 keywords = ["redfish", "bmc", "ipmi", "virtualization", "server-management"]
 categories = ["virtualization", "simulation", "web-programming::http-server"]
+exclude = [
+    ".github",
+    ".claude",
+    "charts",
+    "docs",
+    "scripts",
+    "tests",
+    "Containerfile*",
+    "codecov.yml",
+    "event-log.jsonl",
+]
 
 [lib]
 name = "vbmc_rs"
