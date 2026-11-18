@@ -278,10 +278,20 @@ pub struct SpdmConfig {
     /// latency so clients exercise their task-polling paths.
     #[serde(default = "default_spdm_collection_delay_ms")]
     pub collection_delay_ms: u64,
+    /// Sign the full L2 measurement transcript (VCA || GET_MEASUREMENTS request ||
+    /// MEASUREMENTS response), as real SPDM responders do, instead of just the
+    /// response message. Verifiers must include the whole transcript in the
+    /// signature check and locate the response within it.
+    #[serde(default = "default_true")]
+    pub sign_transcript: bool,
 }
 
 fn default_spdm_collection_delay_ms() -> u64 {
     200
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -30,6 +30,36 @@ pub const SIGNING_ALGORITHM: &str = "TPM_ALG_ECDSA_ECC_NIST_P384";
 pub const HASHING_ALGORITHM: &str = "SHA384";
 pub const SPDM_VERSION_STRING: &str = "1.2";
 
+/// A minimal static VCA (version/capabilities/algorithms negotiation transcript): the
+/// GET_VERSION/VERSION, GET_CAPABILITIES/CAPABILITIES and NEGOTIATE_ALGORITHMS/ALGORITHMS
+/// exchanges that precede a GET_MEASUREMENTS. The content is opaque to the verifier — it is
+/// only included in the signed transcript — so a compact plausible exchange suffices.
+fn minimal_vca() -> Vec<u8> {
+    let mut vca = Vec::new();
+    // GET_VERSION / VERSION: SPDM 1.2 negotiated
+    vca.extend_from_slice(&[SPDM_VERSION, 0x81, 0x00, 0x00]); // request
+    vca.extend_from_slice(&[SPDM_VERSION, 0x01, 0x00, 0x00, 0x01, SPDM_VERSION]); // response: one version
+    // GET_CAPABILITIES / CAPABILITIES: MEAS_CAP (signed measurements) + CERT_CAP
+    vca.extend_from_slice(&[SPDM_VERSION, 0xE2, 0x00, 0x00]); // request
+    vca.extend_from_slice(&[SPDM_VERSION, 0xE1, 0x00, 0x00]); // response header
+    vca.extend_from_slice(&0x0000_0012u32.to_le_bytes()); // flags: MEAS_CAP_SIG + CERT_CAP
+    vca.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // ctExponent + reserved
+    // NEGOTIATE_ALGORITHMS / ALGORITHMS: ECDSA-P384 signing, SHA-384 hashing
+    vca.extend_from_slice(&[SPDM_VERSION, 0xE3, 0x00, 0x00]); // request
+    vca.extend_from_slice(&[SPDM_VERSION, 0xE1, 0x00, 0x00, 0x00, 0x00]); // response
+    vca
+}
+
+/// The GET_MEASUREMENTS request carrying the challenge nonce: Param1 bit 0 requests a
+/// signature, Param2 is the slot ID; the body is the nonce followed by the slot.
+fn get_measurements_request(nonce: &[u8]) -> Vec<u8> {
+    let mut request = Vec::with_capacity(4 + nonce.len() + 1);
+    request.extend_from_slice(&[SPDM_VERSION, 0xE0, 0x01, 0x00]);
+    request.extend_from_slice(nonce);
+    request.push(0x00); // SlotId
+    request
+}
+
 /// A loaded SPDM responder identity: signing key plus the certificate chain
 /// blob served to attestation clients. `collection_delay_ms` models the time a
 /// real BMC takes to traverse MCTP to the device's root of trust and run the
@@ -42,6 +72,8 @@ pub struct SpdmResponder {
     measurements: Vec<Vec<u8>>,
     /// Simulated MCTP/SPDM collection latency in milliseconds (see struct docs)
     pub collection_delay_ms: u64,
+    /// Sign the full L2 measurement transcript rather than just the response (see struct docs)
+    pub sign_transcript: bool,
 }
 
 impl SpdmResponder {
@@ -70,6 +102,7 @@ impl SpdmResponder {
             cert_chain,
             measurements,
             collection_delay_ms: config.collection_delay_ms,
+            sign_transcript: config.sign_transcript,
         })
     }
 
@@ -167,19 +200,32 @@ impl SpdmResponder {
             record.extend_from_slice(value);
         }
 
-        // Message (the signed portion)
-        let mut message = Vec::with_capacity(9 + record.len() + NONCE_SIZE + 2 + SIGNATURE_SIZE);
-        message.extend_from_slice(&[SPDM_VERSION, SPDM_MEASUREMENTS_CODE, 0x00, 0x00]);
-        message.push(selected.len() as u8);
-        message.extend_from_slice(&(record.len() as u32).to_le_bytes());
-        message.extend_from_slice(&record);
-        message.extend_from_slice(&nonce);
-        message.extend_from_slice(&0u16.to_le_bytes()); // opaque data length
+        // MEASUREMENTS response message
+        let mut response = Vec::with_capacity(9 + record.len() + NONCE_SIZE + 2);
+        response.extend_from_slice(&[SPDM_VERSION, SPDM_MEASUREMENTS_CODE, 0x00, 0x00]);
+        response.push(selected.len() as u8);
+        response.extend_from_slice(&(record.len() as u32).to_le_bytes());
+        response.extend_from_slice(&record);
+        response.extend_from_slice(&nonce);
+        response.extend_from_slice(&0u16.to_le_bytes()); // opaque data length
+
+        // The signed portion: real SPDM responders sign the full L2 measurement transcript —
+        // VCA (version/capabilities/algorithms negotiation) followed by the GET_MEASUREMENTS
+        // request and the MEASUREMENTS response. The response is always the last message,
+        // immediately preceding the signature.
+        let signed_portion = if self.sign_transcript {
+            let mut transcript = minimal_vca();
+            transcript.extend_from_slice(&get_measurements_request(&nonce));
+            transcript.extend_from_slice(&response);
+            transcript
+        } else {
+            response
+        };
 
         // Signature: ECDSA P-384 (the Signer impl hashes the message with
         // SHA-384), raw r||s encoding (SPDM style, not DER)
-        let signature: Signature = self.signing_key.sign(&message);
-        let mut signed = message;
+        let signature: Signature = self.signing_key.sign(&signed_portion);
+        let mut signed = signed_portion;
         signed.extend_from_slice(&signature.to_bytes());
 
         Ok(signed)
@@ -209,6 +255,7 @@ mod tests {
             cert_chain: b"\x04\x00\x02\x00\xca\xfe".to_vec(),
             measurements: vec![vec![0xaa; 48], vec![0xbb; 48]],
             collection_delay_ms: 0,
+            sign_transcript: false,
         }
     }
 
@@ -251,6 +298,99 @@ mod tests {
                 .signed_measurements(&"zz".repeat(32), &[])
                 .is_err()
         );
+    }
+
+    #[test]
+    fn test_signed_measurements_transcript_layout() {
+        let mut responder = test_responder();
+        responder.sign_transcript = true;
+
+        let nonce_hex = "55".repeat(32);
+        let signed = responder.signed_measurements(&nonce_hex, &[]).unwrap();
+
+        // The transcript starts with the VCA (GET_VERSION request), not the MEASUREMENTS response
+        assert_eq!(signed[0], SPDM_VERSION);
+        assert_eq!(signed[1], 0x81);
+
+        // Locate the MEASUREMENTS response: the only 0x60-coded message, ending at the signature
+        let sig_start = signed.len() - SIGNATURE_SIZE;
+        let mut response_offset = None;
+        for i in 0..sig_start.saturating_sub(8) {
+            if signed[i + 1] == SPDM_MEASUREMENTS_CODE {
+                let record_len = u32::from_le_bytes([
+                    signed[i + 5],
+                    signed[i + 6],
+                    signed[i + 7],
+                    signed[i + 8],
+                ]) as usize;
+                let nonce_end = i + 9 + record_len + NONCE_SIZE;
+                if nonce_end + 2 <= sig_start {
+                    let opaque =
+                        u16::from_le_bytes([signed[nonce_end], signed[nonce_end + 1]]) as usize;
+                    if nonce_end + 2 + opaque == sig_start {
+                        response_offset = Some(i);
+                        break;
+                    }
+                }
+            }
+        }
+        let offset = response_offset.expect("MEASUREMENTS response not found in transcript");
+        assert!(offset > 0, "response must not be at transcript offset 0");
+        assert_eq!(signed[offset + 4], 2); // two blocks
+        // The nonce is embedded in the response within the transcript
+        let record_len = u32::from_le_bytes([
+            signed[offset + 5],
+            signed[offset + 6],
+            signed[offset + 7],
+            signed[offset + 8],
+        ]) as usize;
+        assert_eq!(
+            &signed[offset + 9 + record_len..offset + 9 + record_len + NONCE_SIZE],
+            &[0x55u8; 32]
+        );
+    }
+
+    #[test]
+    fn test_signed_measurements_transcript_signature_covers_vca() {
+        use p384::ecdsa::signature::Verifier;
+
+        let mut responder = test_responder();
+        responder.sign_transcript = true;
+
+        let nonce_hex = "66".repeat(32);
+        let signed = responder.signed_measurements(&nonce_hex, &[]).unwrap();
+
+        let sig_start = signed.len() - SIGNATURE_SIZE;
+        let transcript = &signed[..sig_start];
+        let signature = Signature::from_slice(&signed[sig_start..]).unwrap();
+
+        // The signature verifies over the WHOLE transcript (VCA included), not just the response
+        responder
+            .signing_key
+            .verifying_key()
+            .verify(transcript, &signature)
+            .expect("signature must cover the full transcript");
+
+        // ...and does NOT verify over just the trailing response: locate the response and prove
+        // that signing only that part would fail (guards against regressing to response-only signing)
+        let mut response_offset = 0;
+        for i in 0..sig_start.saturating_sub(8) {
+            if signed[i + 1] == SPDM_MEASUREMENTS_CODE {
+                response_offset = i;
+                break;
+            }
+        }
+        if response_offset > 0 {
+            let response_only = &signed[response_offset..sig_start];
+            assert!(
+                responder
+                    .signing_key
+                    .verifying_key()
+                    .verify(response_only, &signature)
+                    .is_err(),
+                "signature must not verify over the response alone"
+            );
+        }
     }
 
     #[test]

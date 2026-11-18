@@ -842,6 +842,7 @@ mod tests {
                     cert_chain: chain_path,
                     measurements: vec!["aa".repeat(48), "bb".repeat(48)],
                     collection_delay_ms: 0,
+                    sign_transcript: false,
                 }),
                 ..crate::redfish::test_harness::system_config("vm1")
             },
