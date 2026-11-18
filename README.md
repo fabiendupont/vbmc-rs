@@ -58,19 +58,19 @@ vbmc-rs -c examples/config-mockup.toml
 
 ## Why vbmc-rs?
 
-| | **vbmc-rs** | **VirtualBMC** | **sushy-tools** |
-|---|---|---|---|
-| Protocol | Redfish | IPMI only | Redfish |
-| Language | Rust | Python | Python |
-| Backends | Cloud-Hypervisor, QEMU, libvirt, KubeVirt | libvirt | libvirt, OpenStack |
-| Conformance | DMTF-validated, OData-compliant | N/A (IPMI) | Partial |
-| Mockup mode | Yes — stateful, serves DMTF mockup dirs | No | No |
-| Auth | Session-based, RBAC, account lockout | No | Basic |
-| TLS | TLS + mTLS (rustls) | No | Optional |
-| Events | SSE, webhooks, audit log | No | No |
-| Attestation | Keylime, Trustee, swtpm | No | No |
-| Kubernetes | Sidecar + aggregator + webhook + Helm | No | No |
-| Packaging | Static binary, OCI images | pip | pip |
+| | **vbmc-rs** | **VirtualBMC** | **sushy-tools** | **kubevirt/redfish-controller** |
+|---|---|---|---|---|
+| Protocol | Redfish | IPMI only | Redfish | Redfish |
+| Language | Rust | Python | Python | Go |
+| Backends | Cloud-Hypervisor, QEMU, libvirt, KubeVirt | libvirt | libvirt, OpenStack | KubeVirt only |
+| Conformance | DMTF-validated, OData-compliant | N/A (IPMI) | Partial | Partial (no `$metadata`) |
+| Mockup mode | Yes — stateful, serves DMTF mockup dirs | No | No | No |
+| Auth | Session-based, RBAC, account lockout | No | Basic | Basic (bcrypt) |
+| TLS | TLS + mTLS (rustls) | No | Optional | Delegated to OpenShift route |
+| Events | SSE, webhooks, audit log | No | No | No |
+| Attestation | Keylime, Trustee, swtpm | No | No | No |
+| Kubernetes | Sidecar + aggregator + webhook + Helm | No | No | Helm + operator |
+| Packaging | Static binary, OCI images | pip | pip | OCI images |
 
 ## Backends
 
@@ -370,7 +370,7 @@ See [Mockup Mode](docs/mockup.md) for the directory format and state mutation su
 | [Attestation](docs/attestation.md) | Keylime, Trustee, and swtpm integration |
 | [Mockup mode](docs/mockup.md) | Serving DMTF mockup directories as live Redfish services |
 | [IPMI extern BMC](docs/ipmi-extern.md) | In-guest BMC via QEMU's ipmi-bmc-extern device |
-| [Why vbmc-rs](docs/why-vbmc-rs.md) | Comparison with VirtualBMC, sushy-tools, and redfishMockupServer |
+| [Why vbmc-rs](docs/why-vbmc-rs.md) | Comparison with VirtualBMC, sushy-tools, redfishMockupServer, and kubevirt/redfish-controller |
 
 ## Testing
 
