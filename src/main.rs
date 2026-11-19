@@ -350,6 +350,9 @@ async fn main() -> anyhow::Result<()> {
         mockup_store,
     ));
 
+    // Start SPDM over TCP responders (DSP0287) for systems configured with one
+    attestation::spdm_tcp::spawn_listeners(&app_state);
+
     // Start audit log writer
     let audit_rx = app_state.event_bus.subscribe();
     let audit_path = config.audit_log_path();

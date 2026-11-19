@@ -11,7 +11,7 @@ use super::error::RedfishApiError;
 use super::types::{Collection, ODataId, Status};
 use crate::app_state::AppState;
 use crate::attestation::spdm_responder::{
-    HASHING_ALGORITHM, SIGNING_ALGORITHM, SPDM_VERSION_STRING, SpdmGetSignedMeasurementsRequest,
+    HASHING_ALGORITHM, SIGNING_ALGORITHM, SpdmGetSignedMeasurementsRequest,
 };
 use crate::attestation::trust_chain::AttestationEvidence;
 use crate::auth::AuthenticatedUser;
@@ -371,7 +371,7 @@ fn spdm_measurement_response(
 ) -> serde_json::Value {
     serde_json::json!({
         "@odata.type": "#ComponentIntegrity.v1_2_0.SPDMGetSignedMeasurementsResponse",
-        "Version": SPDM_VERSION_STRING,
+        "Version": responder.version_string(),
         "HashingAlgorithm": HASHING_ALGORITHM,
         "SigningAlgorithm": SIGNING_ALGORITHM,
         "SignedMeasurements": BASE64.encode(&signed),
@@ -843,6 +843,8 @@ mod tests {
                     measurements: vec!["aa".repeat(48), "bb".repeat(48)],
                     collection_delay_ms: 0,
                     sign_transcript: false,
+                    spdm_versions: vec![crate::attestation::spdm_responder::SpdmVersion::V11],
+                    spdm_tcp_listen: None,
                 }),
                 ..crate::redfish::test_harness::system_config("vm1")
             },
@@ -899,7 +901,7 @@ mod tests {
         .await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(json["Version"], "1.2");
+        assert_eq!(json["Version"], "1.1");
         assert_eq!(json["HashingAlgorithm"], "SHA384");
         assert_eq!(json["SigningAlgorithm"], "TPM_ALG_ECDSA_ECC_NIST_P384");
 
@@ -912,13 +914,16 @@ mod tests {
         let signed = BASE64
             .decode(json["SignedMeasurements"].as_str().unwrap())
             .unwrap();
-        // message layout: header(9) + record + nonce(32) + opaque len(2) + signature(96)
-        assert_eq!(signed[0], 0x12);
+        // cec173x message layout: header(8) + uint24 record length + record + nonce(32)
+        // + opaque len(2) + signature(96)
+        assert_eq!(signed[0], 0x11);
         assert_eq!(signed[1], 0x60);
         assert_eq!(signed[4], 2); // two measurement blocks
-        let record_len = u32::from_le_bytes([signed[5], signed[6], signed[7], signed[8]]) as usize;
-        let nonce_offset = 9 + record_len;
-        assert_eq!(
+        let record_len =
+            (signed[5] as usize) | ((signed[6] as usize) << 8) | ((signed[7] as usize) << 16);
+        let nonce_offset = 8 + record_len;
+        // The responder generates its OWN nonce; it must differ from the request nonce
+        assert_ne!(
             hex::encode(&signed[nonce_offset..nonce_offset + 32]),
             nonce_hex.to_lowercase()
         );

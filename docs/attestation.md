@@ -120,6 +120,52 @@ link and a `PublicKey` PEM) plus a non-standard `CertificateChain` property
 carrying the Base64 DMTF chain blob inline for clients that want everything in
 one round-trip.
 
+### Advertised versions
+
+A real SPDM responder does not have "a version": it answers GET_VERSION
+with the list of versions it supports and runs subsequent messages at the
+version the requester selects. The versions advertised are configured per
+system (default: every version the responder implements):
+
+```toml
+[systems.vm1.spdm]
+spdm_versions = ["1.1", "1.2", "1.3", "1.4"]  # default: all implemented versions
+spdm_versions = ["1.1"]                       # single-version pin (e.g. the GB300
+                                               # harness reproduces the CEC173x eRoT)
+```
+
+The MEASUREMENTS layout itself (3-byte uint24 MeasurementRecordLength,
+OpaqueDataLength field) is identical in every SPDM version, as in libspdm
+(DMTF's reference DSP0274 implementation); from SPDM 1.3 onwards requests
+and responses additionally carry an 8-byte requester-context echo. Where
+there is no live negotiation — the Redfish action path — responses are
+emitted at the highest configured version.
+
+### SPDM over TCP endpoint (DSP0287)
+
+Systems can additionally expose the responder over a raw TCP socket, so that
+DMTF's SPDM tooling — libspdm, `spdm_requester_emu` and the SPDM Responder
+Validator (`spdm_device_validator_sample`) — can exercise it directly, the
+closest stand-in for the device eRoT's MCTP endpoint:
+
+```toml
+[systems.vm1.spdm]
+spdm_tcp_listen = "0.0.0.0:4194"   # disabled by default
+```
+
+The endpoint speaks the spdm-emu "platform" socket protocol (command,
+transport type and length words framing each direction) carrying DSP0287
+SPDM-over-TCP payloads, and serves the full OOB flow on one connection:
+GET_VERSION (advertising `spdm_versions`), GET_CAPABILITIES,
+NEGOTIATE_ALGORITHMS, GET_DIGESTS, GET_CERTIFICATE, CHALLENGE and
+GET_MEASUREMENTS. Signed responses (CHALLENGE_AUTH, MEASUREMENTS) carry
+ECDSA P-384 signatures over the SHA-384 transcript hashes (M1, L1/L2)
+computed from the actual messages exchanged on the connection — including
+the SPDM 1.2+ signing-context domain separation — so signature verification
+passes against DMTF's reference requester. Session-based messages
+(KEY_EXCHANGE and friends) are out of scope and answered with
+`UnsupportedRequest`.
+
 The device's SPDM certificate chain is also published as a Redfish Certificate
 resource, the way real BMCs do it:
 

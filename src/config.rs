@@ -2,6 +2,8 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::attestation::spdm_responder::SpdmVersion;
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuditLogTarget {
@@ -284,10 +286,29 @@ pub struct SpdmConfig {
     /// signature check and locate the response within it.
     #[serde(default = "default_true")]
     pub sign_transcript: bool,
+    /// The SPDM versions this responder advertises in GET_VERSION, given as
+    /// `"major.minor"` strings (e.g. `["1.1", "1.2"]`). Defaults to every
+    /// version the responder implements; the Keylime e2e harness pins
+    /// `spdm_versions = ["1.1"]` to reproduce the Lenovo GB300 NVL72 rack
+    /// (Microchip CEC173x eRoT) byte-for-byte.
+    #[serde(default = "default_spdm_versions")]
+    pub spdm_versions: Vec<SpdmVersion>,
+    /// Listen address for the SPDM over TCP transport binding (DSP0287), e.g.
+    /// `"0.0.0.0:4194"`. Serves the same responder identity as the Redfish
+    /// SPDMGetSignedMeasurements action, but over the raw socket protocol
+    /// DMTF's SPDM tooling (spdm-emu, the SPDM Responder Validator) speaks —
+    /// the closest stand-in for the device eRoT's MCTP endpoint. Disabled by
+    /// default.
+    #[serde(default)]
+    pub spdm_tcp_listen: Option<String>,
 }
 
 fn default_spdm_collection_delay_ms() -> u64 {
     200
+}
+
+fn default_spdm_versions() -> Vec<SpdmVersion> {
+    SpdmVersion::all()
 }
 
 fn default_true() -> bool {
