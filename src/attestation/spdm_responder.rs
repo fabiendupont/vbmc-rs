@@ -213,6 +213,22 @@ impl SpdmResponder {
                 .map_err(|e| format!("invalid hex in spdm.measurements[{i}]: {e}"))?;
             measurements.push(bytes);
         }
+        if measurements.is_empty() {
+            // Documented default: deterministic pseudo-measurements. Derive
+            // SHA-384 digests from the device's own public key so every
+            // identity gets stable, distinct values (reproducible across
+            // restarts, and different per system).
+            use sha2::Digest;
+            let verifying_key = signing_key.verifying_key();
+            let public_point = verifying_key.to_encoded_point(false);
+            let public_bytes = public_point.as_bytes();
+            for i in 0u8..2 {
+                let mut hasher = sha2::Sha384::new();
+                hasher.update(public_bytes);
+                hasher.update([i]);
+                measurements.push(hasher.finalize().to_vec());
+            }
+        }
 
         let mut versions = config.spdm_versions.clone();
         if versions.is_empty() {
@@ -806,6 +822,57 @@ mod tests {
                 assert!(record.ends_with(&record_one));
             }
         }
+    }
+
+    #[test]
+    fn test_load_synthesizes_pseudo_measurements() {
+        // With no spdm.measurements configured, load() must synthesize
+        // deterministic pseudo-measurements (documented default) so that
+        // SPDMGetSignedMeasurements works out of the box.
+        use p384::elliptic_curve::rand_core::OsRng;
+
+        let dir = std::env::temp_dir().join(format!("vbmc-spdm-load-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let key = SigningKey::random(&mut OsRng);
+        let key_pem = p384::SecretKey::from(&key)
+            .to_sec1_pem(Default::default())
+            .unwrap();
+        std::fs::write(dir.join("key.pem"), key_pem.as_str()).unwrap();
+        std::fs::write(dir.join("chain.blob"), b"\x04\x00\x02\x00\xca\xfe").unwrap();
+
+        let config = crate::config::SpdmConfig {
+            private_key: dir.join("key.pem"),
+            cert_chain: dir.join("chain.blob"),
+            measurements: vec![],
+            collection_delay_ms: 0,
+            sign_transcript: true,
+            spdm_versions: vec![SpdmVersion::V11],
+            spdm_tcp_listen: None,
+        };
+
+        let responder =
+            SpdmResponder::load(&config).expect("load must succeed without measurements");
+        let nonce_hex = "11".repeat(32);
+
+        let signed = responder
+            .signed_measurements(&nonce_hex, &[255])
+            .expect("all-indices request must succeed with synthesized measurements");
+        let response = response_of(&signed, true, 0x11);
+        let (blocks, _record, _nonce) = parse_response(response, 0x11);
+        assert_eq!(blocks, 2, "two pseudo-measurement blocks are synthesized");
+
+        // Deterministic: the same identity yields the same measurements again
+        let responder2 = SpdmResponder::load(&config).unwrap();
+        let signed2 = responder2.signed_measurements(&nonce_hex, &[255]).unwrap();
+        let (blocks2, record2, _) = parse_response(response_of(&signed2, true, 0x11), 0x11);
+        assert_eq!(blocks2, 2);
+        let (_, record, _) = parse_response(response, 0x11);
+        assert_eq!(
+            record, record2,
+            "pseudo-measurements must be stable across loads"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
