@@ -81,6 +81,39 @@ TEMP_CONFIG=$(mktemp --suffix=.toml)
 sed "s|^state_directory.*||" "$CONFIG" > "$TEMP_CONFIG"
 echo "state_directory = \"$STATE_DIR\"" >> "$TEMP_CONFIG"
 
+# ── Step 3b: Generate SPDM identities ──────────────────────────────────
+# The DMTF validator follows the ComponentCertificate links published by the
+# ComponentIntegrity resources, so the test systems need SPDM responders.
+# Generate a throwaway EC P-384 identity per system (key + self-signed cert
+# in the DMTF DSP0274 chain-blob format) in the temp state dir.
+gen_spdm_identity() {
+    local dir="$1" cn="$2"
+    mkdir -p "$dir"
+    openssl ecparam -name secp384r1 -genkey -noout -out "$dir/key.pem" 2>/dev/null
+    openssl req -new -x509 -key "$dir/key.pem" -sha384 -days 2 \
+        -subj "/CN=$cn" -out "$dir/cert.pem" 2>/dev/null
+    openssl x509 -in "$dir/cert.pem" -outform DER -out "$dir/cert.der" 2>/dev/null
+    # DSP0274 CERTIFICATE chain blob: uint16 total length, then uint16
+    # length-prefixed DER certificates (leaf first)
+    python3 - "$dir/cert.der" "$dir/chain.blob" <<'PYEOF'
+import struct, sys
+der = open(sys.argv[1], "rb").read()
+body = struct.pack("<H", len(der)) + der
+open(sys.argv[2], "wb").write(struct.pack("<H", len(body)) + body)
+PYEOF
+}
+
+for sys_id in vm1 vm2; do
+    gen_spdm_identity "$STATE_DIR/spdm-$sys_id" "$sys_id.test.vbmc"
+    cat >> "$TEMP_CONFIG" <<EOF
+
+[systems.$sys_id.spdm]
+private_key = "$STATE_DIR/spdm-$sys_id/key.pem"
+cert_chain = "$STATE_DIR/spdm-$sys_id/chain.blob"
+spdm_versions = ["1.1"]
+EOF
+done
+
 # ── Step 4: Start vbmc-rs ─────────────────────────────────────────────
 
 echo "==> Starting vbmc-rs on $HOST..."
